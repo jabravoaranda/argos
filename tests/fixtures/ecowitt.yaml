@@ -1,0 +1,4 @@
+ecowitt:
+  gw2000_ip: 192.168.1.137
+  timeout_seconds: 2.5
+  data_dir: data/weather

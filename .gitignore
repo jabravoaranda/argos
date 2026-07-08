@@ -51,6 +51,10 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Runtime data
+data/
+logs/
+
 # Translations
 *.mo
 *.pot
@@ -129,6 +133,7 @@ __pypackages__/
 
 # Celery stuff
 celerybeat-schedule
+celerybeat-schedule*
 celerybeat.pid
 
 # Redis
