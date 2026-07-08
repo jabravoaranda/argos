@@ -13,6 +13,7 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 def test_load_config_reads_gw2000_ip_from_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ECOWITT_GW2000_IP", raising=False)
     monkeypatch.delenv("ECOWITT_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("ECOWITT_INTERVAL_SECONDS", raising=False)
     monkeypatch.delenv("ARGOS_WEATHER_DATA_DIR", raising=False)
 
     config = load_config(FIXTURES_DIR / "ecowitt.yaml")

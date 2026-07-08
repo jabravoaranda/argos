@@ -1,7 +1,11 @@
 from pathlib import Path
 
+import pytest
+from kombu.exceptions import OperationalError
+
 from argos.dashboard.aggregations import annual_monthly, daily_summary, linear_trend
 from argos.dashboard.data_loader import available_variables, filter_by_date_range, load_weather_data
+from argos.dashboard import tasks
 
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "weather_csv"
@@ -34,3 +38,28 @@ def test_annual_monthly_and_linear_trend() -> None:
     assert not monthly.empty
     assert "temperatura_exterior" in monthly.columns
     assert "temperatura_exterior_tendencia" in trend.columns
+
+
+def test_enqueue_ecowitt_update_returns_task_id(monkeypatch) -> None:
+    class FakeResult:
+        id = "task-123"
+
+    monkeypatch.setattr(
+        tasks.celery_app,
+        "send_task",
+        lambda task_name: FakeResult() if task_name == "argos.worker.tasks.weather.collect_ecowitt" else None,
+    )
+
+    result = tasks.enqueue_ecowitt_update()
+
+    assert result.task_id == "task-123"
+
+
+def test_enqueue_ecowitt_update_wraps_broker_errors(monkeypatch) -> None:
+    def fail_send_task(task_name):
+        raise OperationalError("redis unavailable")
+
+    monkeypatch.setattr(tasks.celery_app, "send_task", fail_send_task)
+
+    with pytest.raises(tasks.DashboardTaskError, match="Redis/Celery"):
+        tasks.enqueue_ecowitt_update()

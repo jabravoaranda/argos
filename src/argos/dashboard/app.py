@@ -24,6 +24,7 @@ from argos.dashboard.data_loader import (
     load_weather_data,
 )
 from argos.dashboard.plots import bar, time_series, trend_figure
+from argos.dashboard.tasks import DashboardTaskError, enqueue_ecowitt_update
 
 
 def main() -> None:
@@ -33,6 +34,8 @@ def main() -> None:
     with st.sidebar:
         st.header("Datos meteorologicos")
         data_dir = Path(st.text_input("Directorio de datos", str(DEFAULT_WEATHER_DIR)))
+        if st.button("Actualizar Ecowitt ahora", use_container_width=True):
+            _enqueue_update_from_dashboard()
         if st.button("Recargar datos", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
@@ -97,6 +100,17 @@ def _show_loader_messages(loaded) -> None:
         st.warning(message)
     if loaded.missing_columns:
         st.warning("Columnas ausentes en algun CSV: " + ", ".join(loaded.missing_columns))
+
+
+def _enqueue_update_from_dashboard() -> None:
+    try:
+        task = enqueue_ecowitt_update()
+    except DashboardTaskError as exc:
+        st.error(str(exc))
+        return
+
+    st.success(f"Tarea de actualizacion encolada: {task.task_id}")
+    st.info("Cuando el worker termine, pulsa 'Recargar datos' para ver la nueva lectura.")
 
 
 def _render_daily(data: pd.DataFrame, selected_day, variables: list[str]) -> None:

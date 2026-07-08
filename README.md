@@ -160,3 +160,10 @@ data/weather/YYYY/YYYY-MM-DD.csv
 ```
 
 Incluye vistas diaria, semanal, mensual, anual y tendencias, con graficos interactivos, filtros de fecha, seleccion de variables y descarga de tablas resumen en CSV.
+
+El boton `Actualizar Ecowitt ahora` encola una lectura puntual en Celery, independiente de Celery Beat. Para que funcione deben estar activos Redis y el worker:
+
+```powershell
+docker compose up -d redis
+uv run celery -A argos.worker.celery_app:app worker --loglevel=info --pool=solo
+```
