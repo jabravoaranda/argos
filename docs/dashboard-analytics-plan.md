@@ -59,6 +59,45 @@ Annual:
 - annual extrema and percentiles;
 - trend and anomaly views against the selected period.
 
+## Dashboard deployment proposal
+
+Recommended first dashboard layout:
+
+- Home: operational status, current conditions and latest station hardware.
+- Observations: high-resolution time series for selected raw/normalized variables.
+- Summaries:
+  - Daily: persisted daily summaries and daily rainfall/temperature charts.
+  - Weekly: persisted weekly summaries for operational review.
+  - Monthly: derived monthly statistics from daily summaries.
+  - Seasonal: DJF/MAM/JJA/SON summaries for scientific interpretation.
+  - Annual: yearly totals and extrema from daily summaries.
+- Trends:
+  - one selected variable at a time for detailed diagnostics;
+  - moving average, anomaly and linear trend in the same chart;
+  - descriptive statistics table for all selected variables;
+  - CSV export for reproducibility.
+- Quality:
+  - data gaps;
+  - ingestion events;
+  - unknown fields;
+  - redacted raw-payload inspection.
+
+Avoid putting all products on a single page. The better progression is:
+
+1. Keep Streamlit as the fast local scientific dashboard.
+2. Add period-specific chart helpers in `argos.dashboard`.
+3. Move expensive or canonical monthly, seasonal and annual calculations into backend services once formulas stabilize.
+4. Persist those products only after they are validated against real data.
+
+Charts to prioritize next:
+
+- hourly daily profile;
+- rainfall accumulation by period;
+- monthly climatology bars;
+- seasonal distribution plots;
+- annual anomaly bars;
+- wind rose when wind-direction aggregation rules are defined.
+
 ## Implementation status
 
 - Implemented: direct observations, daily and weekly API summaries, monthly, seasonal and annual dashboard aggregates, descriptive statistics, moving averages, anomaly from period mean and linear trend diagnostics.
