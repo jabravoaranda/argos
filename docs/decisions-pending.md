@@ -43,4 +43,4 @@ Decisions needed:
 
 5. Define maximum backfill windows.
 
-   Ecowitt Cloud applies different history resolutions and span limits depending on data age. ARGOS should enforce those limits before exposing this to routine operation.
+   ARGOS now enforces a conservative configurable window through `ECOWITT_CLOUD_MAX_BACKFILL_HOURS` with a default of 24 hours. Still pending: confirm Ecowitt account-specific history limits and resolution changes using a real Cloud response before exposing backfill as routine operation.
