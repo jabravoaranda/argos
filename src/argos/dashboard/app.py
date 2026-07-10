@@ -381,6 +381,9 @@ def render_trends(observations_df: pd.DataFrame, selected_variables: list[str]) 
         st.metric("Samples", summary.sample_count, border=True)
         st.metric("Mean", format_number(summary.mean, ""), border=True)
         st.metric("Slope / sample", format_number(summary.slope_per_sample, ""), border=True)
+        st.metric("Slope / day", format_number(summary.slope_per_day, ""), border=True)
+        st.metric("R2", format_number(summary.r_squared, ""), border=True)
+        st.metric("Estimated change", format_number(summary.estimated_change, ""), border=True)
 
     plot_df = trend_df.melt(
         id_vars=["observed_at_utc"],

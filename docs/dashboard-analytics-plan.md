@@ -16,6 +16,7 @@ For numeric weather variables, ARGOS should expose:
 - 5th and 95th percentiles;
 - interquartile range;
 - simple linear trend for selected periods;
+- slope per day, estimated period change and R2 for linear trend diagnostics;
 - rolling means for configurable windows.
 
 ## Temporal products
@@ -60,6 +61,6 @@ Annual:
 
 ## Implementation status
 
-- Implemented: direct observations, daily and weekly API summaries, monthly and annual dashboard aggregates, moving averages, anomaly from period mean and simple linear trend.
-- Next: descriptive statistics table for selected variables and seasonal aggregates derived from daily summaries.
+- Implemented: direct observations, daily and weekly API summaries, monthly, seasonal and annual dashboard aggregates, descriptive statistics, moving averages, anomaly from period mean and linear trend diagnostics.
+- Next: richer period-specific charts for daily, weekly, monthly, seasonal and annual views.
 - Later: persisted monthly/seasonal/annual statistics in the backend, wind roses, dry-period detection, rain-event detection and solar irradiation.
