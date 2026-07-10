@@ -9,6 +9,7 @@ import streamlit as st
 
 from argos.dashboard.api_client import ArgosApiClient, ArgosApiError
 from argos.dashboard.filters import filter_observations_by_source, observation_source_counts
+from argos.dashboard.raw_reports import build_raw_report_table, latest_payload_preview
 from argos.dashboard.summaries import build_annual_summary, build_monthly_summary
 from argos.dashboard.trends import build_trend_frame
 
@@ -416,10 +417,8 @@ def render_quality(client: ArgosApiClient) -> None:
     gap_df = dataframe_from_records(gaps, "gap_start")
     event_df = dataframe_from_records(events, "created_at")
     unknown_df = pd.DataFrame.from_records(unknown_fields)
-    raw_df = dataframe_from_records(raw_reports, "received_at_utc")
-    if not raw_df.empty and "payload_json" in raw_df:
-        raw_df["payload_keys"] = raw_df["payload_json"].map(lambda payload: ", ".join(sorted(payload)))
-        raw_df = raw_df.drop(columns=["payload_json"])
+    raw_df = build_raw_report_table(raw_reports)
+    raw_payload_preview = latest_payload_preview(raw_reports)
 
     with st.container(horizontal=True):
         st.metric("Open gaps", len(gap_df), border=True)
@@ -441,6 +440,9 @@ def render_quality(client: ArgosApiClient) -> None:
 
     with st.container(border=True):
         st.subheader("Recent raw reports")
+        if raw_payload_preview is not None:
+            with st.expander("Latest redacted payload"):
+                st.json(raw_payload_preview)
         st.dataframe(raw_df, hide_index=True)
 
 
