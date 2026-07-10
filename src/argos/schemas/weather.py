@@ -6,6 +6,34 @@ from datetime import date
 from pydantic import BaseModel, ConfigDict
 
 
+class StationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    uuid: str
+    slug: str
+    code: str
+    name: str | None
+    enabled: bool
+    metadata_json: dict | None
+
+
+class GatewayHardwareRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    station_uuid: str | None
+    uuid: str
+    name: str | None
+    mac_address: str
+    station_type: str | None
+    firmware_version: str | None
+    hardware_version: str | None
+    first_seen_at: datetime | None
+    last_seen_at: datetime | None
+    enabled: bool
+    metadata_json: dict | None
+
+
 class WeatherObservationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

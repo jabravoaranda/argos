@@ -40,6 +40,20 @@ def test_weather_latest_observations_and_gateway_status(monkeypatch, tmp_path) -
     assert latest["rain_last_24h_mm"] == 0.0
     assert latest["ws90_capacitor_voltage"] == 5.3
 
+    station_response = client.get("/api/v1/weather/station")
+    assert station_response.status_code == 200
+    station = station_response.json()
+    assert station["uuid"] == latest["station_uuid"]
+    assert station["slug"] == "tomillar"
+    assert station["code"] == "tomillar"
+
+    hardware_response = client.get("/api/v1/weather/station/hardware")
+    assert hardware_response.status_code == 200
+    hardware = hardware_response.json()
+    assert len(hardware) == 1
+    assert hardware[0]["station_uuid"] == latest["station_uuid"]
+    assert hardware[0]["station_type"] == "GW2000A_V3.3.2"
+
     observations_response = client.get(
         "/api/v1/weather/observations",
         params={"from": "2026-07-10T12:00:00Z", "to": "2026-07-10T13:00:00Z"},
@@ -196,6 +210,8 @@ def test_weather_latest_returns_null_when_empty(monkeypatch, tmp_path) -> None:
     client = TestClient(create_app())
 
     assert client.get("/api/v1/weather/latest").json() is None
+    assert client.get("/api/v1/weather/station").json() is None
+    assert client.get("/api/v1/weather/station/hardware").json() == []
     assert client.get("/api/v1/weather/observations").json() == []
     assert client.get("/api/v1/weather/gateway/status").json()["online"] is False
 

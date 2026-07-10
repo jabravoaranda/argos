@@ -11,6 +11,7 @@ from argos.models.ecowitt import (
     EcowittRawReport,
     Gateway,
     IngestionEvent,
+    Station,
     UnknownField,
     WeatherObservation,
     WeeklyStatistic,
@@ -61,6 +62,18 @@ class WeatherRepository:
 
     def latest_gateway(self) -> Gateway | None:
         return self.session.scalar(select(Gateway).order_by(desc(Gateway.last_seen_at), desc(Gateway.id)).limit(1))
+
+    def station_by_slug(self, slug: str) -> Station | None:
+        return self.session.scalar(select(Station).where(Station.slug == slug))
+
+    def station_hardware(self, *, station_uuid: str) -> list[Gateway]:
+        return list(
+            self.session.scalars(
+                select(Gateway)
+                .where(Gateway.station_uuid == station_uuid)
+                .order_by(desc(Gateway.last_seen_at), desc(Gateway.id))
+            ).all()
+        )
 
     def recent_raw_reports(self, *, limit: int) -> list[EcowittRawReport]:
         return list(

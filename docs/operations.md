@@ -37,6 +37,8 @@ Upload Interval: 60 seconds
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8080/health
+Invoke-RestMethod http://127.0.0.1:8080/api/v1/weather/station
+Invoke-RestMethod http://127.0.0.1:8080/api/v1/weather/station/hardware
 Invoke-RestMethod http://127.0.0.1:8080/api/v1/weather/gateway/status
 Invoke-RestMethod http://127.0.0.1:8080/api/v1/weather/latest
 ```
@@ -112,6 +114,8 @@ Pending decisions for operator review:
 ## Expected Healthy State
 
 - `/api/v1/weather/gateway/status` returns `online: true`.
+- `/api/v1/weather/station` returns `slug: tomillar`.
+- `/api/v1/weather/station/hardware` lists the current GW2000 hardware associated with `tomillar`.
 - `/api/v1/weather/latest` returns a recent `observed_at_utc`.
 - `/api/v1/weather/admin/data-gaps` returns an empty list during uninterrupted operation.
 - `/api/v1/weather/admin/events` contains recent `REPORT_RECEIVED` events.

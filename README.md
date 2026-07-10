@@ -99,6 +99,8 @@ Useful weather API endpoints:
 
 ```text
 GET /api/v1/weather/latest
+GET /api/v1/weather/station
+GET /api/v1/weather/station/hardware
 GET /api/v1/weather/observations?from=2026-07-10T00:00:00Z&to=2026-07-10T23:59:59Z
 GET /api/v1/weather/summary/daily?from=2026-07-10T00:00:00Z&to=2026-07-10T23:59:59Z
 GET /api/v1/weather/summary/weekly?from=2026-07-01T00:00:00Z&to=2026-07-31T23:59:59Z

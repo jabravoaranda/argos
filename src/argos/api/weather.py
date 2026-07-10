@@ -11,9 +11,11 @@ from argos.database.session import get_db_session
 from argos.repositories.weather import WeatherRepository
 from argos.schemas.weather import (
     DataGapRead,
+    GatewayHardwareRead,
     GatewayStatusRead,
     IngestionEventRead,
     RawReportRead,
+    StationRead,
     StatisticsRecomputeRead,
     UnknownFieldRead,
     WeatherObservationRead,
@@ -38,6 +40,30 @@ def latest_weather_observation(session: Session = Depends(get_db_session)) -> We
     if observation is None:
         return None
     return WeatherObservationRead.model_validate(observation)
+
+
+@router.get("/station", response_model=StationRead | None)
+def station(
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> StationRead | None:
+    station_record = WeatherRepository(session).station_by_slug(settings.station_slug)
+    if station_record is None:
+        return None
+    return StationRead.model_validate(station_record)
+
+
+@router.get("/station/hardware", response_model=list[GatewayHardwareRead])
+def station_hardware(
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> list[GatewayHardwareRead]:
+    repository = WeatherRepository(session)
+    station_record = repository.station_by_slug(settings.station_slug)
+    if station_record is None:
+        return []
+    hardware = repository.station_hardware(station_uuid=station_record.uuid)
+    return [GatewayHardwareRead.model_validate(gateway) for gateway in hardware]
 
 
 @router.get("/observations", response_model=list[WeatherObservationRead])
