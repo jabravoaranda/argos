@@ -92,7 +92,7 @@ Avoid putting all products on a single page. The better progression is:
 Charts to prioritize next:
 
 - hourly daily/selected-period profile;
-- rainfall accumulation by period;
+- rainfall accumulation by selected period;
 - monthly climatology bars;
 - seasonal distribution plots;
 - annual anomaly bars;
@@ -100,6 +100,6 @@ Charts to prioritize next:
 
 ## Implementation status
 
-- Implemented: direct observations, hourly selected-period profile, daily and weekly API summaries, monthly, seasonal and annual dashboard aggregates, descriptive statistics, moving averages, anomaly from period mean and linear trend diagnostics.
+- Implemented: direct observations, hourly selected-period profile, selected-period rainfall accumulation, daily and weekly API summaries, monthly, seasonal and annual dashboard aggregates, descriptive statistics, moving averages, anomaly from period mean and linear trend diagnostics.
 - Next: richer period-specific charts for daily, weekly, monthly, seasonal and annual views.
 - Later: persisted monthly/seasonal/annual statistics in the backend, wind roses, dry-period detection, rain-event detection and solar irradiation.

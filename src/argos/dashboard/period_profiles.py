@@ -23,3 +23,13 @@ def build_hourly_profile(frame: pd.DataFrame, variables: list[str]) -> pd.DataFr
         .sort_values("hour")
         .reset_index(drop=True)
     )
+
+
+def build_rain_accumulation(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty or "observed_at_utc" not in frame or "rain_day_mm" not in frame:
+        return pd.DataFrame()
+
+    rain = frame[["observed_at_utc", "rain_day_mm"]].copy()
+    rain["observed_at_utc"] = pd.to_datetime(rain["observed_at_utc"])
+    rain["rain_day_mm"] = pd.to_numeric(rain["rain_day_mm"], errors="coerce")
+    return rain.dropna().sort_values("observed_at_utc").reset_index(drop=True)

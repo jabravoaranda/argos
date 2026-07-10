@@ -9,7 +9,7 @@ import streamlit as st
 
 from argos.dashboard.api_client import ArgosApiClient, ArgosApiError
 from argos.dashboard.filters import filter_observations_by_source, observation_source_counts
-from argos.dashboard.period_profiles import build_hourly_profile
+from argos.dashboard.period_profiles import build_hourly_profile, build_rain_accumulation
 from argos.dashboard.raw_reports import build_raw_report_table, latest_payload_preview
 from argos.dashboard.statistics import build_descriptive_statistics
 from argos.dashboard.summaries import build_annual_summary, build_monthly_summary, build_seasonal_summary
@@ -308,6 +308,19 @@ def render_observations(observations_df: pd.DataFrame, selected_variables: list[
             hourly_figure = px.line(hourly_long_df, x="hour", y="Hourly mean", color="Variable", markers=True)
             hourly_figure.update_layout(xaxis_title="Hour UTC", yaxis_title="Hourly mean", legend_title_text="")
             st.plotly_chart(hourly_figure, width="stretch")
+
+    rain_accumulation = build_rain_accumulation(observations_df)
+    if not rain_accumulation.empty:
+        with st.container(border=True):
+            st.subheader("Rain accumulation")
+            rain_figure = px.line(
+                rain_accumulation,
+                x="observed_at_utc",
+                y="rain_day_mm",
+                markers=True,
+            )
+            rain_figure.update_layout(xaxis_title="Observed UTC", yaxis_title="Daily rain (mm)")
+            st.plotly_chart(rain_figure, width="stretch")
 
     with st.container(border=True):
         st.subheader("Observation table")
