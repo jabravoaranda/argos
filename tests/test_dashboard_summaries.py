@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from argos.dashboard.summaries import build_annual_summary, build_monthly_summary
+from argos.dashboard.summaries import build_annual_summary, build_monthly_summary, build_seasonal_summary
 
 
 def test_build_monthly_summary_aggregates_daily_statistics() -> None:
@@ -58,6 +58,21 @@ def test_build_annual_summary_groups_by_year() -> None:
 
     assert list(annual["period_start"].astype(str)) == ["2026-01-01", "2027-01-01"]
     assert list(annual["rain_day_max_mm"]) == [3.0, 4.0]
+
+
+def test_build_seasonal_summary_uses_meteorological_seasons() -> None:
+    daily = pd.DataFrame.from_records(
+        [
+            {"period_start": "2026-12-31", "sample_count": 1, "rain_day_max_mm": 3.0},
+            {"period_start": "2027-01-01", "sample_count": 1, "rain_day_max_mm": 4.0},
+            {"period_start": "2027-03-01", "sample_count": 1, "rain_day_max_mm": 5.0},
+        ]
+    )
+
+    seasonal = build_seasonal_summary(daily)
+
+    assert list(seasonal["period_label"]) == ["2027 DJF", "2027 MAM"]
+    assert list(seasonal["rain_day_max_mm"]) == [7.0, 5.0]
 
 
 def test_build_monthly_summary_returns_empty_frame_without_daily_data() -> None:

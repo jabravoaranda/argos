@@ -33,6 +33,26 @@ def build_annual_summary(daily_df: pd.DataFrame) -> pd.DataFrame:
     return _build_period_summary(daily_df, period="Y")
 
 
+def build_seasonal_summary(daily_df: pd.DataFrame) -> pd.DataFrame:
+    if daily_df.empty or "period_start" not in daily_df:
+        return pd.DataFrame()
+
+    frame = daily_df.copy()
+    frame["period_start"] = pd.to_datetime(frame["period_start"])
+    frame["season"] = frame["period_start"].map(meteorological_season)
+    frame["season_year"] = frame["period_start"].map(meteorological_season_year)
+    rows = [
+        _summarize_season_group(season_year=season_year, season=season, group=group)
+        for (season_year, season), group in frame.groupby(["season_year", "season"], sort=True)
+    ]
+    if not rows:
+        return pd.DataFrame()
+    columns = ["period_label", "season_year", "season"] + [
+        column for column in rows[0] if column not in {"period_label", "season_year", "season"}
+    ]
+    return pd.DataFrame.from_records(rows)[columns]
+
+
 def _build_period_summary(daily_df: pd.DataFrame, *, period: str) -> pd.DataFrame:
     if daily_df.empty or "period_start" not in daily_df:
         return pd.DataFrame()
@@ -72,6 +92,17 @@ def _summarize_group(period_value: Any, group: pd.DataFrame) -> dict[str, Any]:
     return row
 
 
+def _summarize_season_group(*, season_year: Any, season: Any, group: pd.DataFrame) -> dict[str, Any]:
+    year = int(str(season_year))
+    season_label = str(season)
+    return {
+        **_summarize_group(_SeasonPeriod(group), group),
+        "season_year": year,
+        "season": season_label,
+        "period_label": f"{year} {season_label}",
+    }
+
+
 def _weighted_mean(group: pd.DataFrame, column: str) -> float | None:
     values = group[[column, "sample_count"]].dropna() if "sample_count" in group else group[[column]].dropna()
     if values.empty:
@@ -83,3 +114,26 @@ def _weighted_mean(group: pd.DataFrame, column: str) -> float | None:
     if weights.sum() == 0:
         return None
     return float((values[column] * weights).sum() / weights.sum())
+
+
+def meteorological_season(value: pd.Timestamp) -> str:
+    month = value.month
+    if month in (12, 1, 2):
+        return "DJF"
+    if month in (3, 4, 5):
+        return "MAM"
+    if month in (6, 7, 8):
+        return "JJA"
+    return "SON"
+
+
+def meteorological_season_year(value: pd.Timestamp) -> int:
+    if value.month == 12:
+        return int(value.year + 1)
+    return int(value.year)
+
+
+class _SeasonPeriod:
+    def __init__(self, group: pd.DataFrame) -> None:
+        self.start_time = group["period_start"].min()
+        self.end_time = group["period_start"].max()

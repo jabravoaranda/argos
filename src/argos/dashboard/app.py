@@ -10,7 +10,8 @@ import streamlit as st
 from argos.dashboard.api_client import ArgosApiClient, ArgosApiError
 from argos.dashboard.filters import filter_observations_by_source, observation_source_counts
 from argos.dashboard.raw_reports import build_raw_report_table, latest_payload_preview
-from argos.dashboard.summaries import build_annual_summary, build_monthly_summary
+from argos.dashboard.statistics import build_descriptive_statistics
+from argos.dashboard.summaries import build_annual_summary, build_monthly_summary, build_seasonal_summary
 from argos.dashboard.trends import build_trend_frame
 
 
@@ -300,8 +301,11 @@ def render_observations(observations_df: pd.DataFrame, selected_variables: list[
 
 def render_summaries(daily_df: pd.DataFrame, weekly_df: pd.DataFrame) -> None:
     monthly_df = build_monthly_summary(daily_df)
+    seasonal_df = build_seasonal_summary(daily_df)
     annual_df = build_annual_summary(daily_df)
-    daily_tab, weekly_tab, monthly_tab, annual_tab = st.tabs(["Daily", "Weekly", "Monthly", "Annual"])
+    daily_tab, weekly_tab, monthly_tab, seasonal_tab, annual_tab = st.tabs(
+        ["Daily", "Weekly", "Monthly", "Seasonal", "Annual"]
+    )
 
     with daily_tab:
         render_summary_table(daily_df, "Daily summary")
@@ -311,6 +315,9 @@ def render_summaries(daily_df: pd.DataFrame, weekly_df: pd.DataFrame) -> None:
 
     with monthly_tab:
         render_summary_table(monthly_df, "Monthly summary")
+
+    with seasonal_tab:
+        render_summary_table(seasonal_df, "Seasonal summary")
 
     with annual_tab:
         render_summary_table(annual_df, "Annual summary")
@@ -393,6 +400,13 @@ def render_trends(observations_df: pd.DataFrame, selected_variables: list[str]) 
         anomaly_figure = px.bar(anomaly, x="observed_at_utc", y="anomaly")
         anomaly_figure.update_layout(xaxis_title="Observed UTC", yaxis_title="Anomaly from selected period mean")
         st.plotly_chart(anomaly_figure, width="stretch")
+
+    descriptive_df = build_descriptive_statistics(observations_df, numeric_variables, LABELS)
+    if not descriptive_df.empty:
+        with st.container(border=True):
+            st.subheader("Descriptive statistics")
+            st.dataframe(descriptive_df, hide_index=True)
+            add_csv_download(descriptive_df, "Download descriptive statistics CSV", "argos_descriptive_statistics.csv")
 
     with st.container(border=True):
         st.subheader("Trend data")
