@@ -8,6 +8,7 @@ def test_initial_schema_tables_are_registered() -> None:
     expected_tables = {
         "gateways",
         "ecowitt_raw_reports",
+        "ecowitt_cloud_raw_reports",
         "weather_observations",
         "daily_statistics",
         "weekly_statistics",

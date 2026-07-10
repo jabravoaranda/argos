@@ -3,6 +3,7 @@
 from argos.models.ecowitt import (
     DailyStatistic,
     DataGap,
+    EcowittCloudRawReport,
     EcowittRawReport,
     Gateway,
     IngestionEvent,
@@ -14,6 +15,7 @@ from argos.models.ecowitt import (
 __all__ = [
     "DailyStatistic",
     "DataGap",
+    "EcowittCloudRawReport",
     "EcowittRawReport",
     "Gateway",
     "IngestionEvent",

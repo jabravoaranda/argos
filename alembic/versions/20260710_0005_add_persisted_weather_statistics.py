@@ -42,8 +42,12 @@ STATISTIC_COLUMNS = (
 
 
 def upgrade() -> None:
-    _create_statistics_table("daily_statistics", "uq_daily_statistics_gateway_period", "ix_daily_statistics_gateway_period")
-    _create_statistics_table(
+    _create_statistics_table_if_missing(
+        "daily_statistics",
+        "uq_daily_statistics_gateway_period",
+        "ix_daily_statistics_gateway_period",
+    )
+    _create_statistics_table_if_missing(
         "weekly_statistics",
         "uq_weekly_statistics_gateway_period",
         "ix_weekly_statistics_gateway_period",
@@ -51,16 +55,26 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_weekly_statistics_gateway_period", table_name="weekly_statistics")
-    op.drop_table("weekly_statistics")
-    op.drop_index("ix_daily_statistics_gateway_period", table_name="daily_statistics")
-    op.drop_table("daily_statistics")
+    _drop_table_if_present("weekly_statistics", "ix_weekly_statistics_gateway_period")
+    _drop_table_if_present("daily_statistics", "ix_daily_statistics_gateway_period")
 
 
-def _create_statistics_table(table_name: str, unique_name: str, index_name: str) -> None:
+def _create_statistics_table_if_missing(table_name: str, unique_name: str, index_name: str) -> None:
+    bind = op.get_bind()
+    if table_name in sa.inspect(bind).get_table_names():
+        return
+
     op.create_table(
         table_name,
         *[column.copy() for column in STATISTIC_COLUMNS],
         sa.UniqueConstraint("gateway_id", "period_start", name=unique_name),
     )
     op.create_index(index_name, table_name, ["gateway_id", "period_start"])
+
+
+def _drop_table_if_present(table_name: str, index_name: str) -> None:
+    bind = op.get_bind()
+    if table_name not in sa.inspect(bind).get_table_names():
+        return
+    op.drop_index(index_name, table_name=table_name)
+    op.drop_table(table_name)

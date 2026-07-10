@@ -27,11 +27,11 @@ Included:
 - Unknown field catalogue for captured fields without normalized mapping.
 - Persisted daily and weekly weather summaries.
 - Streamlit dashboard backed by the FastAPI API.
-- Ecowitt Cloud history client for future backfill.
+- Ecowitt Cloud history client and initial backfill persistence.
 
 Still not included:
 
-- Persistence of Ecowitt Cloud backfilled observations.
+- Ecowitt Cloud response adapter for the exact history payload shape.
 
 ## Installation
 
@@ -163,7 +163,14 @@ ECOWITT_CLOUD_API_KEY=...
 ECOWITT_CLOUD_MAC=...
 ```
 
-The first backfill phase includes a tested client for Ecowitt Cloud history requests. Persistence of backfilled observations is intentionally not enabled yet.
+The current backfill phase includes:
+
+- A tested client for Ecowitt Cloud history requests.
+- Separate persistence for Ecowitt Cloud raw payloads in `ecowitt_cloud_raw_reports`.
+- `weather_observations.source` to distinguish `DIRECT` and `BACKFILLED` readings.
+- Timestamp deduplication so Cloud imports do not duplicate direct LAN observations.
+
+The response adapter for the exact Ecowitt Cloud history payload shape is intentionally still pending.
 
 ## GW2000 Configuration
 

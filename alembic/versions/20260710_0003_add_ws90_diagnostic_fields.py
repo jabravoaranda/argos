@@ -20,10 +20,24 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column("weather_observations", sa.Column("wind_direction_avg10m_deg", sa.Float(), nullable=True))
-    op.add_column("weather_observations", sa.Column("ws90_capacitor_voltage", sa.Float(), nullable=True))
+    _add_column_if_missing("weather_observations", sa.Column("wind_direction_avg10m_deg", sa.Float(), nullable=True))
+    _add_column_if_missing("weather_observations", sa.Column("ws90_capacitor_voltage", sa.Float(), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("weather_observations", "ws90_capacitor_voltage")
-    op.drop_column("weather_observations", "wind_direction_avg10m_deg")
+    _drop_column_if_present("weather_observations", "ws90_capacitor_voltage")
+    _drop_column_if_present("weather_observations", "wind_direction_avg10m_deg")
+
+
+def _add_column_if_missing(table_name: str, column: sa.Column) -> None:
+    bind = op.get_bind()
+    existing_columns = {existing["name"] for existing in sa.inspect(bind).get_columns(table_name)}
+    if column.name not in existing_columns:
+        op.add_column(table_name, column)
+
+
+def _drop_column_if_present(table_name: str, column_name: str) -> None:
+    bind = op.get_bind()
+    existing_columns = {existing["name"] for existing in sa.inspect(bind).get_columns(table_name)}
+    if column_name in existing_columns:
+        op.drop_column(table_name, column_name)

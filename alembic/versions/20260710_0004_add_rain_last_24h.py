@@ -20,8 +20,14 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column("weather_observations", sa.Column("rain_last_24h_mm", sa.Float(), nullable=True))
+    bind = op.get_bind()
+    existing_columns = {existing["name"] for existing in sa.inspect(bind).get_columns("weather_observations")}
+    if "rain_last_24h_mm" not in existing_columns:
+        op.add_column("weather_observations", sa.Column("rain_last_24h_mm", sa.Float(), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("weather_observations", "rain_last_24h_mm")
+    bind = op.get_bind()
+    existing_columns = {existing["name"] for existing in sa.inspect(bind).get_columns("weather_observations")}
+    if "rain_last_24h_mm" in existing_columns:
+        op.drop_column("weather_observations", "rain_last_24h_mm")

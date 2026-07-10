@@ -62,13 +62,35 @@ class EcowittRawReport(TimestampMixin, Base):
     observation: Mapped["WeatherObservation | None"] = relationship(back_populates="raw_report")
 
 
+class EcowittCloudRawReport(TimestampMixin, Base):
+    __tablename__ = "ecowitt_cloud_raw_reports"
+    __table_args__ = (
+        UniqueConstraint("payload_hash", name="uq_ecowitt_cloud_raw_reports_payload_hash"),
+        Index("ix_ecowitt_cloud_raw_reports_gateway_observed", "gateway_id", "observed_at_utc"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    gateway_id: Mapped[int | None] = mapped_column(ForeignKey("gateways.id"), index=True)
+    requested_start_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    requested_end_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observed_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    api_version: Mapped[str | None] = mapped_column(String(32))
+    parser_version: Mapped[str | None] = mapped_column(String(32))
+
+    observation: Mapped["WeatherObservation | None"] = relationship(back_populates="cloud_raw_report")
+
+
 class WeatherObservation(TimestampMixin, Base):
     __tablename__ = "weather_observations"
     __table_args__ = (Index("ix_weather_observations_gateway_observed", "gateway_id", "observed_at_utc"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     gateway_id: Mapped[int | None] = mapped_column(ForeignKey("gateways.id"), index=True)
-    raw_report_id: Mapped[int] = mapped_column(ForeignKey("ecowitt_raw_reports.id"), unique=True, nullable=False)
+    raw_report_id: Mapped[int | None] = mapped_column(ForeignKey("ecowitt_raw_reports.id"), unique=True)
+    cloud_raw_report_id: Mapped[int | None] = mapped_column(ForeignKey("ecowitt_cloud_raw_reports.id"), unique=True)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="DIRECT", server_default="DIRECT")
     observed_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     received_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     indoor_temperature_c: Mapped[float | None] = mapped_column(Float)
@@ -100,7 +122,8 @@ class WeatherObservation(TimestampMixin, Base):
     ws90_capacitor_voltage: Mapped[float | None] = mapped_column(Float)
     signal_dbm: Mapped[float | None] = mapped_column(Float)
 
-    raw_report: Mapped["EcowittRawReport"] = relationship(back_populates="observation")
+    raw_report: Mapped["EcowittRawReport | None"] = relationship(back_populates="observation")
+    cloud_raw_report: Mapped["EcowittCloudRawReport | None"] = relationship(back_populates="observation")
 
 
 class DailyStatistic(TimestampMixin, Base):

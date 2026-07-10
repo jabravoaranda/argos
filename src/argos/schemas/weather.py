@@ -11,7 +11,9 @@ class WeatherObservationRead(BaseModel):
 
     id: int
     gateway_id: int | None
-    raw_report_id: int
+    raw_report_id: int | None
+    cloud_raw_report_id: int | None
+    source: str
     observed_at_utc: datetime
     received_at_utc: datetime
     indoor_temperature_c: float | None
