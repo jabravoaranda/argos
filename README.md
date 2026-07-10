@@ -153,7 +153,7 @@ Dashboard views:
 - Home: station identity, associated hardware status and current conditions.
 - Observations: interactive time-series chart and downloadable observation table.
 - Source filtering for `DIRECT` and `BACKFILLED` observations.
-- Summaries: daily and weekly statistics from persisted API summaries.
+- Summaries: daily and weekly API summaries plus monthly and annual aggregates derived from daily statistics.
 - Trends: moving averages, period anomalies and simple linear trends.
 - Quality: data gaps, ingestion events, unknown fields and recent raw reports. This view requires the admin token.
 

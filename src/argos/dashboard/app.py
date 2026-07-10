@@ -9,6 +9,7 @@ import streamlit as st
 
 from argos.dashboard.api_client import ArgosApiClient, ArgosApiError
 from argos.dashboard.filters import filter_observations_by_source, observation_source_counts
+from argos.dashboard.summaries import build_annual_summary, build_monthly_summary
 from argos.dashboard.trends import build_trend_frame
 
 
@@ -297,13 +298,21 @@ def render_observations(observations_df: pd.DataFrame, selected_variables: list[
 
 
 def render_summaries(daily_df: pd.DataFrame, weekly_df: pd.DataFrame) -> None:
-    daily_tab, weekly_tab = st.tabs(["Daily", "Weekly"])
+    monthly_df = build_monthly_summary(daily_df)
+    annual_df = build_annual_summary(daily_df)
+    daily_tab, weekly_tab, monthly_tab, annual_tab = st.tabs(["Daily", "Weekly", "Monthly", "Annual"])
 
     with daily_tab:
         render_summary_table(daily_df, "Daily summary")
 
     with weekly_tab:
         render_summary_table(weekly_df, "Weekly summary")
+
+    with monthly_tab:
+        render_summary_table(monthly_df, "Monthly summary")
+
+    with annual_tab:
+        render_summary_table(annual_df, "Annual summary")
 
 
 def render_summary_table(frame: pd.DataFrame, title: str) -> None:
@@ -322,6 +331,14 @@ def render_summary_table(frame: pd.DataFrame, title: str) -> None:
                 y="outdoor_temperature_mean_c",
                 x_label="Period",
                 y_label="deg C",
+            )
+        if "period_start" in frame and "rain_day_max_mm" in frame:
+            st.bar_chart(
+                frame[["period_start", "rain_day_max_mm"]].dropna(),
+                x="period_start",
+                y="rain_day_max_mm",
+                x_label="Period",
+                y_label="mm",
             )
 
 
