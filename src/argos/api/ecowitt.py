@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from argos.config.settings import Settings, get_settings
 from argos.database.session import get_db_session
 from argos.services.ecowitt_capture import capture_ecowitt_payload
+from argos.utils.redaction import REDACTED_VALUE, is_sensitive_key
 
 router = APIRouter(prefix="/api/v1/ecowitt", tags=["ecowitt"])
 
@@ -83,5 +84,4 @@ async def _extract_payload(request: Request) -> CapturedRequest:
 
 
 def _safe_headers(headers: Mapping[str, str]) -> dict[str, str]:
-    hidden = {"authorization", "cookie", "x-api-key"}
-    return {key: ("<redacted>" if key.lower() in hidden else value) for key, value in headers.items()}
+    return {key: (REDACTED_VALUE if is_sensitive_key(key) else value) for key, value in headers.items()}

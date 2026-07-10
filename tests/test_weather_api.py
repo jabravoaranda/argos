@@ -189,6 +189,8 @@ def test_weather_admin_endpoints_and_gap_detection(monkeypatch, tmp_path) -> Non
     raw_reports = client.get("/api/v1/weather/admin/raw-reports", params={"limit": 1}, headers=admin_headers).json()
     assert len(raw_reports) == 1
     assert raw_reports[0]["parser_version"] == "gw2000a-ws90-3.3.2.3"
+    assert raw_reports[0]["payload_json"]["PASSKEY"] == "<redacted>"
+    assert raw_reports[0]["payload_json"]["stationtype"] == "GW2000A_V3.3.2"
 
     events = client.get("/api/v1/weather/admin/events", params={"limit": 10}, headers=admin_headers).json()
     assert any(event["event_type"] == "REPORT_RECEIVED" for event in events)

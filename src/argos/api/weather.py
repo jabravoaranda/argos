@@ -22,6 +22,7 @@ from argos.schemas.weather import (
     WeatherPeriodSummaryRead,
 )
 from argos.services.weather_statistics import recompute_statistics
+from argos.utils.redaction import redact_sensitive_values
 
 router = APIRouter(prefix="/api/v1/weather", tags=["weather"])
 
@@ -115,7 +116,12 @@ def recent_raw_reports(
     session: Session = Depends(get_db_session),
 ) -> list[RawReportRead]:
     reports = WeatherRepository(session).recent_raw_reports(limit=limit)
-    return [RawReportRead.model_validate(report) for report in reports]
+    return [
+        RawReportRead.model_validate(report).model_copy(
+            update={"payload_json": redact_sensitive_values(report.payload_json)}
+        )
+        for report in reports
+    ]
 
 
 @router.get("/admin/events", response_model=list[IngestionEventRead])

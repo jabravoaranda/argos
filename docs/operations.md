@@ -62,6 +62,8 @@ Invoke-RestMethod http://127.0.0.1:8080/api/v1/weather/admin/unknown-fields -Hea
 Invoke-RestMethod http://127.0.0.1:8080/api/v1/weather/admin/data-gaps -Headers $headers
 ```
 
+Raw reports are preserved complete in the database for scientific traceability. Diagnostic API responses redact sensitive values such as `PASSKEY`, tokens, authorization headers and cookies.
+
 ## Recompute Statistics
 
 ```powershell
