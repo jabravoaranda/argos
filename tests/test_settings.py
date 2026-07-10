@@ -13,6 +13,8 @@ def test_settings_load_defaults_without_env_file() -> None:
     assert settings.database_url == "sqlite:///./var/argos.db"
     assert settings.local_timezone == "Europe/Madrid"
     assert settings.ecowitt_capture_raw is False
+    assert settings.ecowitt_cloud_base_url == "https://api.ecowitt.net"
+    assert settings.ecowitt_cloud_application_key is None
 
 
 def test_settings_require_ingest_token(monkeypatch) -> None:

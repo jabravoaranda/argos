@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     ecowitt_capture_raw: bool = False
     ecowitt_expected_interval_seconds: int = 60
     ecowitt_offline_after_seconds: int = 180
+    ecowitt_cloud_base_url: str = "https://api.ecowitt.net"
+    ecowitt_cloud_api_version: str = "v3"
+    ecowitt_cloud_application_key: str | None = None
+    ecowitt_cloud_api_key: str | None = None
+    ecowitt_cloud_mac: str | None = None
+    ecowitt_cloud_timeout_seconds: int = 10
 
 
 @lru_cache

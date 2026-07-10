@@ -6,7 +6,7 @@ ARGOS is being redesigned as a FastAPI-based environmental data platform. The pr
 
 ## Current Scope
 
-This branch contains Epic 1: the clean FastAPI and database foundation.
+This branch contains the current ARGOS redesign work: FastAPI foundation, direct Ecowitt ingestion, API analytics, Streamlit dashboard and the first Ecowitt Cloud backfill client.
 
 Included:
 
@@ -19,20 +19,19 @@ Included:
 - PostgreSQL-compatible schema and Docker Compose service.
 - Basic health endpoints.
 - Ruff, mypy and pytest configuration through project dependencies.
-
-Included in the current implementation:
-
 - Ecowitt Customized upload endpoint for direct GW2000A capture.
 - Raw payload persistence.
 - WS90 parser based on a real GW2000A firmware 3.3.2 payload.
 - Normalized weather observation persistence.
 - Duplicate detection.
 - Unknown field catalogue for captured fields without normalized mapping.
+- Persisted daily and weekly weather summaries.
+- Streamlit dashboard backed by the FastAPI API.
+- Ecowitt Cloud history client for future backfill.
 
 Still not included:
 
-- Dashboard.
-- Historical backfill.
+- Persistence of Ecowitt Cloud backfilled observations.
 
 ## Installation
 
@@ -151,6 +150,20 @@ Dashboard views:
 - Summaries: daily and weekly statistics from persisted API summaries.
 - Trends: moving averages, period anomalies and simple linear trends.
 - Quality: data gaps, ingestion events, unknown fields and recent raw reports. This view requires the admin token.
+
+## Ecowitt Cloud Backfill
+
+Direct GW2000 Customized ingestion is the primary data source. Ecowitt Cloud is reserved for historical recovery and consistency checks.
+
+Configure Cloud credentials only when backfill is needed:
+
+```dotenv
+ECOWITT_CLOUD_APPLICATION_KEY=...
+ECOWITT_CLOUD_API_KEY=...
+ECOWITT_CLOUD_MAC=...
+```
+
+The first backfill phase includes a tested client for Ecowitt Cloud history requests. Persistence of backfilled observations is intentionally not enabled yet.
 
 ## GW2000 Configuration
 
