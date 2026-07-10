@@ -10,7 +10,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from argos.integrations.ecowitt_cloud import DEFAULT_HISTORY_CALLBACKS, EcowittCloudClient
 from argos.repositories.ecowitt_backfill import EcowittBackfillRepository
+from argos.services.ecowitt_cloud_adapter import parse_cloud_history_payload
 from argos.services.weather_statistics import update_statistics_for_observation
 
 logger = logging.getLogger(__name__)
@@ -56,6 +58,51 @@ class BackfillImportResult:
     observation_id: int | None
     duplicate: bool
     duplicate_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class BackfillRangeResult:
+    imported_count: int
+    duplicate_count: int
+    warning_count: int
+    warnings: list[str]
+    results: list[BackfillImportResult]
+
+
+def backfill_ecowitt_cloud_range(
+    *,
+    session: Session,
+    client: EcowittCloudClient,
+    gateway_identifier: str,
+    start: datetime,
+    end: datetime,
+    station_type: str | None = None,
+    callbacks: tuple[str, ...] = DEFAULT_HISTORY_CALLBACKS,
+) -> BackfillRangeResult:
+    payload = client.get_history(start=start, end=end, callbacks=callbacks)
+    parse_result = parse_cloud_history_payload(payload)
+    import_results = [
+        import_backfilled_observation(
+            session=session,
+            gateway_identifier=gateway_identifier,
+            observed_at_utc=observation.observed_at_utc,
+            normalized_values=observation.normalized_values,
+            cloud_payload=observation.cloud_payload,
+            station_type=station_type,
+            requested_start_utc=start,
+            requested_end_utc=end,
+            api_version=client.api_version,
+        )
+        for observation in parse_result.observations
+    ]
+    duplicate_count = sum(1 for result in import_results if result.duplicate)
+    return BackfillRangeResult(
+        imported_count=len(import_results) - duplicate_count,
+        duplicate_count=duplicate_count,
+        warning_count=len(parse_result.warnings),
+        warnings=parse_result.warnings,
+        results=import_results,
+    )
 
 
 def import_backfilled_observation(

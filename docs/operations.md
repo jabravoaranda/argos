@@ -61,6 +61,25 @@ Invoke-RestMethod `
   -Headers $headers
 ```
 
+## Ecowitt Cloud Backfill Status
+
+The current implementation can:
+
+- request history data through the Ecowitt Cloud client;
+- parse supported history series into normalized weather values when units are explicit;
+- preserve Cloud raw payloads separately from LAN raw reports;
+- import observations as `BACKFILLED`;
+- avoid duplicating existing direct LAN observations for the same gateway and timestamp.
+
+Backfill is not exposed as an HTTP endpoint yet. Keep it internal until a real Cloud history payload from the target station has been captured and verified.
+
+Pending decisions for operator review:
+
+- canonical gateway identity: `model`, LAN identifier, Cloud MAC, or a gateway alias table;
+- whether backfill should be triggered by CLI, admin HTTP endpoint, or both;
+- whether Cloud imports may fill missing fields in an existing `DIRECT` observation;
+- confirmed Cloud history payload shape and units for GW2000A firmware 3.3.2 with WS90.
+
 ## Expected Healthy State
 
 - `/api/v1/weather/gateway/status` returns `online: true`.
