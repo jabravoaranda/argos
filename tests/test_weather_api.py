@@ -120,6 +120,7 @@ def test_weather_daily_and_weekly_summaries(monkeypatch, tmp_path) -> None:
     recompute_response = client.post(
         "/api/v1/weather/statistics/recompute",
         params={"from": "2026-07-01T00:00:00Z", "to": "2026-07-31T23:59:59Z"},
+        headers={"X-ARGOS-ADMIN-TOKEN": "test-token"},
     )
     assert recompute_response.status_code == 200
     assert recompute_response.json() == {"daily_count": 1, "weekly_count": 1}
@@ -127,6 +128,52 @@ def test_weather_daily_and_weekly_summaries(monkeypatch, tmp_path) -> None:
     with get_sessionmaker()() as session:
         assert len(session.scalars(select(DailyStatistic)).all()) == 1
         assert len(session.scalars(select(WeeklyStatistic)).all()) == 1
+
+    get_settings.cache_clear()
+    reset_database_caches()
+
+
+def test_weather_admin_endpoints_and_gap_detection(monkeypatch, tmp_path) -> None:
+    db_url = f"sqlite:///{tmp_path / 'argos.db'}"
+    monkeypatch.setenv("ECOWITT_INGEST_TOKEN", "test-token")
+    monkeypatch.setenv("DATABASE_URL", db_url)
+    monkeypatch.setenv("ECOWITT_EXPECTED_INTERVAL_SECONDS", "60")
+    get_settings.cache_clear()
+    reset_database_caches()
+    Base.metadata.create_all(get_engine())
+
+    client = TestClient(create_app())
+    raw_body = Path("tests/fixtures/ecowitt/gw2000a_ws90_3_3_2_form.txt").read_text()
+    delayed_body = raw_body.replace("dateutc=2026-07-10+12:45:26", "dateutc=2026-07-10+12:50:26")
+
+    assert client.post(
+        "/api/v1/ecowitt/upload/test-token",
+        content=raw_body,
+        headers={"content-type": "application/x-www-form-urlencoded"},
+    ).status_code == 200
+    assert client.post(
+        "/api/v1/ecowitt/upload/test-token",
+        content=delayed_body,
+        headers={"content-type": "application/x-www-form-urlencoded"},
+    ).status_code == 200
+
+    assert client.get("/api/v1/weather/admin/data-gaps").status_code == 403
+
+    admin_headers = {"X-ARGOS-ADMIN-TOKEN": "test-token"}
+    gaps = client.get("/api/v1/weather/admin/data-gaps", headers=admin_headers).json()
+    assert len(gaps) == 1
+    assert gaps[0]["expected_reports"] == 4
+    assert gaps[0]["resolved"] is False
+
+    raw_reports = client.get("/api/v1/weather/admin/raw-reports", params={"limit": 1}, headers=admin_headers).json()
+    assert len(raw_reports) == 1
+    assert raw_reports[0]["parser_version"] == "gw2000a-ws90-3.3.2.3"
+
+    events = client.get("/api/v1/weather/admin/events", params={"limit": 10}, headers=admin_headers).json()
+    assert any(event["event_type"] == "REPORT_RECEIVED" for event in events)
+
+    unknown_fields = client.get("/api/v1/weather/admin/unknown-fields", headers=admin_headers).json()
+    assert unknown_fields == []
 
     get_settings.cache_clear()
     reset_database_caches()

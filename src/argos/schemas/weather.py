@@ -73,3 +73,54 @@ class WeatherPeriodSummaryRead(BaseModel):
 class StatisticsRecomputeRead(BaseModel):
     daily_count: int
     weekly_count: int
+
+
+class RawReportRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    gateway_id: int | None
+    received_at_utc: datetime
+    device_timestamp_utc: datetime | None
+    source_ip: str | None
+    content_type: str | None
+    payload_json: dict
+    parser_version: str | None
+
+
+class IngestionEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    gateway_id: int | None
+    raw_report_id: int | None
+    event_type: str
+    severity: str
+    message: str
+    created_at: datetime
+
+
+class UnknownFieldRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    field_name: str
+    sample_value: str | None
+    occurrence_count: int
+    first_seen_at: datetime | None
+    last_seen_at: datetime | None
+    normalized_mapping: str | None
+
+
+class DataGapRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    gateway_id: int | None
+    gap_start: datetime
+    gap_end: datetime
+    expected_reports: int | None
+    received_reports: int | None
+    resolved: bool
+    resolution_method: str | None
+    resolved_at: datetime | None

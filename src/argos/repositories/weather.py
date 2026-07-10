@@ -5,7 +5,16 @@ from datetime import date, datetime
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, joinedload
 
-from argos.models.ecowitt import DailyStatistic, Gateway, WeatherObservation, WeeklyStatistic
+from argos.models.ecowitt import (
+    DailyStatistic,
+    DataGap,
+    EcowittRawReport,
+    Gateway,
+    IngestionEvent,
+    UnknownField,
+    WeatherObservation,
+    WeeklyStatistic,
+)
 from argos.services.weather_aggregations import WeatherPeriodSummary
 
 
@@ -33,8 +42,78 @@ class WeatherRepository:
             statement = statement.where(WeatherObservation.observed_at_utc <= end)
         return list(self.session.scalars(statement).all())
 
+    def previous_observation(
+        self,
+        *,
+        gateway_id: int | None,
+        observed_at_utc: datetime,
+    ) -> WeatherObservation | None:
+        return self.session.scalar(
+            select(WeatherObservation)
+            .where(
+                WeatherObservation.gateway_id == gateway_id,
+                WeatherObservation.observed_at_utc < observed_at_utc,
+            )
+            .order_by(desc(WeatherObservation.observed_at_utc), desc(WeatherObservation.id))
+            .limit(1)
+        )
+
     def latest_gateway(self) -> Gateway | None:
         return self.session.scalar(select(Gateway).order_by(desc(Gateway.last_seen_at), desc(Gateway.id)).limit(1))
+
+    def recent_raw_reports(self, *, limit: int) -> list[EcowittRawReport]:
+        return list(
+            self.session.scalars(
+                select(EcowittRawReport).order_by(desc(EcowittRawReport.received_at_utc), desc(EcowittRawReport.id)).limit(limit)
+            ).all()
+        )
+
+    def ingestion_events(self, *, limit: int) -> list[IngestionEvent]:
+        return list(
+            self.session.scalars(
+                select(IngestionEvent).order_by(desc(IngestionEvent.created_at), desc(IngestionEvent.id)).limit(limit)
+            ).all()
+        )
+
+    def unknown_fields(self) -> list[UnknownField]:
+        return list(self.session.scalars(select(UnknownField).order_by(UnknownField.field_name)).all())
+
+    def data_gaps(self, *, unresolved_only: bool) -> list[DataGap]:
+        statement = select(DataGap).order_by(desc(DataGap.gap_start), desc(DataGap.id))
+        if unresolved_only:
+            statement = statement.where(DataGap.resolved.is_(False))
+        return list(self.session.scalars(statement).all())
+
+    def create_data_gap(
+        self,
+        *,
+        gateway_id: int | None,
+        gap_start: datetime,
+        gap_end: datetime,
+        expected_reports: int,
+        received_reports: int,
+    ) -> DataGap:
+        existing = self.session.scalar(
+            select(DataGap).where(
+                DataGap.gateway_id == gateway_id,
+                DataGap.gap_start == gap_start,
+                DataGap.gap_end == gap_end,
+            )
+        )
+        if existing is not None:
+            return existing
+
+        gap = DataGap(
+            gateway_id=gateway_id,
+            gap_start=gap_start,
+            gap_end=gap_end,
+            expected_reports=expected_reports,
+            received_reports=received_reports,
+            resolved=False,
+        )
+        self.session.add(gap)
+        self.session.flush()
+        return gap
 
     def daily_statistics(self, *, start: date | None, end: date | None) -> list[DailyStatistic]:
         statement = select(DailyStatistic).order_by(DailyStatistic.period_start, DailyStatistic.id)

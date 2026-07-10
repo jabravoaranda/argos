@@ -10,8 +10,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from argos.config.settings import get_settings
 from argos.parsers.ecowitt_ws90 import parse_ws90_payload
 from argos.repositories.ecowitt_capture import EcowittCaptureRepository
+from argos.services.data_quality import detect_gap_for_observation
 from argos.services.weather_statistics import update_statistics_for_observation
 
 logger = logging.getLogger(__name__)
@@ -105,6 +107,11 @@ def capture_ecowitt_payload(
         observed_at_utc=parse_result.observed_at_utc,
         received_at_utc=received_at_utc,
         values=parse_result.normalized_values,
+    )
+    detect_gap_for_observation(
+        session=session,
+        observation=observation,
+        expected_interval_seconds=get_settings().ecowitt_expected_interval_seconds,
     )
     update_statistics_for_observation(session, observation)
     repository.upsert_unknown_fields(parse_result.unknown_fields, received_at_utc)
