@@ -34,6 +34,23 @@ class Gateway(TimestampMixin, Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
 
     raw_reports: Mapped[list["EcowittRawReport"]] = relationship(back_populates="gateway")
+    aliases: Mapped[list["GatewayAlias"]] = relationship(back_populates="gateway")
+
+
+class GatewayAlias(TimestampMixin, Base):
+    __tablename__ = "gateway_aliases"
+    __table_args__ = (
+        UniqueConstraint("alias_type", "alias_value", name="uq_gateway_aliases_type_value"),
+        Index("ix_gateway_aliases_gateway_id", "gateway_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    gateway_id: Mapped[int] = mapped_column(ForeignKey("gateways.id"), nullable=False)
+    alias_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    alias_value: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    gateway: Mapped[Gateway] = relationship(back_populates="aliases")
 
 
 class EcowittRawReport(TimestampMixin, Base):

@@ -35,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     backfill_parser.add_argument("--station-type", default=None, help="Optional station type metadata.")
     backfill_parser.add_argument(
+        "--cloud-mac",
+        default=None,
+        help="Optional Ecowitt Cloud MAC alias to link Cloud data to an existing LAN gateway.",
+    )
+    backfill_parser.add_argument(
         "--callbacks",
         default=",".join(DEFAULT_HISTORY_CALLBACKS),
         help="Comma-separated Ecowitt Cloud call_back groups.",
@@ -56,6 +61,7 @@ def run_cloud_backfill(args: argparse.Namespace) -> None:
             client=client,
             gateway_identifier=args.gateway_identifier,
             station_type=args.station_type,
+            gateway_aliases={"ecowitt_cloud_mac": args.cloud_mac} if args.cloud_mac else None,
             start=args.start,
             end=args.end,
             callbacks=callbacks,

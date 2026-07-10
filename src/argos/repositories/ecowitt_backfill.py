@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from argos.models.ecowitt import EcowittCloudRawReport, Gateway, IngestionEvent, WeatherObservation
+from argos.models.ecowitt import EcowittCloudRawReport, Gateway, GatewayAlias, IngestionEvent, WeatherObservation
 
 
 class EcowittBackfillRepository:
@@ -19,8 +19,9 @@ class EcowittBackfillRepository:
         identifier: str,
         station_type: str | None,
         metadata_json: dict[str, Any],
+        aliases: dict[str, str] | None = None,
     ) -> Gateway:
-        gateway = self.session.scalar(select(Gateway).where(Gateway.mac_address == identifier))
+        gateway = self.resolve_gateway(identifier=identifier, aliases=aliases or {})
         if gateway is None:
             gateway = Gateway(
                 uuid=identifier,
@@ -30,11 +31,49 @@ class EcowittBackfillRepository:
             )
             self.session.add(gateway)
             self.session.flush()
+            self.upsert_gateway_aliases(gateway_id=gateway.id, aliases=aliases or {})
             return gateway
 
         gateway.station_type = station_type or gateway.station_type
         gateway.metadata_json = {**(gateway.metadata_json or {}), **metadata_json}
+        self.upsert_gateway_aliases(gateway_id=gateway.id, aliases=aliases or {})
         return gateway
+
+    def resolve_gateway(self, *, identifier: str, aliases: dict[str, str]) -> Gateway | None:
+        gateway = self.session.scalar(select(Gateway).where(Gateway.mac_address == identifier))
+        if gateway is not None:
+            return gateway
+
+        for alias_type, alias_value in aliases.items():
+            alias = self.session.scalar(
+                select(GatewayAlias).where(
+                    GatewayAlias.alias_type == alias_type,
+                    GatewayAlias.alias_value == normalize_gateway_alias(alias_value),
+                )
+            )
+            if alias is not None:
+                return alias.gateway
+        return None
+
+    def upsert_gateway_aliases(self, *, gateway_id: int, aliases: dict[str, str]) -> None:
+        for alias_type, alias_value in aliases.items():
+            normalized_value = normalize_gateway_alias(alias_value)
+            if not normalized_value:
+                continue
+            alias = self.session.scalar(
+                select(GatewayAlias).where(
+                    GatewayAlias.alias_type == alias_type,
+                    GatewayAlias.alias_value == normalized_value,
+                )
+            )
+            if alias is None:
+                self.session.add(
+                    GatewayAlias(
+                        gateway_id=gateway_id,
+                        alias_type=alias_type,
+                        alias_value=normalized_value,
+                    )
+                )
 
     def get_cloud_raw_report_by_hash(self, payload_hash: str) -> EcowittCloudRawReport | None:
         return self.session.scalar(
@@ -122,3 +161,7 @@ class EcowittBackfillRepository:
                 message=message,
             )
         )
+
+
+def normalize_gateway_alias(value: str) -> str:
+    return value.strip().upper().replace(":", "").replace("-", "")

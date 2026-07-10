@@ -19,14 +19,15 @@ uv run argos ecowitt-cloud backfill `
   --start 2026-07-10T00:00:00Z `
   --end 2026-07-10T01:00:00Z `
   --gateway-identifier GW2000A `
-  --station-type GW2000A_V3.3.2
+  --station-type GW2000A_V3.3.2 `
+  --cloud-mac AABBCCDDEEFF
 ```
 
 Decisions needed:
 
 1. Confirm the canonical gateway identifier.
 
-   Current direct LAN ingestion uses `model` when available, for example `GW2000A`. Ecowitt Cloud identifies devices by MAC. A proper alias table may be needed before broad backfills.
+   Current direct LAN ingestion uses `model` when available, for example `GW2000A`. Ecowitt Cloud identifies devices by MAC. ARGOS now has a `gateway_aliases` table, but the operator still needs to confirm which alias should become canonical in the UI and reports.
 
 2. Capture one real Ecowitt Cloud history response.
 

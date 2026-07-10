@@ -80,7 +80,8 @@ uv run argos ecowitt-cloud backfill `
   --start 2026-07-10T00:00:00Z `
   --end 2026-07-10T01:00:00Z `
   --gateway-identifier GW2000A `
-  --station-type GW2000A_V3.3.2
+  --station-type GW2000A_V3.3.2 `
+  --cloud-mac AABBCCDDEEFF
 ```
 
 The command requires Ecowitt Cloud credentials in `.env`:
@@ -93,7 +94,7 @@ ECOWITT_CLOUD_MAC=...
 
 Pending decisions for operator review:
 
-- canonical gateway identity: `model`, LAN identifier, Cloud MAC, or a gateway alias table;
+- canonical gateway identity: `model`, LAN identifier, Cloud MAC, or a promoted gateway alias;
 - whether backfill should be triggered by CLI, admin HTTP endpoint, or both;
 - whether Cloud imports may fill missing fields in an existing `DIRECT` observation;
 - confirmed Cloud history payload shape and units for GW2000A firmware 3.3.2 with WS90.

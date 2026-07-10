@@ -77,6 +77,7 @@ def backfill_ecowitt_cloud_range(
     start: datetime,
     end: datetime,
     station_type: str | None = None,
+    gateway_aliases: Mapping[str, str] | None = None,
     callbacks: tuple[str, ...] = DEFAULT_HISTORY_CALLBACKS,
 ) -> BackfillRangeResult:
     payload = client.get_history(start=start, end=end, callbacks=callbacks)
@@ -89,6 +90,7 @@ def backfill_ecowitt_cloud_range(
             normalized_values=observation.normalized_values,
             cloud_payload=observation.cloud_payload,
             station_type=station_type,
+            gateway_aliases=gateway_aliases,
             requested_start_utc=start,
             requested_end_utc=end,
             api_version=client.api_version,
@@ -113,6 +115,7 @@ def import_backfilled_observation(
     normalized_values: Mapping[str, float | None],
     cloud_payload: Mapping[str, Any],
     station_type: str | None = None,
+    gateway_aliases: Mapping[str, str] | None = None,
     requested_start_utc: datetime | None = None,
     requested_end_utc: datetime | None = None,
     api_version: str | None = "v3",
@@ -124,6 +127,7 @@ def import_backfilled_observation(
         identifier=gateway_identifier,
         station_type=station_type,
         metadata_json={"backfill_source": "ecowitt_cloud"},
+        aliases=dict(gateway_aliases or {}),
     )
     payload_hash = build_cloud_backfill_hash(
         gateway_identifier=gateway_identifier,

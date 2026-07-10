@@ -180,7 +180,8 @@ uv run argos ecowitt-cloud backfill `
   --start 2026-07-10T00:00:00Z `
   --end 2026-07-10T01:00:00Z `
   --gateway-identifier GW2000A `
-  --station-type GW2000A_V3.3.2
+  --station-type GW2000A_V3.3.2 `
+  --cloud-mac AABBCCDDEEFF
 ```
 
 ## GW2000 Configuration
