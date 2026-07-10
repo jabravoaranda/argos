@@ -7,7 +7,7 @@ from typing import NoReturn
 from argos.config.settings import get_settings
 from argos.database.session import get_sessionmaker
 from argos.integrations.ecowitt_cloud import DEFAULT_HISTORY_CALLBACKS, EcowittCloudClient, EcowittCloudConfigError
-from argos.services.ecowitt_backfill import backfill_ecowitt_cloud_range
+from argos.services.ecowitt_backfill import BackfillRangeError, backfill_ecowitt_cloud_range
 
 
 def main() -> None:
@@ -62,17 +62,20 @@ def run_cloud_backfill(args: argparse.Namespace) -> None:
 
     callbacks = parse_callbacks(args.callbacks)
     with get_sessionmaker()() as session:
-        result = backfill_ecowitt_cloud_range(
-            session=session,
-            client=client,
-            gateway_identifier=args.gateway_identifier,
-            station_slug=args.station_slug or settings.station_slug,
-            station_type=args.station_type,
-            gateway_aliases={"ecowitt_cloud_mac": args.cloud_mac} if args.cloud_mac else None,
-            start=args.start,
-            end=args.end,
-            callbacks=callbacks,
-        )
+        try:
+            result = backfill_ecowitt_cloud_range(
+                session=session,
+                client=client,
+                gateway_identifier=args.gateway_identifier,
+                station_slug=args.station_slug or settings.station_slug,
+                station_type=args.station_type,
+                gateway_aliases={"ecowitt_cloud_mac": args.cloud_mac} if args.cloud_mac else None,
+                start=args.start,
+                end=args.end,
+                callbacks=callbacks,
+            )
+        except BackfillRangeError as exc:
+            raise SystemExit(str(exc)) from exc
 
     print(f"Imported: {result.imported_count}")
     print(f"Duplicates: {result.duplicate_count}")

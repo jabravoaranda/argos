@@ -167,6 +167,7 @@ Configure Cloud credentials only when backfill is needed:
 ECOWITT_CLOUD_APPLICATION_KEY=...
 ECOWITT_CLOUD_API_KEY=...
 ECOWITT_CLOUD_MAC=...
+ECOWITT_CLOUD_MAX_BACKFILL_HOURS=24
 ```
 
 The current backfill phase includes:
@@ -175,6 +176,7 @@ The current backfill phase includes:
 - Separate persistence for Ecowitt Cloud raw payloads in `ecowitt_cloud_raw_reports`.
 - `weather_observations.source` to distinguish `DIRECT` and `BACKFILLED` readings.
 - Timestamp deduplication so Cloud imports do not duplicate direct LAN observations.
+- Bounded manual ranges through `ECOWITT_CLOUD_MAX_BACKFILL_HOURS`.
 - Internal manual CLI backfill through `uv run argos ecowitt-cloud backfill`.
 
 The response adapter for the exact Ecowitt Cloud history payload shape is intentionally still pending.

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     ecowitt_cloud_api_key: str | None = None
     ecowitt_cloud_mac: str | None = None
     ecowitt_cloud_timeout_seconds: int = 10
+    ecowitt_cloud_max_backfill_hours: int = 24
 
 
 @lru_cache

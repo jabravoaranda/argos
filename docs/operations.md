@@ -105,7 +105,10 @@ The command requires Ecowitt Cloud credentials in `.env`:
 ECOWITT_CLOUD_APPLICATION_KEY=...
 ECOWITT_CLOUD_API_KEY=...
 ECOWITT_CLOUD_MAC=...
+ECOWITT_CLOUD_MAX_BACKFILL_HOURS=24
 ```
+
+ARGOS rejects Cloud backfill requests where `end <= start` or where the requested window is longer than `ECOWITT_CLOUD_MAX_BACKFILL_HOURS`. Keep this conservative until a real Ecowitt Cloud history payload and account-specific range limits are verified.
 
 Pending decisions for operator review:
 

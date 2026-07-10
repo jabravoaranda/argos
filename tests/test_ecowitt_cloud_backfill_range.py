@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy import select
 
 from argos.config.settings import get_settings
@@ -9,7 +10,7 @@ from argos.database.base import Base
 from argos.database.session import get_engine, get_sessionmaker, reset_database_caches
 from argos.integrations.ecowitt_cloud import EcowittCloudClient, EcowittCloudCredentials
 from argos.models.ecowitt import EcowittCloudRawReport, WeatherObservation
-from argos.services.ecowitt_backfill import backfill_ecowitt_cloud_range
+from argos.services.ecowitt_backfill import BackfillRangeError, backfill_ecowitt_cloud_range
 
 
 class FakeCloudClient(EcowittCloudClient):
@@ -107,5 +108,56 @@ def test_backfill_ecowitt_cloud_range_reports_adapter_warnings(monkeypatch, tmp_
         assert result.warning_count == 1
         assert "soilmoisture1" in result.warnings[0]
 
+    get_settings.cache_clear()
+    reset_database_caches()
+
+
+def test_backfill_ecowitt_cloud_range_rejects_invalid_window(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ECOWITT_INGEST_TOKEN", "test-token")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'argos.db'}")
+    get_settings.cache_clear()
+    reset_database_caches()
+    Base.metadata.create_all(get_engine())
+
+    client = FakeCloudClient()
+    start = datetime(2026, 7, 10, 13, 0, tzinfo=UTC)
+    end = datetime(2026, 7, 10, 12, 0, tzinfo=UTC)
+
+    with get_sessionmaker()() as session, pytest.raises(BackfillRangeError, match="end must be after start"):
+        backfill_ecowitt_cloud_range(
+            session=session,
+            client=client,
+            gateway_identifier="GW2000A",
+            start=start,
+            end=end,
+        )
+
+    assert client.calls == []
+    get_settings.cache_clear()
+    reset_database_caches()
+
+
+def test_backfill_ecowitt_cloud_range_rejects_oversized_window(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ECOWITT_INGEST_TOKEN", "test-token")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'argos.db'}")
+    get_settings.cache_clear()
+    reset_database_caches()
+    Base.metadata.create_all(get_engine())
+
+    client = FakeCloudClient()
+    start = datetime(2026, 7, 10, 0, 0, tzinfo=UTC)
+    end = datetime(2026, 7, 12, 0, 0, tzinfo=UTC)
+
+    with get_sessionmaker()() as session, pytest.raises(BackfillRangeError, match="24 hours"):
+        backfill_ecowitt_cloud_range(
+            session=session,
+            client=client,
+            gateway_identifier="GW2000A",
+            start=start,
+            end=end,
+            max_range_hours=24,
+        )
+
+    assert client.calls == []
     get_settings.cache_clear()
     reset_database_caches()

@@ -5,7 +5,7 @@ import json
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -70,6 +70,10 @@ class BackfillRangeResult:
     results: list[BackfillImportResult]
 
 
+class BackfillRangeError(ValueError):
+    """Raised when a requested Cloud backfill range is unsafe or invalid."""
+
+
 def backfill_ecowitt_cloud_range(
     *,
     session: Session,
@@ -81,7 +85,14 @@ def backfill_ecowitt_cloud_range(
     station_type: str | None = None,
     gateway_aliases: Mapping[str, str] | None = None,
     callbacks: tuple[str, ...] = DEFAULT_HISTORY_CALLBACKS,
+    max_range_hours: int | None = None,
 ) -> BackfillRangeResult:
+    settings = get_settings()
+    validate_backfill_range(
+        start=start,
+        end=end,
+        max_range_hours=max_range_hours if max_range_hours is not None else settings.ecowitt_cloud_max_backfill_hours,
+    )
     payload = client.get_history(start=start, end=end, callbacks=callbacks)
     parse_result = parse_cloud_history_payload(payload)
     import_results = [
@@ -244,6 +255,17 @@ def build_cloud_backfill_hash(
         default=str,
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def validate_backfill_range(*, start: datetime, end: datetime, max_range_hours: int) -> None:
+    if end <= start:
+        raise BackfillRangeError("Ecowitt Cloud backfill end must be after start.")
+    if max_range_hours < 1:
+        raise BackfillRangeError("Ecowitt Cloud max backfill window must be at least 1 hour.")
+    if end - start > timedelta(hours=max_range_hours):
+        raise BackfillRangeError(
+            f"Ecowitt Cloud backfill range exceeds configured maximum of {max_range_hours} hours."
+        )
 
 
 def _validate_normalized_values(values: Mapping[str, float | None]) -> dict[str, float | None]:

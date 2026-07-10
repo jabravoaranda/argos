@@ -16,6 +16,7 @@ def test_settings_load_defaults_without_env_file() -> None:
     assert settings.ecowitt_capture_raw is False
     assert settings.ecowitt_cloud_base_url == "https://api.ecowitt.net"
     assert settings.ecowitt_cloud_application_key is None
+    assert settings.ecowitt_cloud_max_backfill_hours == 24
 
 
 def test_settings_require_ingest_token(monkeypatch) -> None:
