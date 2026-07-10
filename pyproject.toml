@@ -9,10 +9,14 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.18.5",
     "fastapi>=0.139.0",
+    "pandas>=3.0.3",
+    "plotly>=6.9.0",
     "psycopg[binary]>=3.3.4",
     "pydantic-settings>=2.14.2",
     "python-dotenv>=1.2.2",
+    "requests>=2.34.2",
     "sqlalchemy>=2.0.51",
+    "streamlit>=1.59.1",
     "uvicorn>=0.51.0",
 ]
 
@@ -27,6 +31,7 @@ build-backend = "hatchling.build"
 dev = [
     "httpx2>=2.5.0",
     "mypy>=2.2.0",
+    "pandas-stubs>=3.0.3.260530",
     "pytest>=9.1.1",
     "ruff>=0.15.21",
 ]

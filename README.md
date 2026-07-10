@@ -124,6 +124,33 @@ uv run ruff check .
 uv run mypy src
 ```
 
+## Dashboard
+
+Run the local dashboard:
+
+```powershell
+uv run streamlit run src/argos/dashboard/app.py
+```
+
+Open:
+
+```text
+http://localhost:8501
+```
+
+The dashboard reads from the FastAPI backend. Start the API first:
+
+```powershell
+uv run uvicorn argos.main:app --host 0.0.0.0 --port 8080
+```
+
+Dashboard views:
+
+- Home: live station status and current conditions.
+- Observations: interactive time-series chart and downloadable observation table.
+- Summaries: daily and weekly statistics from persisted API summaries.
+- Quality: data gaps, ingestion events, unknown fields and recent raw reports. This view requires the admin token.
+
 ## GW2000 Configuration
 
 Configure the GW2000 Customized service with:

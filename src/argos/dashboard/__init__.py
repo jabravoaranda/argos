@@ -1,0 +1,1 @@
+"""ARGOS local dashboard."""
