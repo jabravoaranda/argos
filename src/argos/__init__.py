@@ -1,4 +1,6 @@
-def main() -> None:
-    from argos.weather.ecowitt import main as ecowitt_main
+"""ARGOS application package."""
 
-    raise SystemExit(ecowitt_main())
+
+def main() -> None:
+    """CLI placeholder for the ARGOS package."""
+    print("ARGOS: use `uv run uvicorn argos.main:app` to start the API.")

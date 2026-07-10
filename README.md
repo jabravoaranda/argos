@@ -2,168 +2,165 @@
 
 Agricultural Remote Gateway for Observation and Sensing.
 
-## Instalacion
+ARGOS is being redesigned as a FastAPI-based environmental data platform. The primary Ecowitt GW2000 integration will use the gateway's Customized HTTP upload mode, preserving raw payloads and storing normalized observations in a database.
 
-El proyecto usa `uv` para crear el entorno, instalar dependencias y ejecutar comandos.
+## Current Scope
+
+This branch contains Epic 1: the clean FastAPI and database foundation.
+
+Included:
+
+- Python project managed with `uv` and `pyproject.toml`.
+- FastAPI application entrypoint.
+- Environment-based configuration.
+- SQLAlchemy 2.x models.
+- Alembic migrations.
+- SQLite for local development.
+- PostgreSQL-compatible schema and Docker Compose service.
+- Basic health endpoints.
+- Ruff, mypy and pytest configuration through project dependencies.
+
+Included in the current implementation:
+
+- Ecowitt Customized upload endpoint for direct GW2000A capture.
+- Raw payload persistence.
+- WS90 parser based on a real GW2000A firmware 3.3.2 payload.
+- Normalized weather observation persistence.
+- Duplicate detection.
+- Unknown field catalogue for captured fields without normalized mapping.
+
+Still not included:
+
+- Dashboard.
+- Historical backfill.
+
+## Installation
 
 ```powershell
-uv venv
 uv sync
-```
-
-Tambien se incluye `requirements.txt` para documentar las dependencias principales.
-
-## Configuracion de la IP
-
-Configura la IP LAN del Ecowitt GW2000 con `.env`:
-
-```powershell
 Copy-Item .env.example .env
 ```
 
+Edit `.env` and set a real ingestion token:
+
 ```dotenv
-ECOWITT_GW2000_IP=192.168.1.137
-ECOWITT_TIMEOUT_SECONDS=10
-ECOWITT_INTERVAL_SECONDS=60
-ARGOS_WEATHER_DATA_DIR=data/weather
-ARGOS_BROKER_URL=redis://localhost:6379/0
-ARGOS_RESULT_BACKEND=redis://localhost:6379/0
-ARGOS_TIMEZONE=Europe/Madrid
+ECOWITT_INGEST_TOKEN=replace-with-a-random-token
 ```
 
-O con `config.yaml`:
+For local development the default database is SQLite:
+
+```dotenv
+DATABASE_URL=sqlite:///./var/argos.db
+```
+
+## Database
+
+Apply migrations:
 
 ```powershell
-Copy-Item config.yaml.example config.yaml
+uv run alembic upgrade head
 ```
 
-```yaml
-ecowitt:
-  gw2000_ip: 192.168.1.137
-  timeout_seconds: 10
-  interval_seconds: 60
-  data_dir: data/weather
+To use PostgreSQL locally with Docker Desktop:
+
+```powershell
+docker compose up -d postgres
 ```
 
-El modulo consulta:
+Then set:
+
+```dotenv
+DATABASE_URL=postgresql+psycopg://argos:argos@localhost:5432/argos
+```
+
+and run:
+
+```powershell
+uv run alembic upgrade head
+```
+
+## Run the API
+
+```powershell
+uv run uvicorn argos.main:app --host 0.0.0.0 --port 8080
+```
+
+Open:
 
 ```text
-http://<GW2000_IP>/get_livedata_info
+http://localhost:8080/health
+http://localhost:8080/ready
+http://localhost:8080/docs
 ```
 
-## Ejecucion manual
-
-Una sola lectura:
-
-```powershell
-uv run python -m argos.weather.ecowitt
-```
-
-Worker continuo, una lectura cada `ECOWITT_INTERVAL_SECONDS` segundos:
-
-```powershell
-uv run python -m argos.weather.ecowitt --worker
-```
-
-Worker con Celery y Redis en Windows. Abre una terminal para el worker:
-
-```powershell
-uv run celery -A argos.worker.celery_app:app worker --loglevel=info --pool=solo
-```
-
-Y otra terminal para Celery Beat, que lanza la tarea periodica:
-
-```powershell
-uv run celery -A argos.worker.celery_app:app beat --loglevel=info
-```
-
-En Linux se puede ejecutar worker y Beat en el mismo proceso:
-
-```bash
-uv run celery -A argos.worker.celery_app:app worker --beat --loglevel=info
-```
-
-Este modo necesita un Redis accesible en `ARGOS_BROKER_URL`. Docker no es obligatorio; basta con que Redis este ejecutandose en la maquina o en la red.
-
-Con Docker Desktop, levanta Redis asi:
-
-```powershell
-docker compose up -d redis
-```
-
-Comprueba que responde:
-
-```powershell
-docker compose exec redis redis-cli ping
-```
-
-Debe devolver:
+Useful weather API endpoints:
 
 ```text
-PONG
+GET /api/v1/weather/latest
+GET /api/v1/weather/observations?from=2026-07-10T00:00:00Z&to=2026-07-10T23:59:59Z
+GET /api/v1/weather/summary/daily?from=2026-07-10T00:00:00Z&to=2026-07-10T23:59:59Z
+GET /api/v1/weather/summary/weekly?from=2026-07-01T00:00:00Z&to=2026-07-31T23:59:59Z
+POST /api/v1/weather/statistics/recompute?from=2026-07-01T00:00:00Z&to=2026-07-31T23:59:59Z
+GET /api/v1/weather/gateway/status
 ```
 
-Panel web con Flower:
+The gateway status endpoint reports the latest gateway seen by ARGOS and marks it offline when the last report is older than `ECOWITT_OFFLINE_AFTER_SECONDS`.
 
-```powershell
-uv run celery -A argos.worker.celery_app:app flower --port=5555
-```
+Daily and weekly summaries are persisted in `daily_statistics` and `weekly_statistics`. New Ecowitt observations update the affected day and ISO week automatically. The recompute endpoint is idempotent and can be used after migrations or historical imports.
 
-Despues abre:
-
-```text
-http://localhost:5555
-```
-
-Flower permite ver workers, tareas registradas, tareas ejecutadas y estado de la cola Celery. Redis sigue siendo el broker; Flower no sustituye a Redis ni es un editor general de claves Redis.
-
-Cada ejecucion guarda una fila en el CSV diario:
-
-```text
-data/weather/YYYY/YYYY-MM-DD.csv
-```
-
-Tambien guarda el JSON bruto en:
-
-```text
-data/weather/raw/YYYY/YYYY-MM-DD/
-```
-
-## Cron cada minuto
-
-Si prefieres no dejar un worker vivo, tambien puedes programar una ejecucion por minuto con cron en Linux:
-
-```cron
-* * * * * cd /ruta/a/argos && /usr/bin/env uv run python -m argos.weather.ecowitt >> logs/ecowitt.log 2>&1
-```
-
-## Tests
+## Quality Checks
 
 ```powershell
 uv run pytest
+uv run ruff check .
+uv run mypy src
 ```
 
-## Dashboard local
+## GW2000 Configuration
 
-La primera interfaz web de ARGOS usa Streamlit, Pandas y Plotly para visualizar los CSV meteorologicos guardados en `data/weather`.
-
-Ejecuta:
-
-```powershell
-uv run streamlit run argos/dashboard/app.py
-```
-
-La app combina automaticamente todos los CSV diarios disponibles en:
+Configure the GW2000 Customized service with:
 
 ```text
-data/weather/YYYY/YYYY-MM-DD.csv
+Protocol Type: Ecowitt
+Server Hostname: <ARGOS_HOST>
+Port: 8080
+Path: /api/v1/ecowitt/upload/<ECOWITT_INGEST_TOKEN>
+Upload Interval: 60 seconds
 ```
 
-Incluye vistas diaria, semanal, mensual, anual y tendencias, con graficos interactivos, filtros de fecha, seleccion de variables y descarga de tablas resumen en CSV.
+The receiver captures the raw request body, stores the parsed key/value payload and creates a normalized weather observation for the confirmed GW2000A firmware 3.3.2 + WS90 field set.
 
-El boton `Actualizar Ecowitt ahora` encola una lectura puntual en Celery, independiente de Celery Beat. Para que funcione deben estar activos Redis y el worker:
+Currently mapped fields:
 
-```powershell
-docker compose up -d redis
-uv run celery -A argos.worker.celery_app:app worker --loglevel=info --pool=solo
+```text
+tempinf
+humidityin
+baromrelin
+baromabsin
+tempf
+humidity
+vpd
+winddir
+windspeedmph
+windgustmph
+maxdailygust
+solarradiation
+uv
+rrain_piezo
+erain_piezo
+hrain_piezo
+last24hrain_piezo
+drain_piezo
+wrain_piezo
+mrain_piezo
+yrain_piezo
+wh90batt
+winddir_avg10m
+ws90cap_volt
+srain_piezo
+```
+
+Captured but not normalized yet:
+
+```text
 ```
