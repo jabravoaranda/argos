@@ -169,8 +169,19 @@ The current backfill phase includes:
 - Separate persistence for Ecowitt Cloud raw payloads in `ecowitt_cloud_raw_reports`.
 - `weather_observations.source` to distinguish `DIRECT` and `BACKFILLED` readings.
 - Timestamp deduplication so Cloud imports do not duplicate direct LAN observations.
+- Internal manual CLI backfill through `uv run argos ecowitt-cloud backfill`.
 
 The response adapter for the exact Ecowitt Cloud history payload shape is intentionally still pending.
+
+Example manual backfill command:
+
+```powershell
+uv run argos ecowitt-cloud backfill `
+  --start 2026-07-10T00:00:00Z `
+  --end 2026-07-10T01:00:00Z `
+  --gateway-identifier GW2000A `
+  --station-type GW2000A_V3.3.2
+```
 
 ## GW2000 Configuration
 

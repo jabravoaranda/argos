@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-argos = "argos:main"
+argos = "argos.cli:main"
 
 [build-system]
 requires = ["hatchling"]

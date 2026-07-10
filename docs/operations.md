@@ -73,6 +73,24 @@ The current implementation can:
 
 Backfill is not exposed as an HTTP endpoint yet. Keep it internal until a real Cloud history payload from the target station has been captured and verified.
 
+Manual CLI backfill:
+
+```powershell
+uv run argos ecowitt-cloud backfill `
+  --start 2026-07-10T00:00:00Z `
+  --end 2026-07-10T01:00:00Z `
+  --gateway-identifier GW2000A `
+  --station-type GW2000A_V3.3.2
+```
+
+The command requires Ecowitt Cloud credentials in `.env`:
+
+```dotenv
+ECOWITT_CLOUD_APPLICATION_KEY=...
+ECOWITT_CLOUD_API_KEY=...
+ECOWITT_CLOUD_MAC=...
+```
+
 Pending decisions for operator review:
 
 - canonical gateway identity: `model`, LAN identifier, Cloud MAC, or a gateway alias table;
