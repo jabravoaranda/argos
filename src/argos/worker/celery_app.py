@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from celery import Celery
+from dotenv import load_dotenv
 
 from argos.worker.scheduled.weather import weather_schedule
 
@@ -11,6 +12,8 @@ DEFAULT_BROKER_URL = "redis://localhost:6379/0"
 
 
 def create_app() -> Celery:
+    load_dotenv()
+
     broker_url = os.getenv("ARGOS_BROKER_URL", os.getenv("BROKER_URL", DEFAULT_BROKER_URL))
     result_backend = os.getenv("ARGOS_RESULT_BACKEND", os.getenv("RESULT_BACKEND", broker_url))
 

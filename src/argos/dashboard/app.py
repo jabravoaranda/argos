@@ -30,6 +30,7 @@ from argos.dashboard.tasks import DashboardTaskError, enqueue_ecowitt_update
 def main() -> None:
     st.set_page_config(page_title="ARGOS Dashboard", layout="wide")
     st.title("ARGOS Dashboard")
+    st.caption("Agricultural Remote Gateway for Observation and Sensing")
 
     with st.sidebar:
         st.header("Datos meteorologicos")
