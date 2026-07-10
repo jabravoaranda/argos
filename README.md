@@ -149,6 +149,7 @@ Dashboard views:
 - Home: live station status and current conditions.
 - Observations: interactive time-series chart and downloadable observation table.
 - Summaries: daily and weekly statistics from persisted API summaries.
+- Trends: moving averages, period anomalies and simple linear trends.
 - Quality: data gaps, ingestion events, unknown fields and recent raw reports. This view requires the admin token.
 
 ## GW2000 Configuration

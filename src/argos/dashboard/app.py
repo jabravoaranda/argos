@@ -8,6 +8,7 @@ import plotly.express as px  # type: ignore[import-untyped]
 import streamlit as st
 
 from argos.dashboard.api_client import ArgosApiClient, ArgosApiError
+from argos.dashboard.trends import build_trend_frame
 
 
 st.set_page_config(page_title="ARGOS dashboard", page_icon=":material/monitoring:", layout="wide")
@@ -63,8 +64,8 @@ def main() -> None:
     daily_df = dataframe_from_records(daily, "period_start")
     weekly_df = dataframe_from_records(weekly, "period_start")
 
-    home_tab, observations_tab, summaries_tab, quality_tab = st.tabs(
-        ["Home", "Observations", "Summaries", "Quality"]
+    home_tab, observations_tab, summaries_tab, trends_tab, quality_tab = st.tabs(
+        ["Home", "Observations", "Summaries", "Trends", "Quality"]
     )
 
     with home_tab:
@@ -75,6 +76,9 @@ def main() -> None:
 
     with summaries_tab:
         render_summaries(daily_df, weekly_df)
+
+    with trends_tab:
+        render_trends(observations_df, selected_variables)
 
     with quality_tab:
         render_quality(client)
@@ -239,6 +243,63 @@ def render_summary_table(frame: pd.DataFrame, title: str) -> None:
                 x_label="Period",
                 y_label="deg C",
             )
+
+
+def render_trends(observations_df: pd.DataFrame, selected_variables: list[str]) -> None:
+    if observations_df.empty:
+        st.info("No observations in the selected range.")
+        return
+
+    numeric_variables = [
+        variable
+        for variable in selected_variables
+        if variable in observations_df.columns and pd.api.types.is_numeric_dtype(observations_df[variable])
+    ]
+    if not numeric_variables:
+        st.info("Select at least one numeric variable in the sidebar.")
+        return
+
+    with st.container(horizontal=True, vertical_alignment="bottom"):
+        variable = st.selectbox(
+            "Trend variable",
+            options=numeric_variables,
+            format_func=lambda value: LABELS.get(value, value),
+        )
+        rolling_window = st.slider("Moving average window", min_value=2, max_value=60, value=10)
+
+    trend_df, summary = build_trend_frame(observations_df, variable=variable, rolling_window=rolling_window)
+    if trend_df.empty:
+        st.info("No valid values for the selected variable.")
+        return
+
+    with st.container(horizontal=True):
+        st.metric("Samples", summary.sample_count, border=True)
+        st.metric("Mean", format_number(summary.mean, ""), border=True)
+        st.metric("Slope / sample", format_number(summary.slope_per_sample, ""), border=True)
+
+    plot_df = trend_df.melt(
+        id_vars=["observed_at_utc"],
+        value_vars=["value", "rolling_mean", "trend_line"],
+        var_name="Series",
+        value_name="Value",
+    ).dropna()
+    plot_df["Series"] = plot_df["Series"].map(
+        {"value": "Value", "rolling_mean": "Moving average", "trend_line": "Linear trend"}
+    )
+    figure = px.line(plot_df, x="observed_at_utc", y="Value", color="Series", markers=True)
+    figure.update_layout(xaxis_title="Observed UTC", yaxis_title=LABELS.get(variable, variable), legend_title_text="")
+    st.plotly_chart(figure, width="stretch")
+
+    anomaly = trend_df[["observed_at_utc", "anomaly"]].dropna()
+    if not anomaly.empty:
+        anomaly_figure = px.bar(anomaly, x="observed_at_utc", y="anomaly")
+        anomaly_figure.update_layout(xaxis_title="Observed UTC", yaxis_title="Anomaly from selected period mean")
+        st.plotly_chart(anomaly_figure, width="stretch")
+
+    with st.container(border=True):
+        st.subheader("Trend data")
+        st.dataframe(trend_df, hide_index=True)
+        add_csv_download(trend_df, "Download trend CSV", "argos_trend.csv")
 
 
 def render_quality(client: ArgosApiClient) -> None:
