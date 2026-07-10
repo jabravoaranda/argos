@@ -9,6 +9,7 @@ import streamlit as st
 
 from argos.dashboard.api_client import ArgosApiClient, ArgosApiError
 from argos.dashboard.filters import filter_observations_by_source, observation_source_counts
+from argos.dashboard.period_profiles import build_hourly_profile
 from argos.dashboard.raw_reports import build_raw_report_table, latest_payload_preview
 from argos.dashboard.statistics import build_descriptive_statistics
 from argos.dashboard.summaries import build_annual_summary, build_monthly_summary, build_seasonal_summary
@@ -292,6 +293,21 @@ def render_observations(observations_df: pd.DataFrame, selected_variables: list[
         st.plotly_chart(figure, width="stretch")
     else:
         st.warning("Select at least one available variable.")
+
+    hourly_profile = build_hourly_profile(observations_df, available_variables)
+    if not hourly_profile.empty:
+        hourly_long_df = hourly_profile.melt(
+            id_vars=["hour"],
+            value_vars=[variable for variable in available_variables if variable in hourly_profile.columns],
+            var_name="Variable",
+            value_name="Hourly mean",
+        ).dropna()
+        hourly_long_df["Variable"] = hourly_long_df["Variable"].map(lambda value: LABELS.get(value, value))
+        with st.container(border=True):
+            st.subheader("Hourly profile")
+            hourly_figure = px.line(hourly_long_df, x="hour", y="Hourly mean", color="Variable", markers=True)
+            hourly_figure.update_layout(xaxis_title="Hour UTC", yaxis_title="Hourly mean", legend_title_text="")
+            st.plotly_chart(hourly_figure, width="stretch")
 
     with st.container(border=True):
         st.subheader("Observation table")
