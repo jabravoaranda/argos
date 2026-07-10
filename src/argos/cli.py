@@ -8,11 +8,15 @@ from argos.config.settings import get_settings
 from argos.database.session import get_sessionmaker
 from argos.integrations.ecowitt_cloud import DEFAULT_HISTORY_CALLBACKS, EcowittCloudClient, EcowittCloudConfigError
 from argos.services.ecowitt_backfill import BackfillRangeError, backfill_ecowitt_cloud_range
+from argos.services.ecowitt_status import EcowittStatus, build_ecowitt_status
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    if args.command == "ecowitt" and args.ecowitt_command == "status":
+        run_ecowitt_status()
+        return
     if args.command == "ecowitt-cloud" and args.ecowitt_cloud_command == "backfill":
         run_cloud_backfill(args)
         return
@@ -22,6 +26,10 @@ def main() -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="argos")
     subparsers = parser.add_subparsers(dest="command")
+
+    ecowitt_parser = subparsers.add_parser("ecowitt", help="Direct Ecowitt LAN ingestion utilities.")
+    ecowitt_subparsers = ecowitt_parser.add_subparsers(dest="ecowitt_command")
+    ecowitt_subparsers.add_parser("status", help="Report local Ecowitt ingestion status.")
 
     cloud_parser = subparsers.add_parser("ecowitt-cloud", help="Ecowitt Cloud backfill utilities.")
     cloud_subparsers = cloud_parser.add_subparsers(dest="ecowitt_cloud_command")
@@ -51,6 +59,34 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+def run_ecowitt_status() -> None:
+    settings = get_settings()
+    with get_sessionmaker()() as session:
+        status = build_ecowitt_status(
+            session=session,
+            offline_after_seconds=settings.ecowitt_offline_after_seconds,
+        )
+
+    for line in format_ecowitt_status(status):
+        print(line)
+
+
+def format_ecowitt_status(status: EcowittStatus) -> list[str]:
+    return [
+        f"Station: {status.station_slug or '-'}",
+        f"Gateway: {status.gateway_identifier or '-'}",
+        f"Gateway ID: {status.gateway_id or '-'}",
+        f"Station type: {status.station_type or '-'}",
+        f"Last report: {status.last_report_at.isoformat() if status.last_report_at else '-'}",
+        f"Online: {'yes' if status.online else 'no'}",
+        f"Reports last 24h: {status.reports_last_24h}",
+        f"Duplicate events: {status.duplicate_events}",
+        f"Parser warnings: {status.parser_warning_events}",
+        f"Unknown fields: {status.unknown_fields}",
+        f"Open gaps: {status.open_gaps}",
+    ]
 
 
 def run_cloud_backfill(args: argparse.Namespace) -> None:

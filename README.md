@@ -114,6 +114,12 @@ GET /api/v1/weather/admin/data-gaps
 
 The gateway status endpoint reports the latest gateway seen by ARGOS and marks it offline when the last report is older than `ECOWITT_OFFLINE_AFTER_SECONDS`.
 
+Local operator diagnostic:
+
+```powershell
+uv run argos ecowitt status
+```
+
 Daily and weekly summaries are persisted in `daily_statistics` and `weekly_statistics`. New Ecowitt observations update the affected day and ISO week automatically. The recompute endpoint is idempotent and can be used after migrations or historical imports.
 
 ARGOS detects gaps when consecutive observations for the same gateway are farther apart than twice `ECOWITT_EXPECTED_INTERVAL_SECONDS`. Gaps are stored in `data_gaps` and exposed through the admin API. Admin endpoints and statistics recomputation currently require the `X-ARGOS-ADMIN-TOKEN` header with the same value as `ECOWITT_INGEST_TOKEN`.

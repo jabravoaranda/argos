@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from argos.cli import build_parser, parse_callbacks, parse_utc_datetime
+from argos.cli import build_parser, format_ecowitt_status, parse_callbacks, parse_utc_datetime
+from argos.services.ecowitt_status import EcowittStatus
 
 
 def test_parse_utc_datetime_accepts_z_suffix_and_naive_values() -> None:
@@ -45,3 +46,35 @@ def test_build_parser_requires_gateway_identifier_for_backfill() -> None:
     assert args.gateway_identifier == "GW2000A"
     assert args.station_slug == "tomillar"
     assert args.cloud_mac == "AA:BB:CC:DD:EE:FF"
+
+
+def test_build_parser_accepts_ecowitt_status_command() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(["ecowitt", "status"])
+
+    assert args.command == "ecowitt"
+    assert args.ecowitt_command == "status"
+
+
+def test_format_ecowitt_status_outputs_operator_summary() -> None:
+    status = EcowittStatus(
+        station_slug="tomillar",
+        gateway_id=1,
+        gateway_identifier="GW2000A",
+        station_type="GW2000A_V3.3.2",
+        last_report_at=datetime(2026, 7, 10, 12, 45, tzinfo=UTC),
+        online=True,
+        reports_last_24h=10,
+        duplicate_events=1,
+        parser_warning_events=2,
+        unknown_fields=3,
+        open_gaps=4,
+    )
+
+    lines = format_ecowitt_status(status)
+
+    assert "Station: tomillar" in lines
+    assert "Online: yes" in lines
+    assert "Reports last 24h: 10" in lines
+    assert "Open gaps: 4" in lines

@@ -43,6 +43,12 @@ Invoke-RestMethod http://127.0.0.1:8080/api/v1/weather/gateway/status
 Invoke-RestMethod http://127.0.0.1:8080/api/v1/weather/latest
 ```
 
+Local CLI diagnostic:
+
+```powershell
+uv run argos ecowitt status
+```
+
 ## Admin Inspection
 
 Admin endpoints require:
