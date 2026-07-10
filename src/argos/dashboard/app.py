@@ -8,6 +8,7 @@ import plotly.express as px  # type: ignore[import-untyped]
 import streamlit as st
 
 from argos.dashboard.api_client import ArgosApiClient, ArgosApiError
+from argos.dashboard.filters import filter_observations_by_source, observation_source_counts
 from argos.dashboard.trends import build_trend_frame
 
 
@@ -47,7 +48,7 @@ def main() -> None:
     st.title("ARGOS dashboard")
     st.caption("Agricultural Remote Gateway for Observation and Sensing")
 
-    client, start_iso, end_iso, selected_variables = sidebar()
+    client, start_iso, end_iso, selected_variables, selected_sources = sidebar()
 
     try:
         health = cached_health(client.base_url)
@@ -61,6 +62,7 @@ def main() -> None:
         st.stop()
 
     observations_df = dataframe_from_records(observations, "observed_at_utc")
+    observations_df = filter_observations_by_source(observations_df, selected_sources)
     daily_df = dataframe_from_records(daily, "period_start")
     weekly_df = dataframe_from_records(weekly, "period_start")
 
@@ -84,7 +86,7 @@ def main() -> None:
         render_quality(client)
 
 
-def sidebar() -> tuple[ArgosApiClient, str, str, list[str]]:
+def sidebar() -> tuple[ArgosApiClient, str, str, list[str], list[str]]:
     with st.sidebar:
         st.header("Connection")
         base_url = st.text_input("ARGOS API URL", value="http://127.0.0.1:8080")
@@ -105,11 +107,25 @@ def sidebar() -> tuple[ArgosApiClient, str, str, list[str]]:
         st.header("Variables")
         selected_variables = st.multiselect("Chart variables", options=list(LABELS), default=DEFAULT_VARIABLES)
 
+        st.header("Observation source")
+        selected_sources = st.pills(
+            "Sources",
+            options=["DIRECT", "BACKFILLED"],
+            default=["DIRECT", "BACKFILLED"],
+            selection_mode="multi",
+        )
+
         if st.button("Refresh data", icon=":material/refresh:"):
             st.cache_data.clear()
             st.rerun()
 
-    return ArgosApiClient(base_url=base_url, admin_token=admin_token or None), start_iso, end_iso, selected_variables
+    return (
+        ArgosApiClient(base_url=base_url, admin_token=admin_token or None),
+        start_iso,
+        end_iso,
+        selected_variables,
+        list(selected_sources or []),
+    )
 
 
 @st.cache_data(ttl=15)
@@ -165,6 +181,13 @@ def render_home(
         st.metric("Gateway", "Online" if status.get("online") else "Offline", border=True)
         st.metric("Last seen", format_datetime(status.get("last_seen_at")), border=True)
         st.metric("Outdoor temperature", format_number(latest.get("outdoor_temperature_c"), "deg C"), border=True)
+
+    source_counts = observation_source_counts(observations_df)
+    if source_counts:
+        with st.container(horizontal=True):
+            st.metric("Direct observations", source_counts.get("DIRECT", 0), border=True)
+            st.metric("Backfilled observations", source_counts.get("BACKFILLED", 0), border=True)
+            st.metric("Unknown source", source_counts.get("UNKNOWN", 0), border=True)
 
     with st.container(horizontal=True):
         st.metric("Humidity", format_number(latest.get("outdoor_humidity_pct"), "%"), border=True)

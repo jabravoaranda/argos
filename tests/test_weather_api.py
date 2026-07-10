@@ -34,6 +34,7 @@ def test_weather_latest_observations_and_gateway_status(monkeypatch, tmp_path) -
     latest_response = client.get("/api/v1/weather/latest")
     assert latest_response.status_code == 200
     latest = latest_response.json()
+    assert latest["source"] == "DIRECT"
     assert latest["outdoor_temperature_c"] == 35.1
     assert latest["rain_last_24h_mm"] == 0.0
     assert latest["ws90_capacitor_voltage"] == 5.3
@@ -46,6 +47,7 @@ def test_weather_latest_observations_and_gateway_status(monkeypatch, tmp_path) -
     observations = observations_response.json()
     assert len(observations) == 1
     assert observations[0]["id"] == latest["id"]
+    assert observations[0]["source"] == "DIRECT"
 
     status_response = client.get("/api/v1/weather/gateway/status")
     assert status_response.status_code == 200
