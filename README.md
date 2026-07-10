@@ -150,7 +150,7 @@ uv run uvicorn argos.main:app --host 0.0.0.0 --port 8080
 
 Dashboard views:
 
-- Home: live station status and current conditions.
+- Home: station identity, associated hardware status and current conditions.
 - Observations: interactive time-series chart and downloadable observation table.
 - Source filtering for `DIRECT` and `BACKFILLED` observations.
 - Summaries: daily and weekly statistics from persisted API summaries.

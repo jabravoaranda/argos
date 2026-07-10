@@ -18,6 +18,16 @@ def test_api_client_builds_urls_without_query_params() -> None:
     assert client._build_url("/api/v1/weather/latest", params=None) == "http://localhost:8080/api/v1/weather/latest"
 
 
+def test_api_client_builds_station_identity_urls() -> None:
+    client = ArgosApiClient(base_url="http://localhost:8080")
+
+    assert client._build_url("/api/v1/weather/station", params=None) == "http://localhost:8080/api/v1/weather/station"
+    assert (
+        client._build_url("/api/v1/weather/station/hardware", params=None)
+        == "http://localhost:8080/api/v1/weather/station/hardware"
+    )
+
+
 def test_api_client_requires_admin_token_for_admin_endpoints() -> None:
     client = ArgosApiClient(base_url="http://localhost:8080")
 

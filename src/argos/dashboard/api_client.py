@@ -24,6 +24,12 @@ class ArgosApiClient:
     def get_latest(self) -> dict[str, Any] | None:
         return self._get_json("/api/v1/weather/latest")
 
+    def get_station(self) -> dict[str, Any] | None:
+        return self._get_json("/api/v1/weather/station")
+
+    def get_station_hardware(self) -> list[dict[str, Any]]:
+        return self._get_json("/api/v1/weather/station/hardware")
+
     def get_gateway_status(self) -> dict[str, Any]:
         return self._get_json("/api/v1/weather/gateway/status")
 

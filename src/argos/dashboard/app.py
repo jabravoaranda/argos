@@ -52,6 +52,8 @@ def main() -> None:
 
     try:
         health = cached_health(client.base_url)
+        station = cached_station(client.base_url)
+        hardware = cached_station_hardware(client.base_url)
         latest = cached_latest(client.base_url)
         status = cached_status(client.base_url)
         observations = cached_observations(client.base_url, start_iso, end_iso)
@@ -71,7 +73,14 @@ def main() -> None:
     )
 
     with home_tab:
-        render_home(health=health, latest=latest, status=status, observations_df=observations_df)
+        render_home(
+            health=health,
+            station=station,
+            hardware=hardware,
+            latest=latest,
+            status=status,
+            observations_df=observations_df,
+        )
 
     with observations_tab:
         render_observations(observations_df, selected_variables)
@@ -138,6 +147,16 @@ def cached_latest(base_url: str) -> dict[str, Any] | None:
     return ArgosApiClient(base_url=base_url).get_latest()
 
 
+@st.cache_data(ttl=60)
+def cached_station(base_url: str) -> dict[str, Any] | None:
+    return ArgosApiClient(base_url=base_url).get_station()
+
+
+@st.cache_data(ttl=60)
+def cached_station_hardware(base_url: str) -> list[dict[str, Any]]:
+    return ArgosApiClient(base_url=base_url).get_station_hardware()
+
+
 @st.cache_data(ttl=15)
 def cached_status(base_url: str) -> dict[str, Any]:
     return ArgosApiClient(base_url=base_url).get_gateway_status()
@@ -168,10 +187,14 @@ def dataframe_from_records(records: list[dict[str, Any]], date_column: str) -> p
 def render_home(
     *,
     health: dict[str, Any],
+    station: dict[str, Any] | None,
+    hardware: list[dict[str, Any]],
     latest: dict[str, Any] | None,
     status: dict[str, Any],
     observations_df: pd.DataFrame,
 ) -> None:
+    render_station_identity(station=station, hardware=hardware, status=status)
+
     if latest is None:
         st.info("No weather observations received yet.")
         return
@@ -211,6 +234,40 @@ def render_home(
                 x_label="Observed UTC",
                 y_label="deg C",
             )
+
+
+def render_station_identity(
+    *,
+    station: dict[str, Any] | None,
+    hardware: list[dict[str, Any]],
+    status: dict[str, Any],
+) -> None:
+    with st.container(border=True):
+        st.subheader("Station identity")
+        if station is None:
+            st.info("Station identity is not available yet.")
+            return
+
+        active_hardware = hardware[0] if hardware else {}
+        with st.container(horizontal=True):
+            st.metric("Station", station.get("slug", "-"), border=True)
+            st.metric("Station UUID", short_identifier(station.get("uuid")), border=True)
+            st.metric("Gateway status", "Online" if status.get("online") else "Offline", border=True)
+            st.metric(
+                "Hardware",
+                active_hardware.get("station_type") or active_hardware.get("mac_address") or "-",
+                border=True,
+            )
+
+        if hardware:
+            hardware_df = pd.DataFrame.from_records(hardware)
+            visible_columns = [
+                column
+                for column in ["id", "mac_address", "station_type", "last_seen_at", "enabled"]
+                if column in hardware_df
+            ]
+            if visible_columns:
+                st.dataframe(hardware_df[visible_columns], hide_index=True)
 
 
 def render_observations(observations_df: pd.DataFrame, selected_variables: list[str]) -> None:
@@ -395,6 +452,15 @@ def format_datetime(value: Any) -> str:
     if not value:
         return "-"
     return str(value).replace("T", " ").replace("Z", " UTC")
+
+
+def short_identifier(value: Any) -> str:
+    if not value:
+        return "-"
+    text = str(value)
+    if len(text) <= 12:
+        return text
+    return f"{text[:8]}...{text[-4:]}"
 
 
 if __name__ == "__main__":
