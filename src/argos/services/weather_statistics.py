@@ -43,15 +43,19 @@ def recompute_daily_statistics(session: Session, *, start: datetime | None, end:
     observations = repository.observations(start=start, end=end)
     summaries = summarize_daily(observations)
     for summary in summaries:
-        gateway_ids = {observation.gateway_id for observation in observations if observation.observed_at_utc.date() == summary.period_start}
-        for gateway_id in gateway_ids:
+        station_keys = {
+            (observation.station_uuid, observation.gateway_id)
+            for observation in observations
+            if observation.observed_at_utc.date() == summary.period_start
+        }
+        for station_uuid, gateway_id in station_keys:
             gateway_observations = [
                 observation
                 for observation in observations
-                if observation.gateway_id == gateway_id and observation.observed_at_utc.date() == summary.period_start
+                if observation.station_uuid == station_uuid and observation.observed_at_utc.date() == summary.period_start
             ]
             gateway_summary = summarize_daily(gateway_observations)[0]
-            repository.upsert_daily_statistic(gateway_id=gateway_id, summary=gateway_summary)
+            repository.upsert_daily_statistic(station_uuid=station_uuid, gateway_id=gateway_id, summary=gateway_summary)
     return len(summaries)
 
 
@@ -60,19 +64,19 @@ def recompute_weekly_statistics(session: Session, *, start: datetime | None, end
     observations = repository.observations(start=start, end=end)
     summaries = summarize_weekly(observations)
     for summary in summaries:
-        gateway_ids = {
-            observation.gateway_id
+        station_keys = {
+            (observation.station_uuid, observation.gateway_id)
             for observation in observations
             if _week_start(observation.observed_at_utc) == summary.period_start
         }
-        for gateway_id in gateway_ids:
+        for station_uuid, gateway_id in station_keys:
             gateway_observations = [
                 observation
                 for observation in observations
-                if observation.gateway_id == gateway_id and _week_start(observation.observed_at_utc) == summary.period_start
+                if observation.station_uuid == station_uuid and _week_start(observation.observed_at_utc) == summary.period_start
             ]
             gateway_summary = summarize_weekly(gateway_observations)[0]
-            repository.upsert_weekly_statistic(gateway_id=gateway_id, summary=gateway_summary)
+            repository.upsert_weekly_statistic(station_uuid=station_uuid, gateway_id=gateway_id, summary=gateway_summary)
     return len(summaries)
 
 

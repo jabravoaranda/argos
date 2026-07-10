@@ -51,10 +51,12 @@ def capture_ecowitt_payload(
         parser_version=parse_result.parser_version,
     )
     repository = EcowittCaptureRepository(session)
+    station = repository.get_or_create_station(slug=get_settings().station_slug)
     existing = repository.get_raw_report_by_hash(payload_hash)
     if existing is not None:
         logger.info("duplicate ecowitt payload ignored", extra={"raw_report_id": existing.id})
         repository.create_event(
+            station_uuid=existing.station_uuid,
             gateway_id=existing.gateway_id,
             raw_report_id=existing.id,
             event_type="DUPLICATE",
@@ -81,6 +83,7 @@ def capture_ecowitt_payload(
         },
     )
     gateway = repository.get_or_create_gateway(
+        station_uuid=station.uuid,
         identifier=gateway_identifier,
         station_type=parse_result.station_type,
         seen_at=received_at_utc,
@@ -88,6 +91,7 @@ def capture_ecowitt_payload(
     )
 
     raw_report = repository.create_raw_report(
+        station_uuid=station.uuid,
         gateway_id=gateway.id,
         received_at_utc=received_at_utc,
         device_timestamp_utc=parse_result.observed_at_utc,
@@ -102,6 +106,7 @@ def capture_ecowitt_payload(
         parser_version=parse_result.parser_version,
     )
     observation = repository.create_weather_observation(
+        station_uuid=station.uuid,
         gateway_id=gateway.id,
         raw_report_id=raw_report.id,
         observed_at_utc=parse_result.observed_at_utc,
@@ -116,6 +121,7 @@ def capture_ecowitt_payload(
     update_statistics_for_observation(session, observation)
     repository.upsert_unknown_fields(parse_result.unknown_fields, received_at_utc)
     repository.create_event(
+        station_uuid=station.uuid,
         gateway_id=gateway.id,
         raw_report_id=raw_report.id,
         event_type="REPORT_RECEIVED",
@@ -125,6 +131,7 @@ def capture_ecowitt_payload(
     for warning in parse_result.warnings:
         logger.warning("ecowitt parser warning: %s", warning)
         repository.create_event(
+            station_uuid=station.uuid,
             gateway_id=gateway.id,
             raw_report_id=raw_report.id,
             event_type="PARSER_WARNING",
@@ -134,6 +141,7 @@ def capture_ecowitt_payload(
     for field_name in parse_result.unknown_fields:
         logger.info("ecowitt unknown field captured: %s", field_name)
         repository.create_event(
+            station_uuid=station.uuid,
             gateway_id=gateway.id,
             raw_report_id=raw_report.id,
             event_type="UNKNOWN_FIELD",
@@ -176,5 +184,5 @@ def build_observation_hash(
 
 
 def _gateway_metadata(payload: Mapping[str, Any]) -> dict[str, Any]:
-    metadata_keys = ("runtime", "heap", "freq", "interval", "ws90_ver", "model")
+    metadata_keys = ("runtime", "heap", "freq", "interval", "ws90_ver", "model", "stationtype", "mac", "macaddress")
     return {key: payload[key] for key in metadata_keys if key in payload}

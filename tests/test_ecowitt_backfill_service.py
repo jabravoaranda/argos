@@ -11,7 +11,7 @@ from argos.config.settings import get_settings
 from argos.database.base import Base
 from argos.database.session import get_engine, get_sessionmaker, reset_database_caches
 from argos.main import create_app
-from argos.models.ecowitt import EcowittCloudRawReport, GatewayAlias, WeatherObservation
+from argos.models.ecowitt import EcowittCloudRawReport, GatewayAlias, Station, WeatherObservation
 from argos.services.ecowitt_backfill import import_backfilled_observation
 
 
@@ -33,13 +33,18 @@ def test_import_backfilled_observation_creates_cloud_raw_and_backfilled_observat
         )
 
         observation = session.get(WeatherObservation, result.observation_id)
+        station = session.scalar(select(Station))
         assert result.duplicate is False
+        assert station is not None
+        assert station.slug == "tomillar"
         assert observation is not None
+        assert observation.station_uuid == station.uuid
         assert observation.source == "BACKFILLED"
         assert observation.raw_report_id is None
         assert observation.cloud_raw_report_id == result.cloud_raw_report_id
         assert observation.outdoor_temperature_c == pytest.approx(35.1)
         assert session.get(EcowittCloudRawReport, result.cloud_raw_report_id) is not None
+        assert session.get(EcowittCloudRawReport, result.cloud_raw_report_id).station_uuid == station.uuid
 
     get_settings.cache_clear()
     reset_database_caches()

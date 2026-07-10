@@ -15,6 +15,7 @@ def detect_gap_for_observation(
     expected_interval_seconds: int,
 ) -> None:
     previous = WeatherRepository(session).previous_observation(
+        station_uuid=observation.station_uuid,
         gateway_id=observation.gateway_id,
         observed_at_utc=observation.observed_at_utc,
     )
@@ -30,6 +31,7 @@ def detect_gap_for_observation(
 
     missing_reports = max(int(delta_seconds // expected_interval_seconds) - 1, 1)
     WeatherRepository(session).create_data_gap(
+        station_uuid=observation.station_uuid,
         gateway_id=observation.gateway_id,
         gap_start=previous_at_utc + timedelta(seconds=expected_interval_seconds),
         gap_end=observed_at_utc - timedelta(seconds=expected_interval_seconds),

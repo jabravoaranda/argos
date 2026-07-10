@@ -130,6 +130,8 @@ def gateway_status(
     if gateway is None or gateway.last_seen_at is None:
         return GatewayStatusRead(
             gateway_id=None,
+            station_uuid=None,
+            station_slug=None,
             station_type=None,
             last_seen_at=None,
             seconds_since_last_seen=None,
@@ -141,6 +143,8 @@ def gateway_status(
     seconds_since_last_seen = (datetime.now(UTC) - last_seen_at).total_seconds()
     return GatewayStatusRead(
         gateway_id=gateway.id,
+        station_uuid=gateway.station_uuid,
+        station_slug=gateway.station.slug if gateway.station else None,
         station_type=gateway.station_type,
         last_seen_at=last_seen_at,
         seconds_since_last_seen=seconds_since_last_seen,
@@ -159,4 +163,3 @@ def _date_or_none(value: datetime | None):
     if value is None:
         return None
     return value.date()
-

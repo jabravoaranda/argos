@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./var/argos.db"
     local_timezone: str = "Europe/Madrid"
     log_level: str = "INFO"
+    station_slug: str = "tomillar"
     ecowitt_ingest_token: str = Field(min_length=1)
     ecowitt_capture_raw: bool = False
     ecowitt_expected_interval_seconds: int = 60

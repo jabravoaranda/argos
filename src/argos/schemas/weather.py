@@ -10,6 +10,7 @@ class WeatherObservationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    station_uuid: str | None
     gateway_id: int | None
     raw_report_id: int | None
     cloud_raw_report_id: int | None
@@ -44,6 +45,8 @@ class WeatherObservationRead(BaseModel):
 
 
 class GatewayStatusRead(BaseModel):
+    station_uuid: str | None
+    station_slug: str | None
     gateway_id: int | None
     station_type: str | None
     last_seen_at: datetime | None
@@ -56,6 +59,7 @@ class WeatherPeriodSummaryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     gateway_id: int | None
+    station_uuid: str | None
     period_start: date
     period_end: date
     sample_count: int
@@ -81,6 +85,7 @@ class RawReportRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    station_uuid: str | None
     gateway_id: int | None
     received_at_utc: datetime
     device_timestamp_utc: datetime | None
@@ -94,6 +99,7 @@ class IngestionEventRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    station_uuid: str | None
     gateway_id: int | None
     raw_report_id: int | None
     event_type: str
@@ -118,6 +124,7 @@ class DataGapRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    station_uuid: str | None
     gateway_id: int | None
     gap_start: datetime
     gap_end: datetime

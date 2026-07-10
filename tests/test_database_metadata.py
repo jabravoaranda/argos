@@ -6,6 +6,7 @@ from argos import models as _models
 
 def test_initial_schema_tables_are_registered() -> None:
     expected_tables = {
+        "stations",
         "gateways",
         "gateway_aliases",
         "ecowitt_raw_reports",
@@ -19,4 +20,5 @@ def test_initial_schema_tables_are_registered() -> None:
     }
 
     assert expected_tables <= set(Base.metadata.tables)
+    assert _models.Station.__tablename__ == "stations"
     assert _models.Gateway.__tablename__ == "gateways"

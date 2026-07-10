@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from argos.models.ecowitt import EcowittCloudRawReport, Gateway, GatewayAlias, IngestionEvent, WeatherObservation
+from argos.models.ecowitt import EcowittCloudRawReport, Gateway, GatewayAlias, IngestionEvent, Station, WeatherObservation
 
 
 class EcowittBackfillRepository:
@@ -16,6 +17,7 @@ class EcowittBackfillRepository:
     def get_or_create_gateway(
         self,
         *,
+        station_uuid: str | None,
         identifier: str,
         station_type: str | None,
         metadata_json: dict[str, Any],
@@ -24,6 +26,7 @@ class EcowittBackfillRepository:
         gateway = self.resolve_gateway(identifier=identifier, aliases=aliases or {})
         if gateway is None:
             gateway = Gateway(
+                station_uuid=station_uuid,
                 uuid=identifier,
                 mac_address=identifier,
                 station_type=station_type,
@@ -34,10 +37,25 @@ class EcowittBackfillRepository:
             self.upsert_gateway_aliases(gateway_id=gateway.id, aliases=aliases or {})
             return gateway
 
+        gateway.station_uuid = station_uuid or gateway.station_uuid
         gateway.station_type = station_type or gateway.station_type
         gateway.metadata_json = {**(gateway.metadata_json or {}), **metadata_json}
         self.upsert_gateway_aliases(gateway_id=gateway.id, aliases=aliases or {})
         return gateway
+
+    def get_or_create_station(self, *, slug: str) -> Station:
+        station = self.session.scalar(select(Station).where(Station.slug == slug))
+        if station is None:
+            station = Station(
+                uuid=str(uuid4()),
+                slug=slug,
+                code=slug,
+                name=slug.title(),
+                metadata_json={"identity_scope": "physical_site"},
+            )
+            self.session.add(station)
+            self.session.flush()
+        return station
 
     def resolve_gateway(self, *, identifier: str, aliases: dict[str, str]) -> Gateway | None:
         gateway = self.session.scalar(select(Gateway).where(Gateway.mac_address == identifier))
@@ -83,6 +101,7 @@ class EcowittBackfillRepository:
     def create_cloud_raw_report(
         self,
         *,
+        station_uuid: str | None,
         gateway_id: int | None,
         requested_start_utc: datetime | None,
         requested_end_utc: datetime | None,
@@ -93,6 +112,7 @@ class EcowittBackfillRepository:
         parser_version: str | None,
     ) -> EcowittCloudRawReport:
         raw_report = EcowittCloudRawReport(
+            station_uuid=station_uuid,
             gateway_id=gateway_id,
             requested_start_utc=requested_start_utc,
             requested_end_utc=requested_end_utc,
@@ -109,6 +129,7 @@ class EcowittBackfillRepository:
     def get_observation_by_gateway_and_observed_at(
         self,
         *,
+        station_uuid: str | None,
         gateway_id: int | None,
         observed_at_utc: datetime,
     ) -> WeatherObservation | None:
@@ -117,7 +138,7 @@ class EcowittBackfillRepository:
             observed_candidates.add(observed_at_utc.replace(tzinfo=None))
         return self.session.scalar(
             select(WeatherObservation).where(
-                WeatherObservation.gateway_id == gateway_id,
+                WeatherObservation.station_uuid == station_uuid,
                 WeatherObservation.observed_at_utc.in_(observed_candidates),
             )
         )
@@ -125,6 +146,7 @@ class EcowittBackfillRepository:
     def create_backfilled_observation(
         self,
         *,
+        station_uuid: str | None,
         gateway_id: int | None,
         cloud_raw_report_id: int,
         observed_at_utc: datetime,
@@ -132,6 +154,7 @@ class EcowittBackfillRepository:
         values: dict[str, float | None],
     ) -> WeatherObservation:
         observation = WeatherObservation(
+            station_uuid=station_uuid,
             gateway_id=gateway_id,
             raw_report_id=None,
             cloud_raw_report_id=cloud_raw_report_id,
@@ -147,6 +170,7 @@ class EcowittBackfillRepository:
     def create_event(
         self,
         *,
+        station_uuid: str | None,
         gateway_id: int | None,
         event_type: str,
         severity: str,
@@ -154,6 +178,7 @@ class EcowittBackfillRepository:
     ) -> None:
         self.session.add(
             IngestionEvent(
+                station_uuid=station_uuid,
                 gateway_id=gateway_id,
                 raw_report_id=None,
                 event_type=event_type,

@@ -35,6 +35,7 @@ def test_weather_latest_observations_and_gateway_status(monkeypatch, tmp_path) -
     assert latest_response.status_code == 200
     latest = latest_response.json()
     assert latest["source"] == "DIRECT"
+    assert latest["station_uuid"] is not None
     assert latest["outdoor_temperature_c"] == 35.1
     assert latest["rain_last_24h_mm"] == 0.0
     assert latest["ws90_capacitor_voltage"] == 5.3
@@ -48,10 +49,13 @@ def test_weather_latest_observations_and_gateway_status(monkeypatch, tmp_path) -
     assert len(observations) == 1
     assert observations[0]["id"] == latest["id"]
     assert observations[0]["source"] == "DIRECT"
+    assert observations[0]["station_uuid"] == latest["station_uuid"]
 
     status_response = client.get("/api/v1/weather/gateway/status")
     assert status_response.status_code == 200
     status = status_response.json()
+    assert status["station_uuid"] == latest["station_uuid"]
+    assert status["station_slug"] == "tomillar"
     assert status["gateway_id"] is not None
     assert status["station_type"] == "GW2000A_V3.3.2"
     assert status["online"] is True
@@ -97,6 +101,7 @@ def test_weather_daily_and_weekly_summaries(monkeypatch, tmp_path) -> None:
     assert daily[0]["period_start"] == "2026-07-10"
     assert daily[0]["period_end"] == "2026-07-10"
     assert daily[0]["gateway_id"] is not None
+    assert daily[0]["station_uuid"] is not None
     assert daily[0]["sample_count"] == 2
     assert daily[0]["outdoor_temperature_min_c"] == pytest.approx(35.1)
     assert daily[0]["outdoor_temperature_max_c"] == pytest.approx(36.1)

@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from argos.config.settings import get_settings
 from argos.integrations.ecowitt_cloud import DEFAULT_HISTORY_CALLBACKS, EcowittCloudClient
 from argos.repositories.ecowitt_backfill import EcowittBackfillRepository
 from argos.services.ecowitt_cloud_adapter import parse_cloud_history_payload
@@ -76,6 +77,7 @@ def backfill_ecowitt_cloud_range(
     gateway_identifier: str,
     start: datetime,
     end: datetime,
+    station_slug: str | None = None,
     station_type: str | None = None,
     gateway_aliases: Mapping[str, str] | None = None,
     callbacks: tuple[str, ...] = DEFAULT_HISTORY_CALLBACKS,
@@ -86,6 +88,7 @@ def backfill_ecowitt_cloud_range(
         import_backfilled_observation(
             session=session,
             gateway_identifier=gateway_identifier,
+            station_slug=station_slug,
             observed_at_utc=observation.observed_at_utc,
             normalized_values=observation.normalized_values,
             cloud_payload=observation.cloud_payload,
@@ -114,6 +117,7 @@ def import_backfilled_observation(
     observed_at_utc: datetime,
     normalized_values: Mapping[str, float | None],
     cloud_payload: Mapping[str, Any],
+    station_slug: str | None = None,
     station_type: str | None = None,
     gateway_aliases: Mapping[str, str] | None = None,
     requested_start_utc: datetime | None = None,
@@ -123,7 +127,9 @@ def import_backfilled_observation(
     values = _validate_normalized_values(normalized_values)
     payload_dict = dict(cloud_payload)
     repository = EcowittBackfillRepository(session)
+    station = repository.get_or_create_station(slug=station_slug or get_settings().station_slug)
     gateway = repository.get_or_create_gateway(
+        station_uuid=station.uuid,
         identifier=gateway_identifier,
         station_type=station_type,
         metadata_json={"backfill_source": "ecowitt_cloud"},
@@ -139,6 +145,7 @@ def import_backfilled_observation(
     existing_raw = repository.get_cloud_raw_report_by_hash(payload_hash)
     if existing_raw is not None:
         repository.create_event(
+            station_uuid=station.uuid,
             gateway_id=gateway.id,
             event_type="BACKFILL_DUPLICATE",
             severity="INFO",
@@ -154,6 +161,7 @@ def import_backfilled_observation(
 
     cloud_raw_report = repository.create_cloud_raw_report(
         gateway_id=gateway.id,
+        station_uuid=station.uuid,
         requested_start_utc=requested_start_utc,
         requested_end_utc=requested_end_utc,
         observed_at_utc=observed_at_utc,
@@ -164,11 +172,13 @@ def import_backfilled_observation(
     )
 
     existing_observation = repository.get_observation_by_gateway_and_observed_at(
+        station_uuid=station.uuid,
         gateway_id=gateway.id,
         observed_at_utc=observed_at_utc,
     )
     if existing_observation is not None:
         repository.create_event(
+            station_uuid=station.uuid,
             gateway_id=gateway.id,
             event_type="BACKFILL_DUPLICATE",
             severity="INFO",
@@ -187,6 +197,7 @@ def import_backfilled_observation(
 
     observation = repository.create_backfilled_observation(
         gateway_id=gateway.id,
+        station_uuid=station.uuid,
         cloud_raw_report_id=cloud_raw_report.id,
         observed_at_utc=observed_at_utc,
         received_at_utc=datetime.now(UTC),
@@ -194,6 +205,7 @@ def import_backfilled_observation(
     )
     update_statistics_for_observation(session, observation)
     repository.create_event(
+        station_uuid=station.uuid,
         gateway_id=gateway.id,
         event_type="BACKFILL_IMPORTED",
         severity="INFO",

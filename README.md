@@ -4,6 +4,8 @@ Agricultural Remote Gateway for Observation and Sensing.
 
 ARGOS is being redesigned as a FastAPI-based environmental data platform. The primary Ecowitt GW2000 integration will use the gateway's Customized HTTP upload mode, preserving raw payloads and storing normalized observations in a database.
 
+The canonical station identity is the physical site slug `tomillar`. Gateway hardware identifiers such as MAC address, serial number, model or Ecowitt-specific IDs are treated as hardware metadata associated with that station, so the gateway can be replaced without changing the station identity.
+
 ## Current Scope
 
 This branch contains the current ARGOS redesign work: FastAPI foundation, direct Ecowitt ingestion, API analytics, Streamlit dashboard and the first Ecowitt Cloud backfill client.
@@ -15,6 +17,7 @@ Included:
 - Environment-based configuration.
 - SQLAlchemy 2.x models.
 - Alembic migrations.
+- Stable station identity with UUID primary key and unique slug `tomillar`.
 - SQLite for local development.
 - PostgreSQL-compatible schema and Docker Compose service.
 - Basic health endpoints.

@@ -10,7 +10,7 @@ from argos.config.settings import get_settings
 from argos.database.base import Base
 from argos.database.session import get_engine, get_sessionmaker, reset_database_caches
 from argos.main import create_app
-from argos.models.ecowitt import EcowittRawReport, IngestionEvent, UnknownField, WeatherObservation
+from argos.models.ecowitt import EcowittRawReport, IngestionEvent, Station, UnknownField, WeatherObservation
 
 
 def test_ecowitt_upload_captures_and_normalizes_real_form_payload(monkeypatch, tmp_path) -> None:
@@ -42,15 +42,21 @@ def test_ecowitt_upload_captures_and_normalizes_real_form_payload(monkeypatch, t
     with get_sessionmaker()() as session:
         raw_reports = session.scalars(select(EcowittRawReport)).all()
         observations = session.scalars(select(WeatherObservation)).all()
+        stations = session.scalars(select(Station)).all()
         unknown_fields = session.scalars(select(UnknownField).order_by(UnknownField.field_name)).all()
         events = session.scalars(select(IngestionEvent)).all()
 
+    assert len(stations) == 1
+    assert stations[0].slug == "tomillar"
+    assert stations[0].code == "tomillar"
     assert len(raw_reports) == 1
+    assert raw_reports[0].station_uuid == stations[0].uuid
     assert raw_reports[0].raw_body_text == raw_body
     assert raw_reports[0].payload_json["stationtype"] == "GW2000A_V3.3.2"
     assert raw_reports[0].payload_json["dateutc"] == "2026-07-10 12:45:26"
     assert raw_reports[0].parser_version == "gw2000a-ws90-3.3.2.3"
     assert len(observations) == 1
+    assert observations[0].station_uuid == stations[0].uuid
     assert observations[0].outdoor_temperature_c == pytest.approx(35.1)
     assert observations[0].wind_direction_avg10m_deg == pytest.approx(135)
     assert observations[0].rain_last_24h_mm == pytest.approx(0.0)
@@ -62,6 +68,7 @@ def test_ecowitt_upload_captures_and_normalizes_real_form_payload(monkeypatch, t
     assert [event.event_type for event in events] == [
         "REPORT_RECEIVED",
     ]
+    assert events[0].station_uuid == stations[0].uuid
 
     get_settings.cache_clear()
     reset_database_caches()

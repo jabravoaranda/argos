@@ -45,13 +45,14 @@ class WeatherRepository:
     def previous_observation(
         self,
         *,
+        station_uuid: str | None,
         gateway_id: int | None,
         observed_at_utc: datetime,
     ) -> WeatherObservation | None:
         return self.session.scalar(
             select(WeatherObservation)
             .where(
-                WeatherObservation.gateway_id == gateway_id,
+                WeatherObservation.station_uuid == station_uuid,
                 WeatherObservation.observed_at_utc < observed_at_utc,
             )
             .order_by(desc(WeatherObservation.observed_at_utc), desc(WeatherObservation.id))
@@ -87,6 +88,7 @@ class WeatherRepository:
     def create_data_gap(
         self,
         *,
+        station_uuid: str | None,
         gateway_id: int | None,
         gap_start: datetime,
         gap_end: datetime,
@@ -95,7 +97,7 @@ class WeatherRepository:
     ) -> DataGap:
         existing = self.session.scalar(
             select(DataGap).where(
-                DataGap.gateway_id == gateway_id,
+                DataGap.station_uuid == station_uuid,
                 DataGap.gap_start == gap_start,
                 DataGap.gap_end == gap_end,
             )
@@ -104,6 +106,7 @@ class WeatherRepository:
             return existing
 
         gap = DataGap(
+            station_uuid=station_uuid,
             gateway_id=gateway_id,
             gap_start=gap_start,
             gap_end=gap_end,
@@ -134,17 +137,18 @@ class WeatherRepository:
     def upsert_daily_statistic(
         self,
         *,
+        station_uuid: str | None,
         gateway_id: int | None,
         summary: WeatherPeriodSummary,
     ) -> DailyStatistic:
         statistic = self.session.scalar(
             select(DailyStatistic).where(
-                DailyStatistic.gateway_id == gateway_id,
+                DailyStatistic.station_uuid == station_uuid,
                 DailyStatistic.period_start == summary.period_start,
             )
         )
         if statistic is None:
-            statistic = DailyStatistic(gateway_id=gateway_id, period_start=summary.period_start)
+            statistic = DailyStatistic(station_uuid=station_uuid, gateway_id=gateway_id, period_start=summary.period_start)
             self.session.add(statistic)
         _apply_summary(statistic, summary)
         self.session.flush()
@@ -153,17 +157,18 @@ class WeatherRepository:
     def upsert_weekly_statistic(
         self,
         *,
+        station_uuid: str | None,
         gateway_id: int | None,
         summary: WeatherPeriodSummary,
     ) -> WeeklyStatistic:
         statistic = self.session.scalar(
             select(WeeklyStatistic).where(
-                WeeklyStatistic.gateway_id == gateway_id,
+                WeeklyStatistic.station_uuid == station_uuid,
                 WeeklyStatistic.period_start == summary.period_start,
             )
         )
         if statistic is None:
-            statistic = WeeklyStatistic(gateway_id=gateway_id, period_start=summary.period_start)
+            statistic = WeeklyStatistic(station_uuid=station_uuid, gateway_id=gateway_id, period_start=summary.period_start)
             self.session.add(statistic)
         _apply_summary(statistic, summary)
         self.session.flush()

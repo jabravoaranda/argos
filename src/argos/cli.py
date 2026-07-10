@@ -29,6 +29,11 @@ def build_parser() -> argparse.ArgumentParser:
     backfill_parser.add_argument("--start", required=True, type=parse_utc_datetime, help="UTC start datetime.")
     backfill_parser.add_argument("--end", required=True, type=parse_utc_datetime, help="UTC end datetime.")
     backfill_parser.add_argument(
+        "--station-slug",
+        default=None,
+        help="Logical station slug. Defaults to STATION_SLUG from settings.",
+    )
+    backfill_parser.add_argument(
         "--gateway-identifier",
         required=True,
         help="Gateway identity used for deduplication. Use the current LAN identity until aliases exist.",
@@ -44,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=",".join(DEFAULT_HISTORY_CALLBACKS),
         help="Comma-separated Ecowitt Cloud call_back groups.",
     )
+
     return parser
 
 
@@ -60,6 +66,7 @@ def run_cloud_backfill(args: argparse.Namespace) -> None:
             session=session,
             client=client,
             gateway_identifier=args.gateway_identifier,
+            station_slug=args.station_slug or settings.station_slug,
             station_type=args.station_type,
             gateway_aliases={"ecowitt_cloud_mac": args.cloud_mac} if args.cloud_mac else None,
             start=args.start,

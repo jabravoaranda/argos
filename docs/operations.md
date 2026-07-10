@@ -1,5 +1,15 @@
 # ARGOS Operations
 
+## Station Identity
+
+The stable station slug is:
+
+```text
+tomillar
+```
+
+This identifies the physical site. The GW2000 gateway is replaceable hardware associated with the station. Do not use the gateway MAC address or model name as the station identity.
+
 ## Start Local API
 
 ```powershell

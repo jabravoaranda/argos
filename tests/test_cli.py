@@ -36,9 +36,12 @@ def test_build_parser_requires_gateway_identifier_for_backfill() -> None:
             "2026-07-10T01:00:00Z",
             "--gateway-identifier",
             "GW2000A",
+            "--station-slug",
+            "tomillar",
             "--cloud-mac",
             "AA:BB:CC:DD:EE:FF",
         ]
     )
     assert args.gateway_identifier == "GW2000A"
+    assert args.station_slug == "tomillar"
     assert args.cloud_mac == "AA:BB:CC:DD:EE:FF"

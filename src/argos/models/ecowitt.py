@@ -13,6 +13,24 @@ class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class Station(TimestampMixin, Base):
+    __tablename__ = "stations"
+    __table_args__ = (
+        UniqueConstraint("slug", name="uq_stations_slug"),
+        UniqueConstraint("code", name="uq_stations_code"),
+    )
+
+    uuid: Mapped[str] = mapped_column(String(36), primary_key=True)
+    slug: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    code: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    name: Mapped[str | None] = mapped_column(String(255))
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+
+    gateways: Mapped[list["Gateway"]] = relationship(back_populates="station")
+
+
 class Gateway(TimestampMixin, Base):
     __tablename__ = "gateways"
     __table_args__ = (
@@ -21,6 +39,7 @@ class Gateway(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    station_uuid: Mapped[str | None] = mapped_column(ForeignKey("stations.uuid"), index=True)
     uuid: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     name: Mapped[str | None] = mapped_column(String(255))
     mac_address: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
@@ -33,6 +52,7 @@ class Gateway(TimestampMixin, Base):
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
 
+    station: Mapped[Station | None] = relationship(back_populates="gateways")
     raw_reports: Mapped[list["EcowittRawReport"]] = relationship(back_populates="gateway")
     aliases: Mapped[list["GatewayAlias"]] = relationship(back_populates="gateway")
 
@@ -61,6 +81,7 @@ class EcowittRawReport(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    station_uuid: Mapped[str | None] = mapped_column(ForeignKey("stations.uuid"), index=True)
     gateway_id: Mapped[int | None] = mapped_column(ForeignKey("gateways.id"), index=True)
     received_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     device_timestamp_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
@@ -87,6 +108,7 @@ class EcowittCloudRawReport(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    station_uuid: Mapped[str | None] = mapped_column(ForeignKey("stations.uuid"), index=True)
     gateway_id: Mapped[int | None] = mapped_column(ForeignKey("gateways.id"), index=True)
     requested_start_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     requested_end_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -104,6 +126,7 @@ class WeatherObservation(TimestampMixin, Base):
     __table_args__ = (Index("ix_weather_observations_gateway_observed", "gateway_id", "observed_at_utc"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    station_uuid: Mapped[str | None] = mapped_column(ForeignKey("stations.uuid"), index=True)
     gateway_id: Mapped[int | None] = mapped_column(ForeignKey("gateways.id"), index=True)
     raw_report_id: Mapped[int | None] = mapped_column(ForeignKey("ecowitt_raw_reports.id"), unique=True)
     cloud_raw_report_id: Mapped[int | None] = mapped_column(ForeignKey("ecowitt_cloud_raw_reports.id"), unique=True)
@@ -151,6 +174,7 @@ class DailyStatistic(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    station_uuid: Mapped[str | None] = mapped_column(ForeignKey("stations.uuid"), index=True)
     gateway_id: Mapped[int | None] = mapped_column(ForeignKey("gateways.id"), index=True)
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
@@ -177,6 +201,7 @@ class WeeklyStatistic(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    station_uuid: Mapped[str | None] = mapped_column(ForeignKey("stations.uuid"), index=True)
     gateway_id: Mapped[int | None] = mapped_column(ForeignKey("gateways.id"), index=True)
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
@@ -213,6 +238,7 @@ class IngestionEvent(TimestampMixin, Base):
     __tablename__ = "ingestion_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    station_uuid: Mapped[str | None] = mapped_column(ForeignKey("stations.uuid"), index=True)
     gateway_id: Mapped[int | None] = mapped_column(ForeignKey("gateways.id"), index=True)
     raw_report_id: Mapped[int | None] = mapped_column(ForeignKey("ecowitt_raw_reports.id"), index=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -225,6 +251,7 @@ class DataGap(TimestampMixin, Base):
     __tablename__ = "data_gaps"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    station_uuid: Mapped[str | None] = mapped_column(ForeignKey("stations.uuid"), index=True)
     gateway_id: Mapped[int | None] = mapped_column(ForeignKey("gateways.id"), index=True)
     gap_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     gap_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -25,9 +25,9 @@ uv run argos ecowitt-cloud backfill `
 
 Decisions needed:
 
-1. Confirm the canonical gateway identifier.
+1. Confirm hardware metadata values for the current GW2000.
 
-   Current direct LAN ingestion uses `model` when available, for example `GW2000A`. Ecowitt Cloud identifies devices by MAC. ARGOS now has a `gateway_aliases` table, but the operator still needs to confirm which alias should become canonical in the UI and reports.
+   Decision made: the canonical station slug is `tomillar`, representing the physical site. Gateway MAC, model, serial number and Ecowitt-specific identifiers are hardware metadata and must not become the station identity.
 
 2. Capture one real Ecowitt Cloud history response.
 
