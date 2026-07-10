@@ -82,6 +82,7 @@ The current implementation can:
 - preserve Cloud raw payloads separately from LAN raw reports;
 - import observations as `BACKFILLED`;
 - avoid duplicating existing direct LAN observations for the same gateway and timestamp.
+- deduplicate Cloud raw payloads after resolving gateway aliases, so the same hardware is not duplicated when it is referenced by model name, LAN identifier or Cloud MAC.
 
 Backfill is not exposed as an HTTP endpoint yet. Keep it internal until a real Cloud history payload from the target station has been captured and verified.
 

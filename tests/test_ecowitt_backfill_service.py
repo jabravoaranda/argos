@@ -142,6 +142,36 @@ def test_import_backfilled_observation_resolves_existing_gateway_by_cloud_mac_al
     reset_database_caches()
 
 
+def test_import_backfilled_observation_deduplicates_cloud_raw_after_alias_resolution(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ECOWITT_INGEST_TOKEN", "test-token")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'argos.db'}")
+    get_settings.cache_clear()
+    reset_database_caches()
+    Base.metadata.create_all(get_engine())
+
+    kwargs = {
+        "station_type": "GW2000A_V3.3.2",
+        "observed_at_utc": datetime(2026, 7, 10, 12, 50, 26, tzinfo=UTC),
+        "normalized_values": {"outdoor_temperature_c": 35.1},
+        "cloud_payload": {"time": "2026-07-10 12:50:26", "temp": {"value": "95.18"}},
+        "gateway_aliases": {"ecowitt_cloud_mac": "AA:BB:CC:DD:EE:FF"},
+    }
+
+    with get_sessionmaker()() as session:
+        first = import_backfilled_observation(session=session, gateway_identifier="GW2000A", **kwargs)
+        second = import_backfilled_observation(session=session, gateway_identifier="AABBCCDDEEFF", **kwargs)
+
+        assert first.duplicate is False
+        assert second.duplicate is True
+        assert second.duplicate_reason == "cloud_payload_hash"
+        assert first.cloud_raw_report_id == second.cloud_raw_report_id
+        assert len(session.scalars(select(EcowittCloudRawReport)).all()) == 1
+        assert len(session.scalars(select(WeatherObservation)).all()) == 1
+
+    get_settings.cache_clear()
+    reset_database_caches()
+
+
 def test_import_backfilled_observation_is_idempotent_by_cloud_payload_hash(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ECOWITT_INGEST_TOKEN", "test-token")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'argos.db'}")

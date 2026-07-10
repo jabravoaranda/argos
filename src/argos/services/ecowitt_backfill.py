@@ -136,7 +136,8 @@ def import_backfilled_observation(
         aliases=dict(gateway_aliases or {}),
     )
     payload_hash = build_cloud_backfill_hash(
-        gateway_identifier=gateway_identifier,
+        station_uuid=station.uuid,
+        gateway_id=gateway.id,
         observed_at_utc=observed_at_utc,
         normalized_values=values,
         cloud_payload=payload_dict,
@@ -223,7 +224,8 @@ def import_backfilled_observation(
 
 def build_cloud_backfill_hash(
     *,
-    gateway_identifier: str,
+    station_uuid: str,
+    gateway_id: int,
     observed_at_utc: datetime,
     normalized_values: Mapping[str, float | None],
     cloud_payload: Mapping[str, Any],
@@ -231,10 +233,11 @@ def build_cloud_backfill_hash(
     canonical = json.dumps(
         {
             "cloud_payload": dict(cloud_payload),
-            "gateway_identifier": gateway_identifier,
+            "gateway_id": gateway_id,
             "normalized_values": dict(normalized_values),
             "observed_at_utc": observed_at_utc.isoformat(),
             "parser_version": BACKFILL_PARSER_VERSION,
+            "station_uuid": station_uuid,
         },
         sort_keys=True,
         separators=(",", ":"),
