@@ -1,1 +1,1 @@
-"""Local dashboard for ARGOS data products."""
+"""ARGOS local dashboard."""

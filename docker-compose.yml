@@ -1,13 +1,21 @@
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: argos-redis
+  postgres:
+    image: postgres:16-alpine
+    container_name: argos-postgres
+    environment:
+      POSTGRES_DB: argos
+      POSTGRES_USER: argos
+      POSTGRES_PASSWORD: argos
     ports:
-      - "6379:6379"
+      - "5432:5432"
     volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U argos -d argos"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
 volumes:
-  redis-data:
+  postgres-data:
