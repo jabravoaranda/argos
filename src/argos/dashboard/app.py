@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time as monotonic_time
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
@@ -8,6 +10,7 @@ import plotly.express as px  # type: ignore[import-untyped]
 import streamlit as st
 
 from argos.dashboard.api_client import ArgosApiClient, ArgosApiError
+from argos.dashboard.argos_node_client import ArgosNodeClient, ArgosNodeError
 from argos.dashboard.filters import filter_observations_by_source, observation_source_counts
 from argos.dashboard.period_profiles import build_hourly_profile, build_rain_accumulation
 from argos.dashboard.raw_reports import build_raw_report_table, latest_payload_preview
@@ -15,6 +18,8 @@ from argos.dashboard.statistics import build_descriptive_statistics
 from argos.dashboard.summaries import build_annual_summary, build_monthly_summary, build_seasonal_summary
 from argos.dashboard.trends import build_trend_frame
 
+
+logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="ARGOS dashboard", page_icon=":material/monitoring:", layout="wide")
 
@@ -29,6 +34,9 @@ DEFAULT_VARIABLES = [
     "solar_radiation_wm2",
     "uv_index",
 ]
+
+DEFAULT_VALVE_OPENING_DURATION_S = 7.0
+DEFAULT_VALVE_CLOSING_DURATION_S = 7.0
 
 
 LABELS = {
@@ -52,7 +60,16 @@ def main() -> None:
     st.title("ARGOS dashboard")
     st.caption("Agricultural Remote Gateway for Observation and Sensing")
 
-    client, start_iso, end_iso, selected_variables, selected_sources = sidebar()
+    (
+        client,
+        node_client,
+        start_iso,
+        end_iso,
+        selected_variables,
+        selected_sources,
+        valve_opening_duration_s,
+        valve_closing_duration_s,
+    ) = sidebar()
 
     try:
         health = cached_health(client.base_url)
@@ -72,8 +89,8 @@ def main() -> None:
     daily_df = dataframe_from_records(daily, "period_start")
     weekly_df = dataframe_from_records(weekly, "period_start")
 
-    home_tab, observations_tab, summaries_tab, trends_tab, quality_tab = st.tabs(
-        ["Home", "Observations", "Summaries", "Trends", "Quality"]
+    home_tab, observations_tab, summaries_tab, trends_tab, valves_tab, quality_tab = st.tabs(
+        ["Home", "Observations", "Summaries", "Trends", "Valves", "Quality"]
     )
 
     with home_tab:
@@ -95,14 +112,22 @@ def main() -> None:
     with trends_tab:
         render_trends(observations_df, selected_variables)
 
+    with valves_tab:
+        render_valves(
+            node_client,
+            valve_opening_duration_s=valve_opening_duration_s,
+            valve_closing_duration_s=valve_closing_duration_s,
+        )
+
     with quality_tab:
         render_quality(client)
 
 
-def sidebar() -> tuple[ArgosApiClient, str, str, list[str], list[str]]:
+def sidebar() -> tuple[ArgosApiClient, ArgosNodeClient, str, str, list[str], list[str], float, float]:
     with st.sidebar:
         st.header("Connection")
         base_url = st.text_input("ARGOS API URL", value="http://127.0.0.1:8080")
+        node_url = st.text_input("argos-node URL", value="http://10.194.83.1")
         admin_token = st.text_input("Admin token", value="", type="password")
 
         st.header("Time range")
@@ -128,16 +153,33 @@ def sidebar() -> tuple[ArgosApiClient, str, str, list[str], list[str]]:
             selection_mode="multi",
         )
 
+        st.header("Valve timing")
+        valve_opening_duration_s = st.number_input(
+            "Opening duration (s)",
+            min_value=0.0,
+            value=DEFAULT_VALVE_OPENING_DURATION_S,
+            step=0.5,
+        )
+        valve_closing_duration_s = st.number_input(
+            "Closing duration (s)",
+            min_value=0.0,
+            value=DEFAULT_VALVE_CLOSING_DURATION_S,
+            step=0.5,
+        )
+
         if st.button("Refresh data", icon=":material/refresh:"):
             st.cache_data.clear()
             st.rerun()
 
     return (
         ArgosApiClient(base_url=base_url, admin_token=admin_token or None),
+        ArgosNodeClient(base_url=node_url),
         start_iso,
         end_iso,
         selected_variables,
         list(selected_sources or []),
+        float(valve_opening_duration_s),
+        float(valve_closing_duration_s),
     )
 
 
@@ -446,6 +488,275 @@ def render_trends(observations_df: pd.DataFrame, selected_variables: list[str]) 
         add_csv_download(trend_df, "Download trend CSV", "argos_trend.csv")
 
 
+def render_valves(
+    client: ArgosNodeClient,
+    *,
+    valve_opening_duration_s: float,
+    valve_closing_duration_s: float,
+) -> None:
+    render_valve_control(
+        client,
+        valve_id=1,
+        name="Electrovalve 1",
+        valve_opening_duration_s=valve_opening_duration_s,
+        valve_closing_duration_s=valve_closing_duration_s,
+    )
+
+
+def render_valve_control(
+    client: ArgosNodeClient,
+    *,
+    valve_id: int,
+    name: str,
+    valve_opening_duration_s: float,
+    valve_closing_duration_s: float,
+) -> None:
+    keys = valve_session_keys(valve_id)
+    initialize_valve_session(keys)
+    update_timed_valve_state(keys)
+
+    phase = st.session_state[keys["phase"]]
+    if phase in {"unknown", "closed", "open"}:
+        refresh_valve_from_backend(client, valve_id=valve_id, keys=keys)
+        phase = st.session_state[keys["phase"]]
+
+    with st.container(border=True):
+        st.subheader(name)
+        st.metric("State", valve_phase_label(phase), border=True)
+        render_valve_status_line(keys, phase)
+        render_valve_progress(keys, phase, valve_opening_duration_s, valve_closing_duration_s)
+        render_valve_primary_action(valve_id, keys, phase)
+        render_valve_message(st.session_state[keys["message"]], st.session_state[keys["error"]])
+
+    if phase in {"sending_open_command", "sending_close_command"} and not st.session_state[keys["command_in_flight"]]:
+        run_valve_command(
+            client,
+            valve_id=valve_id,
+            keys=keys,
+            command="open" if phase == "sending_open_command" else "close",
+            movement_duration_s=valve_opening_duration_s if phase == "sending_open_command" else valve_closing_duration_s,
+        )
+
+    if st.session_state[keys["raw_response"]]:
+        with st.expander("Raw valve response"):
+            st.json(st.session_state[keys["raw_response"]])
+            st.caption(
+                "The exact relay switching instant is not observable from the dashboard yet. "
+                "Movement start is approximated by the HTTP response reception time. "
+                "Do not attribute the observed pre-movement delay to a specific component until argos-node logs it "
+                "or returns an applied_at field after physically applying the relay state."
+            )
+            st.json(st.session_state[keys["timing"]])
+
+    if st.session_state[keys["phase"]] in {"opening", "closing"}:
+        monotonic_time.sleep(1)
+        st.rerun()
+
+
+def valve_session_keys(valve_id: int) -> dict[str, str]:
+    prefix = f"valve_{valve_id}"
+    return {
+        "phase": f"{prefix}_phase",
+        "last_confirmed_phase": f"{prefix}_last_confirmed_phase",
+        "raw_response": f"{prefix}_raw_response",
+        "message": f"{prefix}_message",
+        "error": f"{prefix}_error",
+        "timing": f"{prefix}_timing",
+        "command_in_flight": f"{prefix}_command_in_flight",
+        "movement_started_monotonic": f"{prefix}_movement_started_monotonic",
+        "movement_complete_monotonic": f"{prefix}_movement_complete_monotonic",
+        "movement_complete_at": f"{prefix}_movement_complete_at",
+    }
+
+
+def initialize_valve_session(keys: dict[str, str]) -> None:
+    st.session_state.setdefault(keys["phase"], "unknown")
+    st.session_state.setdefault(keys["last_confirmed_phase"], "unknown")
+    st.session_state.setdefault(keys["raw_response"], None)
+    st.session_state.setdefault(keys["message"], None)
+    st.session_state.setdefault(keys["error"], None)
+    st.session_state.setdefault(keys["timing"], {})
+    st.session_state.setdefault(keys["command_in_flight"], False)
+    st.session_state.setdefault(keys["movement_started_monotonic"], None)
+    st.session_state.setdefault(keys["movement_complete_monotonic"], None)
+    st.session_state.setdefault(keys["movement_complete_at"], None)
+
+
+def update_timed_valve_state(keys: dict[str, str]) -> None:
+    phase = st.session_state[keys["phase"]]
+    if phase not in {"opening", "closing"}:
+        return
+
+    movement_complete = st.session_state[keys["movement_complete_monotonic"]]
+    if movement_complete is None or monotonic_time.monotonic() < movement_complete:
+        return
+
+    final_phase = "open" if phase == "opening" else "closed"
+    st.session_state[keys["phase"]] = final_phase
+    st.session_state[keys["last_confirmed_phase"]] = final_phase
+    st.session_state[keys["message"]] = (
+        f"Valve is estimated {final_phase}. No independent end-stop signal is available."
+    )
+
+
+def refresh_valve_from_backend(client: ArgosNodeClient, *, valve_id: int, keys: dict[str, str]) -> None:
+    try:
+        state = client.get_valve(valve_id)
+    except ArgosNodeError as exc:
+        st.session_state[keys["phase"]] = "error"
+        st.session_state[keys["error"]] = str(exc)
+        return
+
+    if state is None:
+        st.session_state[keys["phase"]] = "unknown"
+        return
+
+    phase = valve_phase_from_response(state)
+    st.session_state[keys["raw_response"]] = state
+    st.session_state[keys["phase"]] = phase
+    if phase in {"open", "closed"}:
+        st.session_state[keys["last_confirmed_phase"]] = phase
+        st.session_state[keys["error"]] = None
+
+
+def render_valve_status_line(keys: dict[str, str], phase: str) -> None:
+    if phase == "sending_open_command":
+        st.info("Sending open command...")
+    elif phase == "sending_close_command":
+        st.info("Sending close command...")
+    elif phase == "opening":
+        st.info("Opening...")
+    elif phase == "closing":
+        st.info("Closing...")
+    elif phase == "open":
+        st.caption("Open is estimated after the configured movement duration.")
+    elif phase == "closed":
+        st.caption("Closed is estimated after the configured movement duration.")
+    elif phase == "error":
+        st.caption(f"Last confirmed state: {valve_phase_label(st.session_state[keys['last_confirmed_phase']])}")
+
+
+def render_valve_progress(
+    keys: dict[str, str],
+    phase: str,
+    valve_opening_duration_s: float,
+    valve_closing_duration_s: float,
+) -> None:
+    if phase not in {"opening", "closing"}:
+        return
+
+    duration = valve_opening_duration_s if phase == "opening" else valve_closing_duration_s
+    complete_at = st.session_state[keys["movement_complete_monotonic"]]
+    if complete_at is None:
+        return
+
+    remaining_s = max(0.0, complete_at - monotonic_time.monotonic())
+    elapsed_s = max(0.0, duration - remaining_s)
+    progress = 1.0 if duration <= 0 else min(1.0, elapsed_s / duration)
+    st.progress(progress, text=f"{remaining_s:.0f} s remaining")
+
+
+def render_valve_primary_action(valve_id: int, keys: dict[str, str], phase: str) -> None:
+    if phase == "closed":
+        clicked = st.button("Open valve", icon=":material/valve:", type="primary", key=f"valve_{valve_id}_open")
+        if clicked:
+            start_valve_command(keys, "sending_open_command", "dashboard_open_click")
+    elif phase == "open":
+        clicked = st.button("Close valve", icon=":material/close:", type="primary", key=f"valve_{valve_id}_close")
+        if clicked:
+            start_valve_command(keys, "sending_close_command", "dashboard_close_click")
+    elif phase == "sending_open_command":
+        st.button("Sending open command...", disabled=True, icon=":material/sync:", key=f"valve_{valve_id}_sending_open")
+    elif phase == "sending_close_command":
+        st.button(
+            "Sending close command...",
+            disabled=True,
+            icon=":material/sync:",
+            key=f"valve_{valve_id}_sending_close",
+        )
+    elif phase == "opening":
+        st.button("Opening...", disabled=True, icon=":material/hourglass:", key=f"valve_{valve_id}_opening")
+    elif phase == "closing":
+        st.button("Closing...", disabled=True, icon=":material/hourglass:", key=f"valve_{valve_id}_closing")
+    else:
+        st.button("Valve unavailable", disabled=True, icon=":material/error:", key=f"valve_{valve_id}_unavailable")
+
+
+def start_valve_command(keys: dict[str, str], phase: str, event: str) -> None:
+    ui_clicked_at = datetime.now(UTC).isoformat()
+    st.session_state[keys["phase"]] = phase
+    st.session_state[keys["message"]] = None
+    st.session_state[keys["error"]] = None
+    st.session_state[keys["command_in_flight"]] = False
+    st.session_state[keys["timing"]] = {
+        "ui_clicked_at": ui_clicked_at,
+        "request_started_at": None,
+        "response_received_at": None,
+        "request_elapsed_ms": None,
+        "movement_estimated_until": None,
+    }
+    log_valve_timing(event, st.session_state[keys["timing"]])
+    st.rerun()
+
+
+def run_valve_command(
+    client: ArgosNodeClient,
+    *,
+    valve_id: int,
+    keys: dict[str, str],
+    command: str,
+    movement_duration_s: float,
+) -> None:
+    st.session_state[keys["command_in_flight"]] = True
+    request_started_monotonic = monotonic_time.monotonic()
+    request_started_at = datetime.now(UTC).isoformat()
+    st.session_state[keys["timing"]]["request_started_at"] = request_started_at
+    log_valve_timing("request_started", st.session_state[keys["timing"]])
+    try:
+        response = client.open_valve(valve_id) if command == "open" else client.close_valve(valve_id)
+        response_received_at = datetime.now(UTC).isoformat()
+        request_elapsed_ms = round((monotonic_time.monotonic() - request_started_monotonic) * 1000)
+        st.session_state[keys["timing"]]["response_received_at"] = response_received_at
+        st.session_state[keys["timing"]]["request_elapsed_ms"] = request_elapsed_ms
+        log_valve_timing("response_received", st.session_state[keys["timing"]])
+        if response is not None:
+            st.session_state[keys["raw_response"]] = response
+
+        start_estimated_movement(keys, command=command, movement_duration_s=movement_duration_s)
+    except ArgosNodeError as exc:
+        st.session_state[keys["phase"]] = "error"
+        st.session_state[keys["message"]] = None
+        st.session_state[keys["error"]] = f"{command.capitalize()} command failed: {exc}"
+        log_valve_timing("command_failed", st.session_state[keys["timing"]])
+    finally:
+        st.session_state[keys["command_in_flight"]] = False
+        st.rerun()
+
+
+def start_estimated_movement(keys: dict[str, str], *, command: str, movement_duration_s: float) -> None:
+    movement_start_monotonic = monotonic_time.monotonic()
+    estimated_complete_at = datetime.now(UTC) + timedelta(seconds=movement_duration_s)
+    st.session_state[keys["movement_started_monotonic"]] = movement_start_monotonic
+    st.session_state[keys["movement_complete_monotonic"]] = movement_start_monotonic + movement_duration_s
+    st.session_state[keys["movement_complete_at"]] = estimated_complete_at.isoformat()
+    st.session_state[keys["timing"]]["movement_estimated_until"] = estimated_complete_at.isoformat()
+    st.session_state[keys["phase"]] = "opening" if command == "open" else "closing"
+    st.session_state[keys["message"]] = None
+    st.session_state[keys["error"]] = None
+    log_valve_timing("movement_estimate_started", st.session_state[keys["timing"]])
+
+
+def render_valve_message(message: str | None, error: str | None) -> None:
+    if error:
+        st.error(error)
+    elif message:
+        st.success(message)
+
+
+def log_valve_timing(event: str, timing: dict[str, Any]) -> None:
+    logger.info("valve timing %s: %s", event, timing)
+
+
 def render_quality(client: ArgosApiClient) -> None:
     if not client.admin_token:
         st.info("Enter the admin token in the sidebar to inspect operational data.")
@@ -517,6 +828,64 @@ def format_datetime(value: Any) -> str:
     if not value:
         return "-"
     return str(value).replace("T", " ").replace("Z", " UTC")
+
+
+def format_valve_state(state: dict[str, Any] | None) -> str:
+    if not state:
+        return "Unknown"
+
+    for key in ("open", "is_open", "opened", "relay_active", "relay_on", "relay_enabled", "active", "energized"):
+        value = state.get(key)
+        if isinstance(value, bool):
+            return "Open" if value else "Closed"
+
+    for key in ("state", "status", "position"):
+        value = state.get(key)
+        if value is not None:
+            return format_valve_state_value(value)
+
+    return "Available"
+
+
+def valve_phase_from_response(state: dict[str, Any] | None) -> str:
+    state_label = format_valve_state(state)
+    if state_label == "Closed":
+        return "closed"
+    if state_label == "Open":
+        return "open"
+    return "unknown"
+
+
+def valve_phase_label(phase: str) -> str:
+    labels = {
+        "closed": "Closed",
+        "sending_open_command": "Sending open command",
+        "opening": "Opening",
+        "open": "Open",
+        "sending_close_command": "Sending close command",
+        "closing": "Closing",
+        "error": "Error",
+        "unknown": "Unknown",
+    }
+    return labels.get(phase, phase)
+
+
+def format_valve_state_value(value: Any) -> str:
+    normalized = str(value).strip().lower()
+    if normalized in {"open", "opened", "true", "1", "on"}:
+        return "Open"
+    if normalized in {"closed", "close", "false", "0", "off"}:
+        return "Closed"
+    return str(value)
+
+
+def valve_action_from_state(state: dict[str, Any] | None) -> str | None:
+    phase = valve_phase_from_response(state)
+    if phase == "closed":
+        return "open"
+    if phase == "open":
+        return "close"
+    return None
 
 
 def short_identifier(value: Any) -> str:
