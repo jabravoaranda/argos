@@ -663,11 +663,11 @@ def render_aemet(client: ArgosApiClient, *, start_date: str, end_date: str) -> N
                 value=settings.aemet_sync_lookback_days,
                 step=1,
             )
-            if st.button("Actualizar", icon=":material/sync:", type="primary"):
+            if st.button("Actualizar", icon=":material/sync:", type="primary", key="aemet_sync_button"):
                 run_aemet_sync_from_dashboard(station_id=station_id, lookback_days=int(lookback_days))
 
         csv_path = st.text_input("CSV histórico local", value=settings.aemet_seed_csv_path or "")
-        if st.button("Importar CSV histórico", icon=":material/upload_file:", type="secondary"):
+        if st.button("Importar CSV histórico", icon=":material/upload_file:", type="secondary", key="aemet_csv_import_button"):
             run_aemet_csv_import_from_dashboard(station_id=station_id, path=csv_path)
 
         with st.container(horizontal=True, vertical_alignment="bottom"):
@@ -680,7 +680,7 @@ def render_aemet(client: ArgosApiClient, *, start_date: str, end_date: str) -> N
                 value=settings.aemet_block_days,
                 step=1,
             )
-            if st.button("Descargar histórico", icon=":material/download:", type="secondary"):
+            if st.button("Descargar histórico", icon=":material/download:", type="secondary", key="aemet_backfill_button"):
                 run_aemet_backfill_from_dashboard(
                     station_id=station_id,
                     start=history_start.isoformat(),
@@ -941,14 +941,14 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
         with st.container(horizontal=True, vertical_alignment="bottom"):
             force = st.checkbox("Forzar reproceso", value=False, key="satellite_force_update")
             dry_run = st.checkbox("Dry-run", value=False, key="satellite_dry_run_update")
-            if st.button("Actualizar", icon=":material/sync:", type="primary"):
+            if st.button("Actualizar", icon=":material/sync:", type="primary", key="satellite_update_button"):
                 run_satellite_update_from_dashboard(client=client, force=force, dry_run=dry_run)
 
         with st.container(horizontal=True, vertical_alignment="bottom"):
             history_start = st.date_input("Inicio histórico", value=date(2021, 1, 1), key="satellite_history_start")
             history_end = st.date_input("Fin histórico", value=date.today(), key="satellite_history_end")
             history_dry_run = st.checkbox("Dry-run histórico", value=True, key="satellite_history_dry_run")
-            if st.button("Descargar histórico", icon=":material/download:", type="secondary"):
+            if st.button("Descargar histórico", icon=":material/download:", type="secondary", key="satellite_backfill_button"):
                 run_satellite_backfill_from_dashboard(
                     client=client,
                     start=history_start.isoformat(),
