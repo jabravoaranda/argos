@@ -87,12 +87,15 @@ def test_satellite_export_csv_and_json(monkeypatch, tmp_path) -> None:
 
     json_response = client.get("/api/v1/satellite/export.json", params={"metric": "ndvi"})
     csv_response = client.get("/api/v1/satellite/export.csv", params={"metric": "ndvi"})
+    bounds_response = client.get("/api/v1/satellite/bounds")
 
     assert json_response.status_code == 200
     assert json_response.json()[0]["zone_name"] == "Finca completa"
     assert csv_response.status_code == 200
     assert csv_response.text.splitlines()[0].startswith("acquisition_time,zone_name,metric_code")
     assert "2026-01-01T00:00:00" in csv_response.text
+    assert bounds_response.status_code == 200
+    assert bounds_response.json() == {"first_date": "2026-01-01", "last_date": "2026-01-01"}
 
     get_settings.cache_clear()
     reset_database_caches()

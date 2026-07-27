@@ -68,6 +68,19 @@ def satellite_zones(session: Session = Depends(get_db_session)) -> list[Satellit
     return [SatelliteZoneRead.model_validate(zone) for zone in SatelliteRepository(session).zones()]
 
 
+@router.get("/bounds")
+def satellite_bounds(
+    zone_id: int | None = None,
+    quality_status: str | None = None,
+    session: Session = Depends(get_db_session),
+) -> dict[str, str | None]:
+    first, last = SatelliteRepository(session).observation_bounds(zone_id=zone_id, quality_status=quality_status)
+    return {
+        "first_date": first.date().isoformat() if first else None,
+        "last_date": last.date().isoformat() if last else None,
+    }
+
+
 @router.get("/observations", response_model=list[SatelliteObservationRead])
 def satellite_observations(
     zone_id: int | None = None,

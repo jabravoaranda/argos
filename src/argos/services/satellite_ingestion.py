@@ -68,8 +68,8 @@ class SatelliteIngestionService:
         credentials_available = bool(self.settings.copernicus_client_id and self.settings.copernicus_client_secret)
         geometry_defined = bool(self.settings.argos_satellite_aoi_geojson)
         zones = self.repository.zones()
-        observations = self.repository.observations()
-        latest = self.repository.latest_observation()
+        observation_count = self.repository.observation_count()
+        latest = self.repository.latest_observation_timestamps()
         if not enabled:
             status = "disabled"
             message = "Satellite module is disabled."
@@ -91,10 +91,10 @@ class SatelliteIngestionService:
             credentials_available=credentials_available,
             geometry_defined=geometry_defined,
             message=message,
-            latest_acquisition_time=latest.acquisition_time if latest else None,
-            latest_update_time=latest.updated_at or latest.created_at if latest else None,
+            latest_acquisition_time=latest[0] if latest else None,
+            latest_update_time=(latest[1] or latest[2]) if latest else None,
             zone_count=len(zones),
-            observation_count=len(observations),
+            observation_count=observation_count,
         )
 
     def backfill(

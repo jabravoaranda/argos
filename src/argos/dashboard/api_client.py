@@ -63,6 +63,17 @@ class ArgosApiClient:
     def get_satellite_zones(self) -> list[dict[str, Any]]:
         return self._get_json("/api/v1/satellite/zones")
 
+    def get_satellite_bounds(
+        self,
+        *,
+        quality_status: str | None = None,
+        zone_id: int | None = None,
+    ) -> dict[str, Any]:
+        return self._get_json(
+            "/api/v1/satellite/bounds",
+            params={"quality_status": quality_status, "zone_id": zone_id},
+        )
+
     def get_satellite_observations(
         self,
         *,

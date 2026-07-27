@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, joinedload
 
 from argos.models.satellite import SatelliteAsset, SatelliteMetric, SatelliteObservation, SatelliteSource, SatelliteZone
@@ -64,6 +64,48 @@ class SatelliteRepository:
         if enabled_only:
             statement = statement.where(SatelliteZone.enabled.is_(True))
         return list(self.session.scalars(statement).all())
+
+    def observation_count(self, *, zone_id: int | None = None, quality_status: str | None = None) -> int:
+        statement = select(func.count(SatelliteObservation.id))
+        if zone_id is not None:
+            statement = statement.where(SatelliteObservation.zone_id == zone_id)
+        if quality_status is not None:
+            statement = statement.where(SatelliteObservation.quality_status == quality_status)
+        return int(self.session.scalar(statement) or 0)
+
+    def observation_bounds(
+        self,
+        *,
+        zone_id: int | None = None,
+        quality_status: str | None = None,
+    ) -> tuple[datetime | None, datetime | None]:
+        statement = select(
+            func.min(SatelliteObservation.acquisition_time),
+            func.max(SatelliteObservation.acquisition_time),
+        )
+        if zone_id is not None:
+            statement = statement.where(SatelliteObservation.zone_id == zone_id)
+        if quality_status is not None:
+            statement = statement.where(SatelliteObservation.quality_status == quality_status)
+        row = self.session.execute(statement).one()
+        return row[0], row[1]
+
+    def latest_observation_timestamps(self, *, zone_id: int | None = None) -> tuple[datetime, datetime | None, datetime] | None:
+        statement = (
+            select(
+                SatelliteObservation.acquisition_time,
+                SatelliteObservation.updated_at,
+                SatelliteObservation.created_at,
+            )
+            .order_by(desc(SatelliteObservation.acquisition_time), desc(SatelliteObservation.id))
+            .limit(1)
+        )
+        if zone_id is not None:
+            statement = statement.where(SatelliteObservation.zone_id == zone_id)
+        row = self.session.execute(statement).one_or_none()
+        if row is None:
+            return None
+        return row[0], row[1], row[2]
 
     def observation_by_external_key(
         self,

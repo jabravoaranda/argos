@@ -286,13 +286,18 @@ def cached_satellite_zones(base_url: str) -> list[dict[str, Any]]:
 
 
 @st.cache_data(ttl=60)
+def cached_satellite_bounds(base_url: str, quality_status: str | None) -> dict[str, Any]:
+    return ArgosApiClient(base_url=base_url).get_satellite_bounds(quality_status=quality_status)
+
+
+@st.cache_data(ttl=60)
 def cached_satellite_export_rows(
     base_url: str,
     start: str | None,
     end: str | None,
     quality_status: str | None,
 ) -> list[dict[str, Any]]:
-    return ArgosApiClient(base_url=base_url).get_satellite_export_json(
+    return ArgosApiClient(base_url=base_url, timeout_seconds=20).get_satellite_export_json(
         start=start,
         end=end,
         quality_status=quality_status,
@@ -848,13 +853,6 @@ def render_satellite_date_range_selector(*, global_start: str, global_end: str, 
     return start.isoformat(), end.isoformat()
 
 
-def satellite_bounds_from_rows(rows: list[dict[str, Any]]) -> dict[str, str | None]:
-    dates = sorted({str(row.get("acquisition_time", ""))[:10] for row in rows if row.get("acquisition_time")})
-    if not dates:
-        return {"first_date": None, "last_date": None}
-    return {"first_date": dates[0], "last_date": dates[-1]}
-
-
 def satellite_day_bounds(start: str, end: str) -> tuple[str, str]:
     start_iso = datetime.combine(date.fromisoformat(start), time.min, tzinfo=UTC).isoformat().replace("+00:00", "Z")
     end_iso = datetime.combine(date.fromisoformat(end), time.max, tzinfo=UTC).isoformat().replace("+00:00", "Z")
@@ -879,7 +877,6 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
         status = cached_satellite_status(client.base_url)
         latest = cached_satellite_latest(client.base_url)
         zones = cached_satellite_zones(client.base_url)
-        all_rows = cached_satellite_export_rows(client.base_url, None, None, None)
     except ArgosApiError as exc:
         st.error(str(exc))
         return
@@ -902,17 +899,22 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
             st.info("Credenciales no disponibles. Configure COPERNICUS_CLIENT_ID y COPERNICUS_CLIENT_SECRET.")
         return
 
-    bounds = satellite_bounds_from_rows(all_rows)
-    query_start, query_end = render_satellite_date_range_selector(
-        global_start=start_iso[:10],
-        global_end=end_iso[:10],
-        bounds=bounds,
-    )
     quality_filter = st.selectbox(
         "Calidad satelital",
         ["all", "valid", "partial", "invalid"],
         format_func=lambda value: SATELLITE_QUALITY_LABELS.get(value, value),
         key="satellite_quality_filter",
+    )
+    quality_status = None if quality_filter == "all" else quality_filter
+    try:
+        bounds = cached_satellite_bounds(client.base_url, quality_status)
+    except ArgosApiError as exc:
+        st.error(str(exc))
+        return
+    query_start, query_end = render_satellite_date_range_selector(
+        global_start=start_iso[:10],
+        global_end=end_iso[:10],
+        bounds=bounds,
     )
     range_start_iso, range_end_iso = satellite_day_bounds(query_start, query_end)
     try:
@@ -920,7 +922,7 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
             client.base_url,
             range_start_iso,
             range_end_iso,
-            None if quality_filter == "all" else quality_filter,
+            quality_status,
         )
     except ArgosApiError as exc:
         st.error(str(exc))
