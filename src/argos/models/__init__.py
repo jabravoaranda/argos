@@ -13,6 +13,14 @@ from argos.models.ecowitt import (
     WeatherObservation,
     WeeklyStatistic,
 )
+from argos.models.aemet import AemetSyncRun, WeatherDailyObservation, WeatherStation
+from argos.models.satellite import (
+    SatelliteAsset,
+    SatelliteMetric,
+    SatelliteObservation,
+    SatelliteSource,
+    SatelliteZone,
+)
 
 __all__ = [
     "DailyStatistic",
@@ -26,4 +34,12 @@ __all__ = [
     "UnknownField",
     "WeatherObservation",
     "WeeklyStatistic",
+    "AemetSyncRun",
+    "WeatherDailyObservation",
+    "WeatherStation",
+    "SatelliteAsset",
+    "SatelliteMetric",
+    "SatelliteObservation",
+    "SatelliteSource",
+    "SatelliteZone",
 ]

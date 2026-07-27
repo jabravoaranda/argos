@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from datetime import date
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,6 +28,35 @@ class Settings(BaseSettings):
     ecowitt_cloud_mac: str | None = None
     ecowitt_cloud_timeout_seconds: int = 10
     ecowitt_cloud_max_backfill_hours: int = 24
+    argos_satellite_enabled: bool = False
+    copernicus_client_id: str | None = None
+    copernicus_client_secret: str | None = None
+    copernicus_token_url: str = (
+        "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
+    )
+    copernicus_stac_url: str = "https://stac.dataspace.copernicus.eu/v1"
+    copernicus_catalog_url: str = "https://sh.dataspace.copernicus.eu/catalog/v1"
+    copernicus_statistics_url: str = "https://sh.dataspace.copernicus.eu/statistics/v1"
+    copernicus_process_url: str = "https://sh.dataspace.copernicus.eu/process/v1"
+    argos_satellite_aoi_geojson: str | None = None
+    argos_satellite_history_days: int = 730
+    argos_satellite_max_cloud_cover: float = 60.0
+    argos_satellite_min_valid_pixel_fraction: float = 0.20
+    argos_satellite_valid_pixel_fraction: float = 0.50
+    argos_satellite_update_interval_hours: int = 24
+    argos_satellite_preview_enabled: bool = True
+    argos_satellite_asset_dir: str = "data/satellite"
+    argos_satellite_http_timeout_seconds: int = 30
+    aemet_api_key: str | None = None
+    aemet_station_id: str = "6127X"
+    aemet_base_url: str = "https://opendata.aemet.es/opendata/api"
+    aemet_timeout_seconds: int = 20
+    aemet_max_retries: int = 3
+    aemet_backoff_seconds: float = 0.5
+    aemet_block_days: int = 31
+    aemet_sync_lookback_days: int = 7
+    aemet_backfill_start_date: date = date(1900, 1, 1)
+    aemet_seed_csv_path: str | None = None
 
 
 @lru_cache

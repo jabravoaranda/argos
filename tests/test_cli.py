@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from argos.cli import build_parser, format_ecowitt_status, parse_callbacks, parse_utc_datetime
+from argos.cli import build_parser, format_ecowitt_status, parse_callbacks, parse_date, parse_utc_datetime
 from argos.services.ecowitt_status import EcowittStatus
 
 
@@ -19,6 +19,10 @@ def test_parse_callbacks_rejects_empty_values() -> None:
 
     with pytest.raises(argparse.ArgumentTypeError):
         parse_callbacks(" , ")
+
+
+def test_parse_date_accepts_iso_dates() -> None:
+    assert parse_date("2026-07-10") == datetime(2026, 7, 10).date()
 
 
 def test_build_parser_requires_gateway_identifier_for_backfill() -> None:
@@ -55,6 +59,20 @@ def test_build_parser_accepts_ecowitt_status_command() -> None:
 
     assert args.command == "ecowitt"
     assert args.ecowitt_command == "status"
+
+
+def test_build_parser_accepts_aemet_commands() -> None:
+    parser = build_parser()
+
+    backfill = parser.parse_args(["aemet", "backfill", "--station", "6127X", "--start", "2026-07-01", "--end", "2026-07-31"])
+    sync = parser.parse_args(["aemet", "sync", "--station", "6127X", "--lookback-days", "7"])
+    csv = parser.parse_args(["aemet", "import-csv", "--station", "6127X", "--path", "6127X.csv"])
+
+    assert backfill.aemet_command == "backfill"
+    assert backfill.station == "6127X"
+    assert sync.aemet_command == "sync"
+    assert sync.lookback_days == 7
+    assert csv.aemet_command == "import-csv"
 
 
 def test_format_ecowitt_status_outputs_operator_summary() -> None:

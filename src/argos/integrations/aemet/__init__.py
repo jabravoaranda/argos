@@ -1,0 +1,1 @@
+"""AEMET OpenData integration adapter."""

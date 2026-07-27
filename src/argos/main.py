@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from argos.api.ecowitt import router as ecowitt_router
 from argos.api.health import router as health_router
+from argos.api.satellite import router as satellite_router
 from argos.api.weather import router as weather_router
 from argos.config.settings import get_settings
 
@@ -19,6 +20,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(ecowitt_router)
     app.include_router(weather_router)
+    app.include_router(satellite_router)
     return app
 
 

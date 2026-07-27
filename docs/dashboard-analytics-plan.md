@@ -61,22 +61,25 @@ Annual:
 
 ## Dashboard deployment proposal
 
-Recommended first dashboard layout:
+Current dashboard layout:
 
-- Home: operational status, current conditions and latest station hardware.
-- Observations: high-resolution time series for selected raw/normalized variables.
-- Summaries:
+- Inicio: operational status, current conditions and latest station hardware in a compact first viewport.
+- Observaciones: high-resolution time series for selected raw/normalized variables.
+- Resúmenes:
   - Daily: persisted daily summaries and daily rainfall/temperature charts.
   - Weekly: persisted weekly summaries for operational review.
   - Monthly: derived monthly statistics from daily summaries.
   - Seasonal: DJF/MAM/JJA/SON summaries for scientific interpretation.
   - Annual: yearly totals and extrema from daily summaries.
-- Trends:
+- Tendencias:
   - one selected variable at a time for detailed diagnostics;
   - moving average, anomaly and linear trend in the same chart;
   - descriptive statistics table for all selected variables;
   - CSV export for reproducibility.
-- Quality:
+- AEMET: official nearby daily climatology with CSV import, recent sync and historical OpenData download actions.
+- Satélite: Sentinel-2 vegetation/moisture index charts, quality filtering, coverage metadata and Copernicus update/backfill actions.
+- Válvulas: argos-node valve controls and state/timing diagnostics.
+- Calidad:
   - data gaps;
   - ingestion events;
   - unknown fields;
@@ -100,6 +103,6 @@ Charts to prioritize next:
 
 ## Implementation status
 
-- Implemented: direct observations, hourly selected-period profile, selected-period rainfall accumulation, daily and weekly API summaries, monthly, seasonal and annual dashboard aggregates, descriptive statistics, moving averages, anomaly from period mean and linear trend diagnostics.
+- Implemented: direct observations, hourly selected-period profile, selected-period rainfall accumulation, daily and weekly API summaries, monthly, seasonal and annual dashboard aggregates, descriptive statistics, moving averages, anomaly from period mean, linear trend diagnostics, AEMET daily charts, Sentinel-2 satellite index charts and valve controls.
 - Next: richer period-specific charts for daily, weekly, monthly, seasonal and annual views.
 - Later: persisted monthly/seasonal/annual statistics in the backend, wind roses, dry-period detection, rain-event detection and solar irradiation.

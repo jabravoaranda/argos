@@ -1,15 +1,22 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 import hmac
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func, select
 
 from argos.config.settings import Settings, get_settings
 from argos.database.session import get_db_session
+from argos.integrations.aemet.client import AemetClient, AemetConfigError, AemetError
 from argos.repositories.weather import WeatherRepository
+from argos.repositories.aemet import AemetRepository
 from argos.schemas.weather import (
+    AemetObservationBoundsRead,
+    AemetImportSummaryRead,
+    AemetSyncRunRead,
     DataGapRead,
     GatewayHardwareRead,
     GatewayStatusRead,
@@ -19,8 +26,12 @@ from argos.schemas.weather import (
     StatisticsRecomputeRead,
     UnknownFieldRead,
     WeatherObservationRead,
+    WeatherDailyObservationRead,
+    WeatherStationRead,
     WeatherPeriodSummaryRead,
 )
+from argos.models.aemet import WeatherDailyObservation
+from argos.services.aemet_import import AemetImportRangeError, AemetImportService
 from argos.services.weather_statistics import recompute_statistics
 from argos.utils.redaction import redact_sensitive_values
 
@@ -75,6 +86,141 @@ def weather_observations(
 ) -> list[WeatherObservationRead]:
     observations = WeatherRepository(session).observations(start=start, end=end)
     return [WeatherObservationRead.model_validate(observation) for observation in observations]
+
+
+@router.get("/stations", response_model=list[WeatherStationRead])
+def weather_stations(
+    provider: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    session: Session = Depends(get_db_session),
+) -> list[WeatherStationRead]:
+    stations = AemetRepository(session).stations(provider=provider, limit=limit)
+    return [WeatherStationRead.model_validate(station) for station in stations]
+
+
+@router.get("/aemet/observations", response_model=list[WeatherDailyObservationRead])
+def aemet_daily_observations(
+    station: str = Query(default="6127X"),
+    start: date | None = Query(default=None, alias="from"),
+    end: date | None = Query(default=None, alias="to"),
+    limit: int = Query(default=366, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    session: Session = Depends(get_db_session),
+) -> list[WeatherDailyObservationRead]:
+    _validate_date_window(start=start, end=end, max_days=50000)
+    repository = AemetRepository(session)
+    station_record = repository.station_by_provider_external(provider="aemet", external_id=station)
+    if station_record is None:
+        return []
+    observations = repository.daily_observations(
+        station_id=station_record.id,
+        start=start,
+        end=end,
+        limit=limit,
+        offset=offset,
+    )
+    return [WeatherDailyObservationRead.model_validate(observation) for observation in observations]
+
+
+@router.get("/aemet/sync/latest", response_model=AemetSyncRunRead | None)
+def latest_aemet_sync(
+    station: str | None = Query(default=None),
+    session: Session = Depends(get_db_session),
+) -> AemetSyncRunRead | None:
+    run = AemetRepository(session).latest_sync_run(station_external_id=station)
+    if run is None:
+        return None
+    return AemetSyncRunRead.model_validate(run)
+
+
+@router.get("/aemet/bounds", response_model=AemetObservationBoundsRead)
+def aemet_observation_bounds(
+    station: str = Query(default="6127X"),
+    session: Session = Depends(get_db_session),
+) -> AemetObservationBoundsRead:
+    repository = AemetRepository(session)
+    station_record = repository.station_by_provider_external(provider="aemet", external_id=station)
+    if station_record is None:
+        return AemetObservationBoundsRead(station=station, first_date=None, last_date=None, count=0)
+    first_date, last_date = repository.observation_date_bounds(station_id=station_record.id)
+    count = session.scalar(
+        select(func.count()).select_from(WeatherDailyObservation).where(WeatherDailyObservation.station_id == station_record.id)
+    )
+    return AemetObservationBoundsRead(station=station, first_date=first_date, last_date=last_date, count=int(count or 0))
+
+
+@router.post("/aemet/backfill", response_model=AemetImportSummaryRead)
+def backfill_aemet(
+    station: str | None = Query(default=None),
+    start: date | None = Query(default=None, alias="from"),
+    end: date | None = Query(default=None, alias="to"),
+    block_days: int | None = Query(default=None, ge=1, le=366),
+    _admin: None = Depends(require_admin_token),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> AemetImportSummaryRead:
+    import_start = start or settings.aemet_backfill_start_date
+    import_end = end or datetime.now(UTC).date()
+    _validate_date_window(start=import_start, end=import_end, max_days=50000)
+    try:
+        result = AemetImportService(
+            session=session,
+            client=AemetClient.from_settings(settings),
+            settings=settings,
+        ).backfill(
+            station_id=station or settings.aemet_station_id,
+            start=import_start,
+            end=import_end,
+            block_days=block_days,
+        )
+    except AemetConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (AemetImportRangeError, AemetError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return _aemet_summary_read(result)
+
+
+@router.post("/aemet/sync", response_model=AemetImportSummaryRead)
+def sync_aemet(
+    station: str | None = Query(default=None),
+    lookback_days: int | None = Query(default=None, ge=1, le=366),
+    _admin: None = Depends(require_admin_token),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> AemetImportSummaryRead:
+    try:
+        result = AemetImportService(
+            session=session,
+            client=AemetClient.from_settings(settings),
+            settings=settings,
+        ).sync(
+            station_id=station or settings.aemet_station_id,
+            lookback_days=lookback_days or settings.aemet_sync_lookback_days,
+        )
+    except AemetConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (AemetImportRangeError, AemetError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return _aemet_summary_read(result)
+
+
+@router.post("/aemet/import-csv", response_model=AemetImportSummaryRead)
+def import_aemet_csv(
+    path: str = Query(...),
+    station: str | None = Query(default=None),
+    _admin: None = Depends(require_admin_token),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> AemetImportSummaryRead:
+    try:
+        result = AemetImportService(
+            session=session,
+            client=AemetClient(base_url=settings.aemet_base_url, api_key="csv-import"),
+            settings=settings,
+        ).import_csv(path=Path(path), station_id=station or settings.aemet_station_id)
+    except AemetImportRangeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _aemet_summary_read(result)
 
 
 @router.get("/summary/daily", response_model=list[WeatherPeriodSummaryRead])
@@ -195,3 +341,26 @@ def _date_or_none(value: datetime | None):
     if value is None:
         return None
     return value.date()
+
+
+def _validate_date_window(*, start: date | None, end: date | None, max_days: int) -> None:
+    if start is not None and end is not None:
+        if end < start:
+            raise HTTPException(status_code=400, detail="End date must be on or after start date.")
+        if (end - start).days > max_days:
+            raise HTTPException(status_code=400, detail=f"Date range cannot exceed {max_days} days.")
+
+
+def _aemet_summary_read(result) -> AemetImportSummaryRead:
+    return AemetImportSummaryRead(
+        station_external_id=result.station_external_id,
+        start=result.start,
+        end=result.end,
+        status=result.status,
+        intervals=[interval.as_dict() for interval in result.intervals],
+        records_received=result.records_received,
+        inserted=result.inserted,
+        updated=result.updated,
+        skipped=result.skipped,
+        errors=result.errors,
+    )
