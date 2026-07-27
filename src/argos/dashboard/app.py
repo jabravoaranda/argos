@@ -864,7 +864,7 @@ def satellite_frame_from_rows(rows: list[dict[str, Any]]) -> pd.DataFrame:
     if frame.empty:
         return frame
     if "acquisition_time" in frame:
-        frame["acquisition_time"] = pd.to_datetime(frame["acquisition_time"])
+        frame["acquisition_time"] = pd.to_datetime(frame["acquisition_time"], format="ISO8601")
     if "metric_code" in frame:
         frame["metric_code"] = frame["metric_code"].map(lambda value: str(value).lower())
         frame["metric"] = frame["metric_code"].map(lambda value: SATELLITE_LABELS.get(value, value.upper()))
