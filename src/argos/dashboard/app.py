@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time as monotonic_time
 from datetime import UTC, date, datetime, time, timedelta
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -91,10 +92,46 @@ SATELLITE_QUALITY_LABELS = {
     "invalid": "Inválidas",
 }
 
+WEATHER_CARD_VARIABLES = [
+    ("Temperatura", "outdoor_temperature_c", "deg C", "TEMP"),
+    ("Humedad", "outdoor_humidity_pct", "%", "HUM"),
+    ("Presión", "relative_pressure_hpa", "hPa", "PRES"),
+    ("Viento", "wind_speed_ms", "m/s", "WIND"),
+    ("Racha", "wind_gust_ms", "m/s", "GUST"),
+    ("Lluvia 24 h", "rain_last_24h_mm", "mm", "RAIN"),
+    ("Lluvia actual", "rain_rate_mm_h", "mm/h", "RATE"),
+    ("UV", "uv_index", "", "UV"),
+    ("Radiación solar", "solar_radiation_wm2", "W/m2", "SUN"),
+    ("Batería WS90", "battery_voltage", "V", "BAT"),
+    ("Capacitor WS90", "ws90_capacitor_voltage", "V", "CAP"),
+]
+
+SPANISH_MONTH_ABBR = {
+    1: "ene",
+    2: "feb",
+    3: "mar",
+    4: "abr",
+    5: "may",
+    6: "jun",
+    7: "jul",
+    8: "ago",
+    9: "sep",
+    10: "oct",
+    11: "nov",
+    12: "dic",
+}
+
 
 def main() -> None:
-    st.title("ARGOS dashboard")
-    st.caption("Agricultural Remote Gateway for Observation and Sensing")
+    apply_compact_dashboard_styles()
+    st.html(
+        """
+        <div class="argos-app-header">
+            <strong>ARGOS</strong>
+            <span>Agricultural Remote Guidance and Observation System</span>
+        </div>
+        """
+    )
 
     (
         client,
@@ -126,10 +163,11 @@ def main() -> None:
     weekly_df = dataframe_from_records(weekly, "period_start")
 
     home_tab, observations_tab, summaries_tab, trends_tab, aemet_tab, satellite_tab, valves_tab, quality_tab = st.tabs(
-        ["Home", "Observations", "Summaries", "Trends", "AEMET", "Observación satelital", "Valves", "Quality"]
+        ["Inicio", "Observaciones", "Resúmenes", "Tendencias", "AEMET", "Satélite", "Válvulas", "Calidad"]
     )
 
     with home_tab:
+        render_home_header()
         render_home(
             health=health,
             station=station,
@@ -167,16 +205,17 @@ def main() -> None:
 
 def sidebar() -> tuple[ArgosApiClient, ArgosNodeClient, str, str, list[str], list[str], float, float]:
     with st.sidebar:
-        st.header("Connection")
-        base_url = st.text_input("ARGOS API URL", value="http://127.0.0.1:8080")
-        node_url = st.text_input("argos-node URL", value="http://10.194.83.1")
-        admin_token = st.text_input("Admin token", value="", type="password")
+        st.header("ARGOS")
+        with st.expander("Conexión", expanded=False, icon=":material/settings_ethernet:"):
+            base_url = st.text_input("ARGOS API URL", value="http://127.0.0.1:8080")
+            node_url = st.text_input("argos-node URL", value="http://10.194.83.1")
+            admin_token = st.text_input("Admin token", value="", type="password")
 
-        st.header("Time range")
+        st.subheader("Rango temporal")
         today = date.today()
         default_start = today - timedelta(days=1)
         selected_dates = st.date_input(
-            "Date range",
+            "Fechas",
             value=(default_start, today),
             min_value=date(2000, 1, 1),
             max_value=today,
@@ -189,32 +228,31 @@ def sidebar() -> tuple[ArgosApiClient, ArgosNodeClient, str, str, list[str], lis
         start_iso = datetime.combine(start_date, time.min, tzinfo=UTC).isoformat().replace("+00:00", "Z")
         end_iso = datetime.combine(end_date, time.max, tzinfo=UTC).isoformat().replace("+00:00", "Z")
 
-        st.header("Variables")
-        selected_variables = st.multiselect("Chart variables", options=list(LABELS), default=DEFAULT_VARIABLES)
+        with st.expander("Variables y fuentes", expanded=False, icon=":material/tune:"):
+            selected_variables = st.multiselect("Variables de gráficas", options=list(LABELS), default=DEFAULT_VARIABLES)
 
-        st.header("Observation source")
-        selected_sources = st.pills(
-            "Sources",
-            options=["DIRECT", "BACKFILLED"],
-            default=["DIRECT", "BACKFILLED"],
-            selection_mode="multi",
-        )
+            selected_sources = st.pills(
+                "Fuentes",
+                options=["DIRECT", "BACKFILLED"],
+                default=["DIRECT", "BACKFILLED"],
+                selection_mode="multi",
+            )
 
-        st.header("Valve timing")
-        valve_opening_duration_s = st.number_input(
-            "Opening duration (s)",
-            min_value=0.0,
-            value=DEFAULT_VALVE_OPENING_DURATION_S,
-            step=0.5,
-        )
-        valve_closing_duration_s = st.number_input(
-            "Closing duration (s)",
-            min_value=0.0,
-            value=DEFAULT_VALVE_CLOSING_DURATION_S,
-            step=0.5,
-        )
+        with st.expander("Válvulas", expanded=False, icon=":material/valve:"):
+            valve_opening_duration_s = st.number_input(
+                "Apertura (s)",
+                min_value=0.0,
+                value=DEFAULT_VALVE_OPENING_DURATION_S,
+                step=0.5,
+            )
+            valve_closing_duration_s = st.number_input(
+                "Cierre (s)",
+                min_value=0.0,
+                value=DEFAULT_VALVE_CLOSING_DURATION_S,
+                step=0.5,
+            )
 
-        if st.button("Refresh data", icon=":material/refresh:"):
+        if st.button("Recargar vista", icon=":material/refresh:"):
             st.cache_data.clear()
             st.rerun()
 
@@ -297,7 +335,7 @@ def cached_satellite_export_rows(
     end: str | None,
     quality_status: str | None,
 ) -> list[dict[str, Any]]:
-    return ArgosApiClient(base_url=base_url, timeout_seconds=20).get_satellite_export_json(
+    return ArgosApiClient(base_url=base_url, timeout_seconds=180).get_satellite_export_json(
         start=start,
         end=end,
         quality_status=quality_status,
@@ -312,12 +350,44 @@ def cached_satellite_timeseries(
     end: str,
     quality_status: str | None,
 ) -> dict[str, Any]:
-    return ArgosApiClient(base_url=base_url).get_satellite_timeseries(
+    return ArgosApiClient(base_url=base_url, timeout_seconds=60).get_satellite_timeseries(
         metric=metric,
         start=start,
         end=end,
         quality_status=quality_status,
     )
+
+
+@st.cache_data(ttl=60)
+def cached_satellite_chart_rows(
+    base_url: str,
+    metrics: tuple[str, ...],
+    start: str,
+    end: str,
+    quality_status: str | None,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for metric in metrics:
+        series = ArgosApiClient(base_url=base_url, timeout_seconds=60).get_satellite_timeseries(
+            metric=metric,
+            start=start,
+            end=end,
+            quality_status=quality_status,
+        )
+        for point in series.get("points", []):
+            rows.append(
+                {
+                    "acquisition_time": point.get("acquisition_time"),
+                    "metric_code": metric,
+                    "mean": point.get("mean"),
+                    "median": point.get("median"),
+                    "percentile_25": point.get("p25"),
+                    "percentile_75": point.get("p75"),
+                    "valid_pixel_fraction": point.get("valid_pixel_fraction"),
+                    "quality_status": point.get("quality_status"),
+                }
+            )
+    return rows
 
 
 @st.cache_data(ttl=60)
@@ -362,6 +432,318 @@ def dataframe_from_records(records: list[dict[str, Any]], date_column: str) -> p
     return frame
 
 
+def render_home_header() -> None:
+    st.markdown("## ARGOS dashboard")
+    st.caption("Agricultural Remote Guidance and Observation System")
+
+
+def apply_compact_dashboard_styles() -> None:
+    st.markdown(
+        """
+        <style>
+            section[data-testid="stSidebar"] {
+                width: 312px !important;
+                min-width: 312px !important;
+                max-width: 312px !important;
+            }
+
+            section[data-testid="stSidebar"] > div {
+                width: 312px !important;
+                min-width: 312px !important;
+                max-width: 312px !important;
+                padding: 1.05rem 0.8rem;
+            }
+
+            section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+                width: 312px !important;
+                min-width: 312px !important;
+                max-width: 312px !important;
+            }
+
+            .block-container {
+                max-width: 100%;
+                padding: 0.45rem 1.05rem 2rem;
+            }
+
+            h1 {
+                font-size: 2rem !important;
+                line-height: 1.18 !important;
+                margin-bottom: 0.15rem !important;
+            }
+
+            h2 {
+                line-height: 1.18 !important;
+            }
+
+            .argos-app-header {
+                align-items: baseline;
+                display: flex;
+                gap: 0.65rem;
+                margin: 0 0 0.35rem;
+                min-height: 1.35rem;
+            }
+
+            .argos-app-header strong {
+                color: rgb(38, 39, 48);
+                font-size: 1.02rem;
+                letter-spacing: 0;
+            }
+
+            .argos-app-header span {
+                color: rgba(49, 51, 63, 0.62);
+                font-size: 0.82rem;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            div[data-testid="stCaptionContainer"] {
+                font-size: 0.85rem;
+                margin-bottom: 0.35rem;
+            }
+
+            div[data-testid="stTabs"] [data-baseweb="tab-list"] {
+                gap: 0.35rem;
+                margin-top: 0;
+            }
+
+            div[data-testid="stTabs"] [data-baseweb="tab"] {
+                height: 2.2rem;
+                padding: 0 0.75rem;
+            }
+
+            div[data-testid="stVerticalBlock"] {
+                gap: 0.5rem;
+            }
+
+            div[data-testid="stHeading"] {
+                margin-bottom: 0;
+            }
+
+            section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] {
+                gap: 0.4rem;
+            }
+
+            section[data-testid="stSidebar"] h2,
+            section[data-testid="stSidebar"] h3 {
+                font-size: 1rem !important;
+                margin: 0.35rem 0 0.15rem !important;
+            }
+
+            section[data-testid="stSidebar"] label {
+                font-size: 0.86rem;
+            }
+
+            .argos-status-band {
+                display: grid;
+                grid-template-columns: minmax(210px, 1.3fr) repeat(4, minmax(150px, 1fr));
+                gap: 0.75rem;
+                align-items: stretch;
+                margin: 0.25rem 0 0.65rem;
+            }
+
+            .argos-status-item,
+            .argos-weather-card {
+                border: 1px solid rgba(49, 51, 63, 0.18);
+                border-radius: 8px;
+                background: rgba(255, 255, 255, 0.78);
+                min-width: 0;
+                box-sizing: border-box;
+            }
+
+            .argos-status-item {
+                min-height: 74px;
+                padding: 0.62rem 0.72rem;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 0.18rem;
+            }
+
+            .argos-label,
+            .argos-card-top {
+                color: rgba(49, 51, 63, 0.68);
+                font-size: 0.88rem;
+                line-height: 1.15;
+            }
+
+            .argos-status-item strong {
+                color: rgb(38, 39, 48);
+                font-size: 1.02rem;
+                line-height: 1.25;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .argos-status-item small {
+                color: rgba(49, 51, 63, 0.58);
+                font-size: 0.76rem;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .argos-chip {
+                align-items: center;
+                border-radius: 999px;
+                display: inline-flex;
+                font-size: 0.9rem;
+                font-weight: 700;
+                gap: 0.35rem;
+                line-height: 1;
+                padding: 0.36rem 0.58rem;
+                width: fit-content;
+            }
+
+            .argos-chip.ok {
+                background: rgba(16, 124, 16, 0.12);
+                color: rgb(16, 124, 16);
+            }
+
+            .argos-chip.warn {
+                background: rgba(181, 116, 0, 0.14);
+                color: rgb(138, 86, 0);
+            }
+
+            .argos-chip.danger {
+                background: rgba(196, 43, 28, 0.12);
+                color: rgb(164, 38, 27);
+            }
+
+            .argos-count-strip {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+                margin: -0.2rem 0 0.3rem;
+            }
+
+            .argos-count-strip span {
+                border: 1px solid rgba(49, 51, 63, 0.14);
+                border-radius: 999px;
+                color: rgba(49, 51, 63, 0.72);
+                font-size: 0.82rem;
+                padding: 0.24rem 0.52rem;
+            }
+
+            .argos-weather-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
+                gap: 0.85rem;
+                margin-top: 0.35rem;
+            }
+
+            .argos-weather-card {
+                height: 108px;
+                padding: 0.72rem 0.82rem;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+            }
+
+            .argos-card-top {
+                align-items: center;
+                display: flex;
+                justify-content: space-between;
+                gap: 0.5rem;
+            }
+
+            .argos-card-icon {
+                background: rgba(0, 104, 201, 0.08);
+                border-radius: 999px;
+                color: rgb(0, 87, 166);
+                flex: 0 0 auto;
+                font-size: 0.68rem;
+                font-weight: 800;
+                letter-spacing: 0;
+                padding: 0.18rem 0.38rem;
+            }
+
+            .argos-card-top span:last-child {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .argos-weather-card strong {
+                color: rgb(38, 39, 48);
+                display: block;
+                font-size: 2rem;
+                line-height: 1.05;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            @media (max-width: 900px) {
+                .block-container {
+                    padding: 0.8rem 0.8rem 1.5rem;
+                }
+
+                .argos-status-band {
+                    grid-template-columns: 1fr;
+                }
+
+                .argos-weather-grid {
+                    grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+                    gap: 0.7rem;
+                }
+
+                .argos-weather-card {
+                    height: 104px;
+                }
+
+                .argos-weather-card strong {
+                    font-size: 1.65rem;
+                }
+            }
+
+            .argos-satellite-header {
+                align-items: center;
+                display: flex;
+                gap: 0.8rem;
+                justify-content: space-between;
+                margin: 0.25rem 0 0.35rem;
+            }
+
+            .argos-satellite-header h2 {
+                font-size: 1.55rem;
+                line-height: 1.2;
+                margin: 0;
+            }
+
+            .argos-satellite-header span {
+                color: rgba(49, 51, 63, 0.62);
+                font-size: 0.86rem;
+                white-space: nowrap;
+            }
+
+            .argos-satellite-meta {
+                color: rgba(49, 51, 63, 0.68);
+                font-size: 0.86rem;
+                line-height: 1.35;
+                margin: -0.1rem 0 0.25rem;
+            }
+
+            .argos-satellite-meta b {
+                color: rgba(49, 51, 63, 0.88);
+                font-weight: 700;
+            }
+
+            .argos-satellite-controls {
+                margin-top: 0.1rem;
+            }
+
+            .argos-satellite-controls [data-testid="stMultiSelect"] div[data-baseweb="select"],
+            .argos-satellite-controls [data-testid="stSelectbox"] div[data-baseweb="select"] {
+                min-height: 44px;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_home(
     *,
     health: dict[str, Any],
@@ -371,36 +753,17 @@ def render_home(
     status: dict[str, Any],
     observations_df: pd.DataFrame,
 ) -> None:
-    render_station_identity(station=station, hardware=hardware, status=status)
+    render_station_status_summary(health=health, station=station, hardware=hardware, status=status)
 
     if latest is None:
         st.info("No weather observations received yet.")
         return
 
-    with st.container(horizontal=True):
-        st.metric("API", health.get("status", "unknown"), border=True)
-        st.metric("Gateway", "Online" if status.get("online") else "Offline", border=True)
-        st.metric("Last seen", format_datetime(status.get("last_seen_at")), border=True)
-        st.metric("Outdoor temperature", format_number(latest.get("outdoor_temperature_c"), "deg C"), border=True)
-
     source_counts = observation_source_counts(observations_df)
     if source_counts:
-        with st.container(horizontal=True):
-            st.metric("Direct observations", source_counts.get("DIRECT", 0), border=True)
-            st.metric("Backfilled observations", source_counts.get("BACKFILLED", 0), border=True)
-            st.metric("Unknown source", source_counts.get("UNKNOWN", 0), border=True)
+        render_source_count_strip(source_counts)
 
-    with st.container(horizontal=True):
-        st.metric("Humidity", format_number(latest.get("outdoor_humidity_pct"), "%"), border=True)
-        st.metric("Pressure", format_number(latest.get("relative_pressure_hpa"), "hPa"), border=True)
-        st.metric("Wind gust", format_number(latest.get("wind_gust_ms"), "m/s"), border=True)
-        st.metric("Rain 24 h", format_number(latest.get("rain_last_24h_mm"), "mm"), border=True)
-        st.metric("UV", format_number(latest.get("uv_index"), ""), border=True)
-
-    with st.container(horizontal=True):
-        st.metric("Solar radiation", format_number(latest.get("solar_radiation_wm2"), "W/m2"), border=True)
-        st.metric("WS90 battery", format_number(latest.get("battery_voltage"), "V"), border=True)
-        st.metric("WS90 capacitor", format_number(latest.get("ws90_capacitor_voltage"), "V"), border=True)
+    render_weather_metric_grid(latest)
 
     if not observations_df.empty:
         with st.container(border=True):
@@ -414,30 +777,58 @@ def render_home(
             )
 
 
-def render_station_identity(
+def render_station_status_summary(
     *,
+    health: dict[str, Any],
     station: dict[str, Any] | None,
     hardware: list[dict[str, Any]],
     status: dict[str, Any],
 ) -> None:
-    with st.container(border=True):
-        st.subheader("Station identity")
-        if station is None:
-            st.info("Station identity is not available yet.")
-            return
+    active_hardware = hardware[0] if hardware else {}
+    station_slug = station.get("slug", "-") if station else "-"
+    station_uuid = station.get("uuid") if station else None
+    hardware_label = active_hardware.get("station_type") or active_hardware.get("mac_address") or "-"
+    api_status = str(health.get("status", "unknown"))
+    gateway_online = bool(status.get("online"))
+    gateway_label = "Online" if gateway_online else "Offline"
+    api_chip_class = "ok" if api_status.lower() == "ok" else "warn"
+    gateway_chip_class = "ok" if gateway_online else "danger"
+    last_seen_label = format_local_datetime(status.get("last_seen_at"))
+    last_seen_utc = format_datetime(status.get("last_seen_at"))
 
-        active_hardware = hardware[0] if hardware else {}
-        with st.container(horizontal=True):
-            st.metric("Station", station.get("slug", "-"), border=True)
-            st.metric("Station UUID", short_identifier(station.get("uuid")), border=True)
-            st.metric("Gateway status", "Online" if status.get("online") else "Offline", border=True)
-            st.metric(
-                "Hardware",
-                active_hardware.get("station_type") or active_hardware.get("mac_address") or "-",
-                border=True,
-            )
+    st.html(
+        f"""
+        <section class="argos-status-band">
+            <div class="argos-status-item argos-station">
+                <span class="argos-label">Estación</span>
+                <strong title="{escape(str(station_uuid or '-'))}">{escape(str(station_slug))}</strong>
+                <small title="{escape(str(station_uuid or '-'))}">UUID {escape(short_identifier(station_uuid))}</small>
+            </div>
+            <div class="argos-status-item">
+                <span class="argos-label">API</span>
+                <span class="argos-chip {api_chip_class}"><span aria-hidden="true">{"&#10003;" if api_chip_class == "ok" else "!"}</span> {escape(api_status)}</span>
+            </div>
+            <div class="argos-status-item">
+                <span class="argos-label">Gateway</span>
+                <span class="argos-chip {gateway_chip_class}"><span aria-hidden="true">{"&#10003;" if gateway_online else "!"}</span> {gateway_label}</span>
+            </div>
+            <div class="argos-status-item">
+                <span class="argos-label">Última comunicación</span>
+                <strong title="{escape(last_seen_utc)}">{escape(last_seen_label)}</strong>
+            </div>
+            <div class="argos-status-item">
+                <span class="argos-label">Hardware</span>
+                <strong title="{escape(str(hardware_label))}">{escape(str(hardware_label))}</strong>
+            </div>
+        </section>
+        """,
+    )
 
-        if hardware:
+    if station is None:
+        st.caption("Station identity is not available yet.")
+
+    if hardware:
+        with st.expander("Detalle de hardware", expanded=False, icon=":material/memory:"):
             hardware_df = pd.DataFrame.from_records(hardware)
             visible_columns = [
                 column
@@ -446,6 +837,36 @@ def render_station_identity(
             ]
             if visible_columns:
                 st.dataframe(hardware_df[visible_columns], hide_index=True)
+
+
+def render_source_count_strip(source_counts: dict[str, int]) -> None:
+    st.html(
+        f"""
+        <div class="argos-count-strip">
+            <span><b>{source_counts.get("DIRECT", 0)}</b> directas</span>
+            <span><b>{source_counts.get("BACKFILLED", 0)}</b> backfill</span>
+            <span><b>{source_counts.get("UNKNOWN", 0)}</b> sin fuente</span>
+        </div>
+        """,
+    )
+
+
+def render_weather_metric_grid(latest: dict[str, Any]) -> None:
+    cards = []
+    for label, key, unit, icon in WEATHER_CARD_VARIABLES:
+        value = format_number(latest.get(key), unit)
+        cards.append(
+            f"""
+            <article class="argos-weather-card" title="{escape(LABELS.get(key, key))}">
+                <div class="argos-card-top">
+                    <span class="argos-card-icon">{escape(icon)}</span>
+                    <span>{escape(label)}</span>
+                </div>
+                <strong>{escape(value)}</strong>
+            </article>
+            """
+        )
+    st.html(f'<section class="argos-weather-grid">{"".join(cards)}</section>')
 
 
 def render_observations(observations_df: pd.DataFrame, selected_variables: list[str]) -> None:
@@ -831,26 +1252,12 @@ def render_aemet_date_range_selector(*, global_start: str, global_end: str, boun
     return start.isoformat(), end.isoformat()
 
 
-def render_satellite_date_range_selector(*, global_start: str, global_end: str, bounds: dict[str, Any]) -> tuple[str, str]:
+def satellite_available_range(*, global_start: str, global_end: str, bounds: dict[str, Any]) -> tuple[str, str]:
     first = bounds.get("first_date")
     last = bounds.get("last_date")
     if not first or not last:
         return global_start, global_end
-
-    first_date = date.fromisoformat(first)
-    last_date = date.fromisoformat(last)
-    selected = st.date_input(
-        "Rango satelital",
-        value=(first_date, last_date),
-        min_value=first_date,
-        max_value=last_date,
-        key="satellite_date_range",
-    )
-    if isinstance(selected, tuple) and len(selected) == 2:
-        start, end = selected
-    else:
-        start = end = last_date
-    return start.isoformat(), end.isoformat()
+    return str(first), str(last)
 
 
 def satellite_day_bounds(start: str, end: str) -> tuple[str, str]:
@@ -872,7 +1279,6 @@ def satellite_frame_from_rows(rows: list[dict[str, Any]]) -> pd.DataFrame:
 
 
 def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) -> None:
-    st.subheader("Observación satelital")
     try:
         status = cached_satellite_status(client.base_url)
         latest = cached_satellite_latest(client.base_url)
@@ -899,27 +1305,53 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
             st.info("Credenciales no disponibles. Configure COPERNICUS_CLIENT_ID y COPERNICUS_CLIENT_SECRET.")
         return
 
-    quality_filter = st.selectbox(
-        "Calidad satelital",
-        ["all", "valid", "partial", "invalid"],
-        format_func=lambda value: SATELLITE_QUALITY_LABELS.get(value, value),
-        key="satellite_quality_filter",
-    )
+    latest_update_label = format_compact_local_datetime(status.get("latest_update_time"))
+    latest_update_detail = format_datetime(status.get("latest_update_time"))
+
+    with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+        st.html(
+            f"""
+            <div class="argos-satellite-header">
+                <h2>Observación satelital</h2>
+                <span title="{escape(latest_update_detail)}">Actualizado {escape(latest_update_label)}</span>
+            </div>
+            """
+        )
+        render_satellite_update_popover(client)
+
+    metrics = [metric for metric in SATELLITE_LABELS]
+    with st.container(key="satellite_controls", horizontal=True, vertical_alignment="bottom"):
+        selected_metrics = st.multiselect(
+            "Índices satelitales",
+            options=metrics,
+            default=metrics,
+            format_func=lambda value: SATELLITE_LABELS.get(value, value.upper()),
+        )
+        quality_filter = st.selectbox(
+            "Calidad satelital",
+            ["all", "valid", "partial", "invalid"],
+            format_func=lambda value: SATELLITE_QUALITY_LABELS.get(value, value),
+            key="satellite_quality_filter",
+            width=230,
+        )
+
     quality_status = None if quality_filter == "all" else quality_filter
     try:
         bounds = cached_satellite_bounds(client.base_url, quality_status)
     except ArgosApiError as exc:
         st.error(str(exc))
         return
-    query_start, query_end = render_satellite_date_range_selector(
+    query_start, query_end = satellite_available_range(
         global_start=start_iso[:10],
         global_end=end_iso[:10],
         bounds=bounds,
     )
     range_start_iso, range_end_iso = satellite_day_bounds(query_start, query_end)
+    selected_metric_tuple = tuple(selected_metrics)
     try:
-        rows = cached_satellite_export_rows(
+        chart_rows = cached_satellite_chart_rows(
             client.base_url,
+            selected_metric_tuple,
             range_start_iso,
             range_end_iso,
             quality_status,
@@ -928,40 +1360,23 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
         st.error(str(exc))
         return
 
-    frame = satellite_frame_from_rows(rows)
-    acquisition_count = int(frame["acquisition_time"].nunique()) if "acquisition_time" in frame else 0
+    chart_frame = satellite_frame_from_rows(chart_rows)
+    acquisition_count = int(chart_frame["acquisition_time"].nunique()) if "acquisition_time" in chart_frame else 0
     zone_name = next((str(zone.get("name")) for zone in zones if zone.get("enabled")), "Finca")
-    latest_update_label = format_datetime(status.get("latest_update_time"))
-    st.caption(
-        f"{zone_name} · {query_start} a {query_end} · {acquisition_count} adquisiciones · "
-        f"{len(frame)} métricas · última actualización: {latest_update_label}"
+    st.html(
+        f"""
+        <div class="argos-satellite-meta">
+            <b>{escape(zone_name)}</b> · <b>Cobertura:</b> {escape(format_compact_date_range(query_start, query_end))} ·
+            {acquisition_count} adquisiciones · {len(chart_frame)} métricas · actualizado {escape(latest_update_label)}
+        </div>
+        """
     )
 
-    with st.expander("Actualizar datos", expanded=False):
-        with st.container(horizontal=True, vertical_alignment="bottom"):
-            force = st.checkbox("Forzar reproceso", value=False, key="satellite_force_update")
-            dry_run = st.checkbox("Dry-run", value=False, key="satellite_dry_run_update")
-            if st.button("Actualizar", icon=":material/sync:", type="primary", key="satellite_update_button"):
-                run_satellite_update_from_dashboard(client=client, force=force, dry_run=dry_run)
-
-        with st.container(horizontal=True, vertical_alignment="bottom"):
-            history_start = st.date_input("Inicio histórico", value=date(2021, 1, 1), key="satellite_history_start")
-            history_end = st.date_input("Fin histórico", value=date.today(), key="satellite_history_end")
-            history_dry_run = st.checkbox("Dry-run histórico", value=True, key="satellite_history_dry_run")
-            if st.button("Descargar histórico", icon=":material/download:", type="secondary", key="satellite_backfill_button"):
-                run_satellite_backfill_from_dashboard(
-                    client=client,
-                    start=history_start.isoformat(),
-                    end=history_end.isoformat(),
-                    force=force,
-                    dry_run=history_dry_run,
-                )
-
-    if frame.empty:
+    if chart_frame.empty:
         st.info("No hay observaciones satelitales guardadas para el rango seleccionado.")
         return
 
-    render_satellite_charts(frame)
+    render_satellite_charts(chart_frame, selected_metrics)
 
     details = []
     if latest is not None:
@@ -979,6 +1394,54 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
         with st.expander("Detalles satelitales", expanded=False):
             st.dataframe(pd.DataFrame.from_records(details), hide_index=True)
 
+    render_satellite_series_table(
+        client=client,
+        start=range_start_iso,
+        end=range_end_iso,
+        quality_status=quality_status,
+    )
+
+
+def render_satellite_update_popover(client: ArgosApiClient) -> None:
+    with st.popover("Descargar de Copernicus", icon=":material/satellite_alt:", width="content"):
+        force = st.checkbox("Forzar reproceso", value=False, key="satellite_force_update")
+        dry_run = st.checkbox("Dry-run", value=False, key="satellite_dry_run_update")
+        if st.button("Actualizar reciente", icon=":material/sync:", type="primary", key="satellite_update_button"):
+            run_satellite_update_from_dashboard(client=client, force=force, dry_run=dry_run)
+
+        st.caption("Histórico")
+        history_start = st.date_input("Inicio histórico", value=date(2021, 1, 1), key="satellite_history_start")
+        history_end = st.date_input("Fin histórico", value=date.today(), key="satellite_history_end")
+        history_dry_run = st.checkbox("Dry-run histórico", value=True, key="satellite_history_dry_run")
+        if st.button("Descargar histórico", icon=":material/download:", type="secondary", key="satellite_backfill_button"):
+            run_satellite_backfill_from_dashboard(
+                client=client,
+                start=history_start.isoformat(),
+                end=history_end.isoformat(),
+                force=force,
+                dry_run=history_dry_run,
+            )
+
+
+def render_satellite_series_table(
+    *,
+    client: ArgosApiClient,
+    start: str,
+    end: str,
+    quality_status: str | None,
+) -> None:
+    try:
+        rows = cached_satellite_export_rows(
+            client.base_url,
+            start,
+            end,
+            quality_status,
+        )
+    except ArgosApiError as exc:
+        st.warning(f"No se pudo cargar la tabla satelital completa: {exc}", icon=":material/warning:")
+        return
+
+    frame = satellite_frame_from_rows(rows)
     with st.container(border=True):
         st.subheader("Serie satelital")
         visible_columns = [
@@ -1007,35 +1470,34 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
         add_csv_download(frame[visible_columns], "Descargar satélite CSV", "argos_satellite_series.csv")
 
 
-def render_satellite_charts(frame: pd.DataFrame) -> None:
+def render_satellite_charts(frame: pd.DataFrame, selected: list[str]) -> None:
     if "metric_code" not in frame or "mean" not in frame:
         return
-    metrics = [metric for metric in SATELLITE_LABELS if metric in set(frame["metric_code"])]
-    selected = st.multiselect(
-        "Índices satelitales",
-        options=metrics,
-        default=metrics,
-        format_func=lambda value: SATELLITE_LABELS.get(value, value.upper()),
-    )
-    if selected:
-        plot_df = frame[frame["metric_code"].isin(selected)].copy()
+    available_selected = [metric for metric in selected if metric in set(frame["metric_code"])]
+    if available_selected:
+        plot_df = frame[frame["metric_code"].isin(available_selected)].copy()
         plot_df["Índice"] = plot_df["metric_code"].map(lambda value: SATELLITE_LABELS.get(value, value.upper()))
-        figure = px.line(
-            plot_df,
-            x="acquisition_time",
-            y="mean",
-            color="Índice",
-            markers=True,
-            hover_data=[
+        hover_columns = [
+            column
+            for column in [
                 "median",
                 "percentile_25",
                 "percentile_75",
                 "valid_pixel_fraction",
                 "cloud_cover_metadata",
                 "quality_status",
-            ],
+            ]
+            if column in plot_df
+        ]
+        figure = px.line(
+            plot_df,
+            x="acquisition_time",
+            y="mean",
+            color="Índice",
+            markers=True,
+            hover_data=hover_columns,
         )
-        figure.update_layout(xaxis_title="Fecha", yaxis_title="Media", legend_title_text="")
+        figure.update_layout(xaxis_title="Fecha", yaxis_title="Media", legend_title_text="", height=360, margin=dict(t=18))
         st.plotly_chart(figure, width="stretch")
 
     quality_df = (
@@ -1054,6 +1516,8 @@ def render_satellite_charts(frame: pd.DataFrame) -> None:
             xaxis_title="Fecha",
             yaxis_title="Fracción de píxeles válidos",
             legend_title_text="Calidad",
+            height=330,
+            margin=dict(t=18),
         )
         st.plotly_chart(quality_figure, width="stretch")
 
@@ -1443,6 +1907,50 @@ def format_datetime(value: Any) -> str:
     if not value:
         return "-"
     return str(value).replace("T", " ").replace("Z", " UTC")
+
+
+def format_local_datetime(value: Any) -> str:
+    parsed = parse_datetime(value)
+    if parsed is None:
+        return "-"
+    local = parsed.astimezone()
+    month = SPANISH_MONTH_ABBR[local.month]
+    return f"{local.day} {month} {local.year} · {local:%H:%M}"
+
+
+def format_compact_local_datetime(value: Any) -> str:
+    parsed = parse_datetime(value)
+    if parsed is None:
+        return "-"
+    local = parsed.astimezone()
+    month = SPANISH_MONTH_ABBR[local.month]
+    return f"{local.day} {month} {local.year}, {local:%H:%M}"
+
+
+def format_compact_date_range(start: str, end: str) -> str:
+    return f"{format_compact_date(start)}–{format_compact_date(end)}"
+
+
+def format_compact_date(value: str) -> str:
+    parsed = date.fromisoformat(value)
+    return f"{parsed.day} {SPANISH_MONTH_ABBR[parsed.month]} {parsed.year}"
+
+
+def parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif value:
+        text = str(value)
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 def format_float(value: Any) -> str:

@@ -1,6 +1,6 @@
 # ARGOS
 
-Agricultural Remote Gateway for Observation and Sensing.
+Agricultural Remote Guidance and Observation System.
 
 ARGOS is being redesigned as a FastAPI-based environmental data platform. The primary Ecowitt GW2000 integration will use the gateway's Customized HTTP upload mode, preserving raw payloads and storing normalized observations in a database.
 
@@ -156,12 +156,14 @@ uv run uvicorn argos.main:app --host 0.0.0.0 --port 8080
 
 Dashboard views:
 
-- Home: station identity, associated hardware status and current conditions.
-- Observations: interactive time-series chart and downloadable observation table.
-- Source filtering for `DIRECT` and `BACKFILLED` observations.
-- Summaries: daily and weekly API summaries plus monthly, seasonal and annual aggregates derived from daily statistics.
-- Trends: moving averages, period anomalies, simple linear trends and descriptive statistics for selected variables.
-- Quality: data gaps, ingestion events, unknown fields and recent raw reports. This view requires the admin token.
+- Inicio: compact station identity, API/gateway state, latest communication, hardware and current weather cards.
+- Observaciones: interactive time-series chart and downloadable observation table, with source filtering for `DIRECT` and `BACKFILLED` observations.
+- Resúmenes: daily and weekly API summaries plus monthly, seasonal and annual aggregates derived from daily statistics.
+- Tendencias: moving averages, period anomalies, simple linear trends and descriptive statistics for selected variables.
+- AEMET: stored official daily observations, selected-variable charts and admin-token-protected import/sync actions.
+- Satélite: Sentinel-2 index charts, quality filtering, compact coverage metadata and Copernicus update/backfill actions.
+- Válvulas: local argos-node valve controls and timing diagnostics.
+- Calidad: data gaps, ingestion events, unknown fields and recent raw reports. This view requires the admin token.
 
 ## Ecowitt Cloud Backfill
 
