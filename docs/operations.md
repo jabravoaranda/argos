@@ -123,6 +123,61 @@ Pending decisions for operator review:
 - whether Cloud imports may fill missing fields in an existing `DIRECT` observation;
 - confirmed Cloud history payload shape and units for GW2000A firmware 3.3.2 with WS90.
 
+## AEMET OpenData Daily Climatology
+
+AEMET is integrated as an external regional provider, separate from the local Ecowitt station. Ecowitt remains the farm observation source; AEMET station `6127X` (`Álora`) is an official nearby climatological reference and is stored in `weather_stations` with `provider = aemet`.
+
+Configuration is environment-only:
+
+```dotenv
+AEMET_API_KEY=
+AEMET_STATION_ID=6127X
+AEMET_BASE_URL=https://opendata.aemet.es/opendata/api
+AEMET_TIMEOUT_SECONDS=20
+AEMET_MAX_RETRIES=3
+AEMET_BACKOFF_SECONDS=0.5
+AEMET_BLOCK_DAYS=31
+AEMET_SYNC_LOOKBACK_DAYS=7
+AEMET_BACKFILL_START_DATE=1900-01-01
+```
+
+Do not log API keys or URLs containing keys. `.env` is ignored by git; keep real credentials there only.
+
+The adapter in `argos.integrations.aemet.client` calls the official daily climatology endpoint, validates the metadata response, then follows the temporary `datos` URL. It retries HTTP `429`, `500`, `502`, `503` and `504` with exponential backoff. The rest of ARGOS consumes normalized records and never depends on AEMET's HTTP response shape.
+
+Manual historical import:
+
+```powershell
+uv run argos aemet backfill --station 6127X --start 2026-01-01 --end 2026-01-31
+```
+
+If a local AEMET CSV export is available, seed the database from it first:
+
+```powershell
+uv run argos aemet import-csv --station 6127X --path "G:\My Drive\03. Docencia\GEOMET\Riesgo climático\6127X.csv"
+```
+
+Daily refresh for late data and corrections:
+
+```powershell
+uv run argos aemet sync --station 6127X --lookback-days 7
+```
+
+No historical AEMET import runs during API startup. To schedule the daily refresh, use cron, Windows Task Scheduler, or the Docker host scheduler to run the sync command once a day after migrations. Avoid adding a separate worker system only for this job.
+
+AEMET decimal values use comma notation and are normalized to numeric columns. Missing values remain `NULL`. Precipitation trace values (`Ip`, inapreciable) are not converted to zero; `precipitation_mm` remains `NULL` and `precipitation_trace` is set to true. Original AEMET records are preserved in `raw_payload_json`.
+
+Verification:
+
+```powershell
+uv run argos aemet sync --station 6127X --lookback-days 7
+Invoke-RestMethod "http://127.0.0.1:8080/api/v1/weather/stations?provider=aemet"
+Invoke-RestMethod "http://127.0.0.1:8080/api/v1/weather/aemet/observations?station=6127X&from=2026-01-01&to=2026-01-31&limit=366"
+Invoke-RestMethod "http://127.0.0.1:8080/api/v1/weather/aemet/sync/latest?station=6127X"
+```
+
+The Streamlit dashboard includes an `AEMET` tab. It reads the stored daily series, plots selected AEMET variables, and exposes admin-token-protected actions: `Importar CSV histórico` seeds from a local CSV file, `Actualizar` refreshes the recent lookback window, and `Descargar histórico` imports from OpenData for the selected date range.
+
 ## Expected Healthy State
 
 - `/api/v1/weather/gateway/status` returns `online: true`.

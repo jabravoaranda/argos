@@ -161,3 +161,93 @@ class DataGapRead(BaseModel):
     resolved: bool
     resolution_method: str | None
     resolved_at: datetime | None
+
+
+class WeatherStationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    provider: str
+    external_id: str
+    name: str
+    municipality: str | None
+    province: str | None
+    latitude: float | None
+    longitude: float | None
+    altitude_m: float | None
+    enabled: bool
+    metadata_json: dict | None
+
+
+class WeatherDailyObservationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    station_id: int
+    observation_date: date
+    temperature_mean_c: float | None
+    temperature_min_c: float | None
+    temperature_max_c: float | None
+    precipitation_mm: float | None
+    precipitation_trace: bool
+    wind_speed_mean_ms: float | None
+    wind_gust_ms: float | None
+    wind_gust_direction: str | None
+    sunshine_hours: float | None
+    pressure_max_hpa: float | None
+    pressure_min_hpa: float | None
+    humidity_mean_pct: float | None
+    humidity_min_pct: float | None
+    humidity_max_pct: float | None
+    quality_flag: str | None
+    raw_payload_json: dict
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class AemetSyncRunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    station_id: int | None
+    station_external_id: str
+    mode: str
+    requested_start: date
+    requested_end: date
+    status: str
+    started_at: datetime
+    finished_at: datetime | None
+    intervals_json: list[dict]
+    records_received: int
+    inserted: int
+    updated: int
+    skipped: int
+    errors_json: list[dict]
+
+
+class AemetObservationBoundsRead(BaseModel):
+    station: str
+    first_date: date | None
+    last_date: date | None
+    count: int
+
+
+class AemetImportIntervalRead(BaseModel):
+    start: date
+    end: date
+    records_received: int
+    status: str
+    error: str | None
+
+
+class AemetImportSummaryRead(BaseModel):
+    station_external_id: str
+    start: date
+    end: date
+    status: str
+    intervals: list[AemetImportIntervalRead]
+    records_received: int
+    inserted: int
+    updated: int
+    skipped: int
+    errors: list[dict]

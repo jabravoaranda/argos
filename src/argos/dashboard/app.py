@@ -3,12 +3,14 @@ from __future__ import annotations
 import logging
 import time as monotonic_time
 from datetime import UTC, date, datetime, time, timedelta
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import plotly.express as px  # type: ignore[import-untyped]
 import streamlit as st
 
+from argos.config.settings import get_settings
 from argos.dashboard.api_client import ArgosApiClient, ArgosApiError
 from argos.dashboard.argos_node_client import ArgosNodeClient, ArgosNodeError
 from argos.dashboard.filters import filter_observations_by_source, observation_source_counts
@@ -17,6 +19,9 @@ from argos.dashboard.raw_reports import build_raw_report_table, latest_payload_p
 from argos.dashboard.statistics import build_descriptive_statistics
 from argos.dashboard.summaries import build_annual_summary, build_monthly_summary, build_seasonal_summary
 from argos.dashboard.trends import build_trend_frame
+from argos.database.session import get_sessionmaker
+from argos.integrations.aemet.client import AemetClient, AemetConfigError
+from argos.services.aemet_import import AemetImportRangeError, AemetImportService
 
 
 logger = logging.getLogger(__name__)
@@ -37,6 +42,8 @@ DEFAULT_VARIABLES = [
 
 DEFAULT_VALVE_OPENING_DURATION_S = 7.0
 DEFAULT_VALVE_CLOSING_DURATION_S = 7.0
+DEFAULT_AEMET_STATION = "6127X"
+AEMET_BACKFILL_DEFAULT_START = date(1900, 1, 1)
 
 
 LABELS = {
@@ -53,6 +60,35 @@ LABELS = {
     "uv_index": "UV index",
     "battery_voltage": "WS90 battery (V)",
     "ws90_capacitor_voltage": "WS90 capacitor (V)",
+}
+
+AEMET_LABELS = {
+    "temperature_mean_c": "Temperatura media (deg C)",
+    "temperature_min_c": "Temperatura mínima (deg C)",
+    "temperature_max_c": "Temperatura máxima (deg C)",
+    "precipitation_mm": "Precipitación (mm)",
+    "wind_speed_mean_ms": "Viento medio (m/s)",
+    "wind_gust_ms": "Racha (m/s)",
+    "sunshine_hours": "Horas de sol",
+    "pressure_max_hpa": "Presión máxima (hPa)",
+    "pressure_min_hpa": "Presión mínima (hPa)",
+    "humidity_mean_pct": "Humedad media (%)",
+    "humidity_min_pct": "Humedad mínima (%)",
+    "humidity_max_pct": "Humedad máxima (%)",
+}
+
+SATELLITE_LABELS = {
+    "ndvi": "NDVI",
+    "savi": "SAVI",
+    "ndre": "NDRE",
+    "ndmi": "NDMI",
+}
+
+SATELLITE_QUALITY_LABELS = {
+    "all": "Todas",
+    "valid": "Válidas",
+    "partial": "Parciales",
+    "invalid": "Inválidas",
 }
 
 
@@ -89,8 +125,8 @@ def main() -> None:
     daily_df = dataframe_from_records(daily, "period_start")
     weekly_df = dataframe_from_records(weekly, "period_start")
 
-    home_tab, observations_tab, summaries_tab, trends_tab, valves_tab, quality_tab = st.tabs(
-        ["Home", "Observations", "Summaries", "Trends", "Valves", "Quality"]
+    home_tab, observations_tab, summaries_tab, trends_tab, aemet_tab, satellite_tab, valves_tab, quality_tab = st.tabs(
+        ["Home", "Observations", "Summaries", "Trends", "AEMET", "Observación satelital", "Valves", "Quality"]
     )
 
     with home_tab:
@@ -111,6 +147,12 @@ def main() -> None:
 
     with trends_tab:
         render_trends(observations_df, selected_variables)
+
+    with aemet_tab:
+        render_aemet(client, start_date=start_iso[:10], end_date=end_iso[:10])
+
+    with satellite_tab:
+        render_satellite(client, start_iso=start_iso, end_iso=end_iso)
 
     with valves_tab:
         render_valves(
@@ -133,7 +175,12 @@ def sidebar() -> tuple[ArgosApiClient, ArgosNodeClient, str, str, list[str], lis
         st.header("Time range")
         today = date.today()
         default_start = today - timedelta(days=1)
-        selected_dates = st.date_input("Date range", value=(default_start, today))
+        selected_dates = st.date_input(
+            "Date range",
+            value=(default_start, today),
+            min_value=date(2000, 1, 1),
+            max_value=today,
+        )
         if isinstance(selected_dates, tuple) and len(selected_dates) == 2:
             start_date, end_date = selected_dates
         else:
@@ -221,6 +268,86 @@ def cached_daily(base_url: str, start: str, end: str) -> list[dict[str, Any]]:
 @st.cache_data(ttl=60)
 def cached_weekly(base_url: str, start: str, end: str) -> list[dict[str, Any]]:
     return ArgosApiClient(base_url=base_url).get_weekly_summary(start=start, end=end)
+
+
+@st.cache_data(ttl=60)
+def cached_satellite_status(base_url: str) -> dict[str, Any]:
+    return ArgosApiClient(base_url=base_url).get_satellite_status()
+
+
+@st.cache_data(ttl=60)
+def cached_satellite_latest(base_url: str) -> dict[str, Any] | None:
+    return ArgosApiClient(base_url=base_url).get_satellite_latest()
+
+
+@st.cache_data(ttl=60)
+def cached_satellite_zones(base_url: str) -> list[dict[str, Any]]:
+    return ArgosApiClient(base_url=base_url).get_satellite_zones()
+
+
+@st.cache_data(ttl=60)
+def cached_satellite_export_rows(
+    base_url: str,
+    start: str | None,
+    end: str | None,
+    quality_status: str | None,
+) -> list[dict[str, Any]]:
+    return ArgosApiClient(base_url=base_url).get_satellite_export_json(
+        start=start,
+        end=end,
+        quality_status=quality_status,
+    )
+
+
+@st.cache_data(ttl=60)
+def cached_satellite_timeseries(
+    base_url: str,
+    metric: str,
+    start: str,
+    end: str,
+    quality_status: str | None,
+) -> dict[str, Any]:
+    return ArgosApiClient(base_url=base_url).get_satellite_timeseries(
+        metric=metric,
+        start=start,
+        end=end,
+        quality_status=quality_status,
+    )
+
+
+@st.cache_data(ttl=60)
+def cached_aemet_stations(base_url: str) -> list[dict[str, Any]]:
+    return ArgosApiClient(base_url=base_url).get_weather_stations(provider="aemet")
+
+
+@st.cache_data(ttl=60)
+def cached_aemet_observations(base_url: str, station: str, start: str, end: str) -> list[dict[str, Any]]:
+    client = ArgosApiClient(base_url=base_url)
+    records: list[dict[str, Any]] = []
+    page_size = 1000
+    offset = 0
+    while True:
+        page = client.get_aemet_observations(
+            station=station,
+            start=start,
+            end=end,
+            limit=page_size,
+            offset=offset,
+        )
+        records.extend(page)
+        if len(page) < page_size:
+            return records
+        offset += page_size
+
+
+@st.cache_data(ttl=30)
+def cached_latest_aemet_sync(base_url: str, station: str) -> dict[str, Any] | None:
+    return ArgosApiClient(base_url=base_url).get_latest_aemet_sync(station=station)
+
+
+@st.cache_data(ttl=60)
+def cached_aemet_bounds(base_url: str, station: str) -> dict[str, Any]:
+    return ArgosApiClient(base_url=base_url).get_aemet_bounds(station=station)
 
 
 def dataframe_from_records(records: list[dict[str, Any]], date_column: str) -> pd.DataFrame:
@@ -486,6 +613,492 @@ def render_trends(observations_df: pd.DataFrame, selected_variables: list[str]) 
         st.subheader("Trend data")
         st.dataframe(trend_df, hide_index=True)
         add_csv_download(trend_df, "Download trend CSV", "argos_trend.csv")
+
+
+def render_aemet(client: ArgosApiClient, *, start_date: str, end_date: str) -> None:
+    st.subheader("AEMET")
+    settings = get_settings()
+    station_id = DEFAULT_AEMET_STATION
+
+    try:
+        stations = cached_aemet_stations(client.base_url)
+        latest_sync = cached_latest_aemet_sync(client.base_url, station_id)
+        bounds = cached_aemet_bounds(client.base_url, station_id)
+    except ArgosApiError as exc:
+        st.error(str(exc))
+        return
+
+    station = next((item for item in stations if item.get("external_id") == station_id), None)
+    query_start, query_end = render_aemet_date_range_selector(
+        global_start=start_date,
+        global_end=end_date,
+        bounds=bounds,
+    )
+    try:
+        records = cached_aemet_observations(client.base_url, station_id, query_start, query_end)
+    except ArgosApiError as exc:
+        st.error(str(exc))
+        return
+    frame = dataframe_from_records(records, "observation_date")
+
+    station_name = station.get("name") if station else "Álora"
+    latest_sync_label = format_datetime(latest_sync.get("finished_at") if latest_sync else None)
+    st.caption(
+        f"{station_name} ({station_id}) · {query_start} a {query_end} · {len(frame)} registros · "
+        f"última sync: {latest_sync_label}"
+    )
+
+    with st.expander("Actualizar datos", expanded=False):
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            station_id = st.text_input("Indicativo", value=station_id, max_chars=16, key="aemet_station_update")
+            lookback_days = st.number_input(
+                "Días a refrescar",
+                min_value=1,
+                max_value=366,
+                value=settings.aemet_sync_lookback_days,
+                step=1,
+            )
+            if st.button("Actualizar", icon=":material/sync:", type="primary"):
+                run_aemet_sync_from_dashboard(station_id=station_id, lookback_days=int(lookback_days))
+
+        csv_path = st.text_input("CSV histórico local", value=settings.aemet_seed_csv_path or "")
+        if st.button("Importar CSV histórico", icon=":material/upload_file:", type="secondary"):
+            run_aemet_csv_import_from_dashboard(station_id=station_id, path=csv_path)
+
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            history_start = st.date_input("Inicio histórico", value=settings.aemet_backfill_start_date)
+            history_end = st.date_input("Fin histórico", value=date.today())
+            block_days = st.number_input(
+                "Días por bloque",
+                min_value=1,
+                max_value=366,
+                value=settings.aemet_block_days,
+                step=1,
+            )
+            if st.button("Descargar histórico", icon=":material/download:", type="secondary"):
+                run_aemet_backfill_from_dashboard(
+                    station_id=station_id,
+                    start=history_start.isoformat(),
+                    end=history_end.isoformat(),
+                    block_days=int(block_days),
+                )
+
+    if frame.empty:
+        st.info("No hay datos AEMET guardados para el rango seleccionado.")
+        return
+
+    render_aemet_charts(frame)
+
+    if station is not None:
+        with st.expander("Detalles de la estación", expanded=False):
+            station_df = pd.DataFrame.from_records([station])
+            st.dataframe(station_df, hide_index=True)
+
+    with st.container(border=True):
+        st.subheader("Serie diaria")
+        visible_columns = [
+            column
+            for column in ["observation_date", *AEMET_LABELS, "precipitation_trace", "quality_flag"]
+            if column in frame
+        ]
+        st.dataframe(frame[visible_columns], hide_index=True)
+        add_csv_download(frame, "Descargar AEMET CSV", "argos_aemet_daily.csv")
+
+
+def run_aemet_sync_from_dashboard(*, station_id: str, lookback_days: int) -> None:
+    try:
+        with st.spinner("Actualizando AEMET..."):
+            settings = get_settings()
+            with get_sessionmaker()() as session:
+                result = AemetImportService(
+                    session=session,
+                    client=AemetClient.from_settings(settings),
+                    settings=settings,
+                ).sync(station_id=station_id, lookback_days=lookback_days)
+    except (AemetConfigError, AemetImportRangeError, RuntimeError) as exc:
+        st.error(str(exc))
+        return
+    st.cache_data.clear()
+    st.success(format_aemet_import_result(result_to_dict(result)))
+
+
+def run_aemet_backfill_from_dashboard(*, station_id: str, start: str, end: str, block_days: int) -> None:
+    try:
+        with st.spinner("Descargando histórico AEMET..."):
+            settings = get_settings()
+            with get_sessionmaker()() as session:
+                result = AemetImportService(
+                    session=session,
+                    client=AemetClient.from_settings(settings),
+                    settings=settings,
+                ).backfill(
+                    station_id=station_id,
+                    start=date.fromisoformat(start),
+                    end=date.fromisoformat(end),
+                    block_days=block_days,
+                )
+    except (AemetConfigError, AemetImportRangeError, RuntimeError, ValueError) as exc:
+        st.error(str(exc))
+        return
+    st.cache_data.clear()
+    st.success(format_aemet_import_result(result_to_dict(result)))
+
+
+def run_aemet_csv_import_from_dashboard(*, station_id: str, path: str) -> None:
+    if not path.strip():
+        st.warning("Indica la ruta del CSV histórico.")
+        return
+    try:
+        with st.spinner("Importando CSV histórico AEMET..."):
+            settings = get_settings()
+            with get_sessionmaker()() as session:
+                result = AemetImportService(
+                    session=session,
+                    client=AemetClient(base_url=settings.aemet_base_url, api_key="csv-import"),
+                    settings=settings,
+                ).import_csv(path=Path(path.strip()), station_id=station_id)
+    except (AemetImportRangeError, RuntimeError) as exc:
+        st.error(str(exc))
+        return
+    st.cache_data.clear()
+    st.success(format_aemet_import_result(result_to_dict(result)))
+
+
+def render_aemet_charts(frame: pd.DataFrame) -> None:
+    variables = [column for column in AEMET_LABELS if column in frame and pd.api.types.is_numeric_dtype(frame[column])]
+    selected = st.multiselect(
+        "Variables AEMET",
+        options=variables,
+        default=[item for item in ("temperature_mean_c", "temperature_min_c", "temperature_max_c") if item in variables],
+        format_func=lambda value: AEMET_LABELS.get(value, value),
+    )
+    if selected:
+        plot_df = frame.melt(
+            id_vars=["observation_date"],
+            value_vars=selected,
+            var_name="Variable",
+            value_name="Valor",
+        ).dropna()
+        plot_df["Variable"] = plot_df["Variable"].map(lambda value: AEMET_LABELS.get(value, value))
+        figure = px.line(plot_df, x="observation_date", y="Valor", color="Variable", markers=True)
+        figure.update_layout(xaxis_title="Fecha", yaxis_title="Valor", legend_title_text="")
+        st.plotly_chart(figure, width="stretch")
+
+    if "precipitation_mm" in frame:
+        rain_df = frame[["observation_date", "precipitation_mm"]].dropna()
+        if not rain_df.empty:
+            rain_figure = px.bar(rain_df, x="observation_date", y="precipitation_mm")
+            rain_figure.update_layout(xaxis_title="Fecha", yaxis_title="Precipitación (mm)")
+            st.plotly_chart(rain_figure, width="stretch")
+
+
+def resolve_aemet_range(*, start_date: str, end_date: str, bounds: dict[str, Any]) -> tuple[str, str, bool]:
+    first = bounds.get("first_date")
+    last = bounds.get("last_date")
+    if not first or not last:
+        return start_date, end_date, True
+    if start_date <= last and end_date >= first:
+        return max(start_date, first), min(end_date, last), True
+    last_date = date.fromisoformat(last)
+    fallback_start = max(date.fromisoformat(first), last_date - timedelta(days=365))
+    return fallback_start.isoformat(), last, False
+
+
+def render_aemet_date_range_selector(*, global_start: str, global_end: str, bounds: dict[str, Any]) -> tuple[str, str]:
+    first = bounds.get("first_date")
+    last = bounds.get("last_date")
+    if not first or not last:
+        return global_start, global_end
+
+    first_date = date.fromisoformat(first)
+    last_date = date.fromisoformat(last)
+    selected = st.date_input(
+        "Rango AEMET",
+        value=(first_date, last_date),
+        min_value=first_date,
+        max_value=last_date,
+        key="aemet_date_range",
+    )
+    if isinstance(selected, tuple) and len(selected) == 2:
+        start, end = selected
+    else:
+        start = end = last_date
+    return start.isoformat(), end.isoformat()
+
+
+def render_satellite_date_range_selector(*, global_start: str, global_end: str, bounds: dict[str, Any]) -> tuple[str, str]:
+    first = bounds.get("first_date")
+    last = bounds.get("last_date")
+    if not first or not last:
+        return global_start, global_end
+
+    first_date = date.fromisoformat(first)
+    last_date = date.fromisoformat(last)
+    selected = st.date_input(
+        "Rango satelital",
+        value=(first_date, last_date),
+        min_value=first_date,
+        max_value=last_date,
+        key="satellite_date_range",
+    )
+    if isinstance(selected, tuple) and len(selected) == 2:
+        start, end = selected
+    else:
+        start = end = last_date
+    return start.isoformat(), end.isoformat()
+
+
+def satellite_bounds_from_rows(rows: list[dict[str, Any]]) -> dict[str, str | None]:
+    dates = sorted({str(row.get("acquisition_time", ""))[:10] for row in rows if row.get("acquisition_time")})
+    if not dates:
+        return {"first_date": None, "last_date": None}
+    return {"first_date": dates[0], "last_date": dates[-1]}
+
+
+def satellite_day_bounds(start: str, end: str) -> tuple[str, str]:
+    start_iso = datetime.combine(date.fromisoformat(start), time.min, tzinfo=UTC).isoformat().replace("+00:00", "Z")
+    end_iso = datetime.combine(date.fromisoformat(end), time.max, tzinfo=UTC).isoformat().replace("+00:00", "Z")
+    return start_iso, end_iso
+
+
+def satellite_frame_from_rows(rows: list[dict[str, Any]]) -> pd.DataFrame:
+    frame = pd.DataFrame.from_records(rows)
+    if frame.empty:
+        return frame
+    if "acquisition_time" in frame:
+        frame["acquisition_time"] = pd.to_datetime(frame["acquisition_time"])
+    if "metric_code" in frame:
+        frame["metric_code"] = frame["metric_code"].map(lambda value: str(value).lower())
+        frame["metric"] = frame["metric_code"].map(lambda value: SATELLITE_LABELS.get(value, value.upper()))
+    return frame
+
+
+def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) -> None:
+    st.subheader("Observación satelital")
+    try:
+        status = cached_satellite_status(client.base_url)
+        latest = cached_satellite_latest(client.base_url)
+        zones = cached_satellite_zones(client.base_url)
+        all_rows = cached_satellite_export_rows(client.base_url, None, None, None)
+    except ArgosApiError as exc:
+        st.error(str(exc))
+        return
+
+    status_value = status.get("status", "unknown")
+    state_labels = {
+        "disabled": "No configurado",
+        "not_configured": "No configurado",
+        "ready": "Configurado",
+        "running": "Actualizando",
+        "degraded": "Última actualización fallida",
+        "error": "Última actualización fallida",
+    }
+
+    if status_value in {"disabled", "not_configured"}:
+        st.caption(status.get("message") or state_labels.get(status_value, status_value))
+        if not status.get("geometry_defined"):
+            st.info("Geometría no definida. Configure ARGOS_SATELLITE_AOI_GEOJSON con un polígono GeoJSON WGS84.")
+        if not status.get("credentials_available"):
+            st.info("Credenciales no disponibles. Configure COPERNICUS_CLIENT_ID y COPERNICUS_CLIENT_SECRET.")
+        return
+
+    bounds = satellite_bounds_from_rows(all_rows)
+    query_start, query_end = render_satellite_date_range_selector(
+        global_start=start_iso[:10],
+        global_end=end_iso[:10],
+        bounds=bounds,
+    )
+    quality_filter = st.selectbox(
+        "Calidad satelital",
+        ["all", "valid", "partial", "invalid"],
+        format_func=lambda value: SATELLITE_QUALITY_LABELS.get(value, value),
+        key="satellite_quality_filter",
+    )
+    range_start_iso, range_end_iso = satellite_day_bounds(query_start, query_end)
+    try:
+        rows = cached_satellite_export_rows(
+            client.base_url,
+            range_start_iso,
+            range_end_iso,
+            None if quality_filter == "all" else quality_filter,
+        )
+    except ArgosApiError as exc:
+        st.error(str(exc))
+        return
+
+    frame = satellite_frame_from_rows(rows)
+    acquisition_count = int(frame["acquisition_time"].nunique()) if "acquisition_time" in frame else 0
+    zone_name = next((str(zone.get("name")) for zone in zones if zone.get("enabled")), "Finca")
+    latest_update_label = format_datetime(status.get("latest_update_time"))
+    st.caption(
+        f"{zone_name} · {query_start} a {query_end} · {acquisition_count} adquisiciones · "
+        f"{len(frame)} métricas · última actualización: {latest_update_label}"
+    )
+
+    with st.expander("Actualizar datos", expanded=False):
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            force = st.checkbox("Forzar reproceso", value=False, key="satellite_force_update")
+            dry_run = st.checkbox("Dry-run", value=False, key="satellite_dry_run_update")
+            if st.button("Actualizar", icon=":material/sync:", type="primary"):
+                run_satellite_update_from_dashboard(client=client, force=force, dry_run=dry_run)
+
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            history_start = st.date_input("Inicio histórico", value=date(2021, 1, 1), key="satellite_history_start")
+            history_end = st.date_input("Fin histórico", value=date.today(), key="satellite_history_end")
+            history_dry_run = st.checkbox("Dry-run histórico", value=True, key="satellite_history_dry_run")
+            if st.button("Descargar histórico", icon=":material/download:", type="secondary"):
+                run_satellite_backfill_from_dashboard(
+                    client=client,
+                    start=history_start.isoformat(),
+                    end=history_end.isoformat(),
+                    force=force,
+                    dry_run=history_dry_run,
+                )
+
+    if frame.empty:
+        st.info("No hay observaciones satelitales guardadas para el rango seleccionado.")
+        return
+
+    render_satellite_charts(frame)
+
+    details = []
+    if latest is not None:
+        details.append(
+            {
+                "Última adquisición": format_datetime(latest.get("acquisition_time")),
+                "Calidad": SATELLITE_QUALITY_LABELS.get(str(latest.get("quality_status")), latest.get("quality_status")),
+                "Píxeles válidos": format_percent(latest.get("valid_pixel_fraction")),
+                "Nubosidad metadatos": format_percent_100(latest.get("cloud_cover_metadata")),
+                "Estado": state_labels.get(status_value, status_value),
+                "Observaciones": status.get("observation_count", 0),
+            }
+        )
+    if details:
+        with st.expander("Detalles satelitales", expanded=False):
+            st.dataframe(pd.DataFrame.from_records(details), hide_index=True)
+
+    with st.container(border=True):
+        st.subheader("Serie satelital")
+        visible_columns = [
+            column
+            for column in [
+                "acquisition_time",
+                "zone_name",
+                "metric_code",
+                "mean",
+                "median",
+                "minimum",
+                "maximum",
+                "standard_deviation",
+                "percentile_10",
+                "percentile_25",
+                "percentile_75",
+                "percentile_90",
+                "valid_pixel_fraction",
+                "cloud_cover_metadata",
+                "quality_status",
+                "processing_version",
+            ]
+            if column in frame
+        ]
+        st.dataframe(frame[visible_columns], hide_index=True)
+        add_csv_download(frame[visible_columns], "Descargar satélite CSV", "argos_satellite_series.csv")
+
+
+def render_satellite_charts(frame: pd.DataFrame) -> None:
+    if "metric_code" not in frame or "mean" not in frame:
+        return
+    metrics = [metric for metric in SATELLITE_LABELS if metric in set(frame["metric_code"])]
+    selected = st.multiselect(
+        "Índices satelitales",
+        options=metrics,
+        default=metrics,
+        format_func=lambda value: SATELLITE_LABELS.get(value, value.upper()),
+    )
+    if selected:
+        plot_df = frame[frame["metric_code"].isin(selected)].copy()
+        plot_df["Índice"] = plot_df["metric_code"].map(lambda value: SATELLITE_LABELS.get(value, value.upper()))
+        figure = px.line(
+            plot_df,
+            x="acquisition_time",
+            y="mean",
+            color="Índice",
+            markers=True,
+            hover_data=[
+                "median",
+                "percentile_25",
+                "percentile_75",
+                "valid_pixel_fraction",
+                "cloud_cover_metadata",
+                "quality_status",
+            ],
+        )
+        figure.update_layout(xaxis_title="Fecha", yaxis_title="Media", legend_title_text="")
+        st.plotly_chart(figure, width="stretch")
+
+    quality_df = (
+        frame[["acquisition_time", "valid_pixel_fraction", "quality_status"]]
+        .drop_duplicates(subset=["acquisition_time"])
+        .dropna(subset=["valid_pixel_fraction"])
+    )
+    if not quality_df.empty:
+        quality_figure = px.bar(
+            quality_df,
+            x="acquisition_time",
+            y="valid_pixel_fraction",
+            color="quality_status",
+        )
+        quality_figure.update_layout(
+            xaxis_title="Fecha",
+            yaxis_title="Fracción de píxeles válidos",
+            legend_title_text="Calidad",
+        )
+        st.plotly_chart(quality_figure, width="stretch")
+
+
+def run_satellite_update_from_dashboard(*, client: ArgosApiClient, force: bool, dry_run: bool) -> None:
+    try:
+        with st.spinner("Actualizando observación satelital..."):
+            api_client = ArgosApiClient(
+                base_url=client.base_url,
+                admin_token=client.admin_token,
+                timeout_seconds=600,
+            )
+            result = api_client.update_satellite(force=force, dry_run=dry_run)
+    except ArgosApiError as exc:
+        st.error(str(exc))
+        return
+    st.cache_data.clear()
+    st.success(format_satellite_ingestion_result(result))
+
+
+def run_satellite_backfill_from_dashboard(
+    *,
+    client: ArgosApiClient,
+    start: str,
+    end: str,
+    force: bool,
+    dry_run: bool,
+) -> None:
+    try:
+        with st.spinner("Descargando histórico satelital..."):
+            api_client = ArgosApiClient(
+                base_url=client.base_url,
+                admin_token=client.admin_token,
+                timeout_seconds=600,
+            )
+            range_start, range_end = satellite_day_bounds(start, end)
+            result = api_client.backfill_satellite(
+                start=range_start,
+                end=range_end,
+                force=force,
+                dry_run=dry_run,
+            )
+    except (ArgosApiError, ValueError) as exc:
+        st.error(str(exc))
+        return
+    st.cache_data.clear()
+    st.success(format_satellite_ingestion_result(result))
 
 
 def render_valves(
@@ -828,6 +1441,65 @@ def format_datetime(value: Any) -> str:
     if not value:
         return "-"
     return str(value).replace("T", " ").replace("Z", " UTC")
+
+
+def format_float(value: Any) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, int | float):
+        return f"{value:.3f}"
+    return str(value)
+
+
+def format_percent(value: Any) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, int | float):
+        return f"{value * 100:.0f}%"
+    return str(value)
+
+
+def format_percent_100(value: Any) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, int | float):
+        return f"{value:.0f}%"
+    return str(value)
+
+
+def format_aemet_import_result(result: dict[str, Any]) -> str:
+    return (
+        f"AEMET {result.get('status', '-')}: "
+        f"{result.get('records_received', 0)} recibidos, "
+        f"{result.get('inserted', 0)} insertados, "
+        f"{result.get('updated', 0)} actualizados, "
+        f"{result.get('skipped', 0)} omitidos, "
+        f"{len(result.get('errors', []))} errores."
+    )
+
+
+def format_satellite_ingestion_result(result: dict[str, Any]) -> str:
+    processing_units = result.get("processing_units")
+    units_label = f", {processing_units:.3f} PU" if isinstance(processing_units, int | float) else ""
+    return (
+        f"Satélite {result.get('status', '-')}: "
+        f"{result.get('found_count', 0)} encontradas, "
+        f"{result.get('processed_count', 0)} procesadas, "
+        f"{result.get('skipped_count', 0)} omitidas, "
+        f"{result.get('failed_count', 0)} fallidas"
+        f"{units_label}."
+    )
+
+
+def result_to_dict(result: Any) -> dict[str, Any]:
+    return {
+        "status": result.status,
+        "records_received": result.records_received,
+        "inserted": result.inserted,
+        "updated": result.updated,
+        "skipped": result.skipped,
+        "errors": result.errors,
+    }
 
 
 def format_valve_state(state: dict[str, Any] | None) -> str:
