@@ -55,6 +55,11 @@ def test_parse_cloud_history_payload_extracts_ecowitt_dict_series() -> None:
             "outdoor": {
                 "temperature": {"unit": "ºF", "list": {"1784930400": "84.9"}},
                 "humidity": {"unit": "%", "list": {"1784930400": "47"}},
+                "feels_like": {"unit": "ºF", "list": {"1784930400": "86.1"}},
+                "dew_point": {"unit": "ºF", "list": {"1784930400": "66.2"}},
+            },
+            "indoor": {
+                "app_tempin": {"unit": "ºF", "list": {"1784930400": "89.2"}},
             },
             "solar_and_uvi": {
                 "solar": {"unit": "W/m²", "list": {"1784930400": "531.2"}},
@@ -79,12 +84,14 @@ def test_parse_cloud_history_payload_extracts_ecowitt_dict_series() -> None:
 
     result = parse_cloud_history_payload(payload)
 
-    assert result.warnings == []
+    assert result.warnings == ["Unsupported Ecowitt Cloud field stored raw only: indoor.app_tempin"]
     assert len(result.observations) == 1
     observation = result.observations[0]
     assert observation.observed_at_utc == datetime.fromtimestamp(1784930400, tz=UTC)
     assert observation.normalized_values["outdoor_temperature_c"] == pytest.approx(29.3888889)
     assert observation.normalized_values["outdoor_humidity_pct"] == pytest.approx(47.0)
+    assert observation.normalized_values["feels_like_c"] == pytest.approx(30.0555556)
+    assert observation.normalized_values["dew_point_c"] == pytest.approx(19.0)
     assert observation.normalized_values["solar_radiation_wm2"] == pytest.approx(531.2)
     assert observation.normalized_values["uv_index"] == pytest.approx(4.0)
     assert observation.normalized_values["rain_rate_mm_h"] == pytest.approx(0.762)
@@ -93,6 +100,7 @@ def test_parse_cloud_history_payload_extracts_ecowitt_dict_series() -> None:
     assert observation.normalized_values["wind_direction_deg"] == pytest.approx(202.0)
     assert observation.normalized_values["relative_pressure_hpa"] == pytest.approx(1011.1754212)
     assert observation.normalized_values["battery_voltage"] == pytest.approx(2.84)
+    assert observation.cloud_payload["indoor.app_tempin"]["value"] == "89.2"
 
 
 def test_parse_cloud_history_payload_supports_flat_record_lists() -> None:
@@ -127,7 +135,7 @@ def test_parse_cloud_history_payload_skips_ambiguous_units() -> None:
     result = parse_cloud_history_payload(payload)
 
     assert result.observations == []
-    assert result.warnings == ["Ecowitt Cloud field outdoor.temperature ignored because unit is ambiguous: None."]
+    assert result.warnings == ["Ecowitt Cloud field outdoor.temperature stored raw only because unit is ambiguous: None."]
 
 
 def test_parse_cloud_history_payload_warns_about_unknown_fields() -> None:
@@ -136,4 +144,4 @@ def test_parse_cloud_history_payload_warns_about_unknown_fields() -> None:
     result = parse_cloud_history_payload(payload)
 
     assert result.observations == []
-    assert result.warnings == ["Unsupported Ecowitt Cloud field ignored: soil.soilmoisture1"]
+    assert result.warnings == ["Unsupported Ecowitt Cloud field stored raw only: soil.soilmoisture1"]

@@ -189,6 +189,7 @@ def import_backfilled_observation(
         observed_at_utc=observed_at_utc,
     )
     if existing_observation is not None:
+        repository.fill_missing_observation_values(existing_observation, values=values)
         repository.create_event(
             station_uuid=station.uuid,
             gateway_id=gateway.id,

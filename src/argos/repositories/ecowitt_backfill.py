@@ -167,6 +167,17 @@ class EcowittBackfillRepository:
         self.session.flush()
         return observation
 
+    def fill_missing_observation_values(
+        self,
+        observation: WeatherObservation,
+        *,
+        values: dict[str, float | None],
+    ) -> None:
+        for field_name, value in values.items():
+            if value is not None and getattr(observation, field_name) is None:
+                setattr(observation, field_name, value)
+        self.session.flush()
+
     def create_event(
         self,
         *,

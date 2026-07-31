@@ -36,6 +36,11 @@ FIELD_MAPPINGS: dict[str, CloudFieldMapping] = {
     "indoor.humidity": CloudFieldMapping("indoor_humidity_pct", "percent"),
     "outdoor.humidity": CloudFieldMapping("outdoor_humidity_pct", "percent"),
     "humidity": CloudFieldMapping("outdoor_humidity_pct", "percent"),
+    "outdoor.dew_point": CloudFieldMapping("dew_point_c", "temperature"),
+    "dew_point": CloudFieldMapping("dew_point_c", "temperature"),
+    "outdoor.feels_like": CloudFieldMapping("feels_like_c", "temperature"),
+    "outdoor.app_temp": CloudFieldMapping("feels_like_c", "temperature"),
+    "feels_like": CloudFieldMapping("feels_like_c", "temperature"),
     "outdoor.vpd": CloudFieldMapping("vpd_kpa", "plain"),
     "baromabsin": CloudFieldMapping("absolute_pressure_hpa", "pressure"),
     "pressure.absolute": CloudFieldMapping("absolute_pressure_hpa", "pressure"),
@@ -101,30 +106,31 @@ def parse_cloud_history_payload(payload: Mapping[str, Any]) -> CloudHistoryParse
     warnings: list[str] = []
 
     for field_name, entry in _iter_field_entries(data):
-        mapping = FIELD_MAPPINGS.get(_normalize_field_name(field_name))
-        if mapping is None:
-            warnings.append(f"Unsupported Ecowitt Cloud field ignored: {field_name}")
-            continue
-
         observed_at = _parse_entry_time(entry)
         if observed_at is None:
             warnings.append(f"Ecowitt Cloud field {field_name} ignored because it has no parseable timestamp.")
             continue
 
+        records[observed_at][field_name] = dict(entry)
+
+        mapping = FIELD_MAPPINGS.get(_normalize_field_name(field_name))
+        if mapping is None:
+            warnings.append(f"Unsupported Ecowitt Cloud field stored raw only: {field_name}")
+            continue
+
         raw_value = _extract_entry_value(entry)
         value = _parse_float(raw_value)
         if value is None:
-            warnings.append(f"Ecowitt Cloud field {field_name} ignored because value is not numeric: {raw_value!r}.")
+            warnings.append(f"Ecowitt Cloud field {field_name} stored raw only because value is not numeric: {raw_value!r}.")
             continue
 
         unit = _extract_entry_unit(entry)
         converted = _convert_value(value, unit=unit, unit_kind=mapping.unit_kind)
         if converted is None:
-            warnings.append(f"Ecowitt Cloud field {field_name} ignored because unit is ambiguous: {unit!r}.")
+            warnings.append(f"Ecowitt Cloud field {field_name} stored raw only because unit is ambiguous: {unit!r}.")
             continue
 
         normalized[observed_at][mapping.normalized_name] = converted
-        records[observed_at][field_name] = dict(entry)
 
     observations = [
         CloudHistoryObservation(

@@ -77,13 +77,16 @@ def test_import_backfilled_observation_preserves_cloud_raw_but_deduplicates_exis
             gateway_identifier="GW2000A",
             station_type="GW2000A_V3.3.2",
             observed_at_utc=direct_observation.observed_at_utc,
-            normalized_values={"outdoor_temperature_c": 35.1},
+            normalized_values={"outdoor_temperature_c": 12.3, "dew_point_c": 19.0},
             cloud_payload={"time": "2026-07-10 12:45:26", "temp": {"value": "95.18"}},
         )
 
+        session.refresh(direct_observation)
         assert result.duplicate is True
         assert result.duplicate_reason == "existing_observation_timestamp"
         assert result.observation_id == direct_observation.id
+        assert direct_observation.outdoor_temperature_c != 12.3
+        assert direct_observation.dew_point_c == 19.0
         assert len(session.scalars(select(EcowittCloudRawReport)).all()) == 1
         assert len(session.scalars(select(WeatherObservation)).all()) == 1
 

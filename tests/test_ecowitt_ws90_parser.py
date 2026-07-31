@@ -12,7 +12,7 @@ def test_parse_ws90_real_payload_fields() -> None:
     raw_body = (
         "PASSKEY=secret&stationtype=GW2000A_V3.3.2&dateutc=2026-07-10+12%3A45%3A26"
         "&tempinf=91.40&humidityin=23&baromrelin=29.297&baromabsin=29.297"
-        "&tempf=95.18&humidity=19&vpd=1.352&winddir=345&winddir_avg10m=135"
+        "&tempf=95.18&humidity=19&dewptf=66.2&feelslikef=96.8&vpd=1.352&winddir=345&winddir_avg10m=135"
         "&windspeedmph=2.01&windgustmph=3.13&maxdailygust=10.29&solarradiation=861.33&uv=8"
         "&rrain_piezo=0.000&erain_piezo=0.000&hrain_piezo=0.000&last24hrain_piezo=0.000"
         "&drain_piezo=0.000&wrain_piezo=0.024&mrain_piezo=0.024&yrain_piezo=0.024"
@@ -27,6 +27,8 @@ def test_parse_ws90_real_payload_fields() -> None:
     assert result.model == "GW2000A"
     assert result.normalized_values["outdoor_temperature_c"] == pytest.approx(35.1)
     assert result.normalized_values["indoor_temperature_c"] == pytest.approx(33.0)
+    assert result.normalized_values["dew_point_c"] == pytest.approx(19.0)
+    assert result.normalized_values["feels_like_c"] == pytest.approx(36.0)
     assert result.normalized_values["relative_pressure_hpa"] == pytest.approx(992.119, rel=1e-5)
     assert result.normalized_values["wind_speed_ms"] == pytest.approx(0.8985504)
     assert result.normalized_values["wind_direction_avg10m_deg"] == pytest.approx(135)
