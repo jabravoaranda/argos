@@ -35,6 +35,7 @@ DEFAULT_VARIABLES = [
     "outdoor_humidity_pct",
     "relative_pressure_hpa",
     "wind_speed_ms",
+    "wind_direction_deg",
     "wind_gust_ms",
     "rain_rate_mm_h",
     "solar_radiation_wm2",
@@ -53,6 +54,8 @@ LABELS = {
     "outdoor_humidity_pct": "Outdoor humidity (%)",
     "relative_pressure_hpa": "Relative pressure (hPa)",
     "wind_speed_ms": "Wind speed (m/s)",
+    "wind_direction_deg": "Wind direction (deg)",
+    "wind_direction_avg10m_deg": "Wind direction 10 min avg (deg)",
     "wind_gust_ms": "Wind gust (m/s)",
     "rain_rate_mm_h": "Rain rate (mm/h)",
     "rain_day_mm": "Daily rain (mm)",
@@ -97,6 +100,7 @@ WEATHER_CARD_VARIABLES = [
     ("Humedad", "outdoor_humidity_pct", "%", "HUM"),
     ("Presión", "relative_pressure_hpa", "hPa", "PRES"),
     ("Viento", "wind_speed_ms", "m/s", "WIND"),
+    ("Dirección", "wind_direction_deg", "deg", "DIR"),
     ("Racha", "wind_gust_ms", "m/s", "GUST"),
     ("Lluvia 24 h", "rain_last_24h_mm", "mm", "RAIN"),
     ("Lluvia actual", "rain_rate_mm_h", "mm/h", "RATE"),
@@ -854,7 +858,7 @@ def render_source_count_strip(source_counts: dict[str, int]) -> None:
 def render_weather_metric_grid(latest: dict[str, Any]) -> None:
     cards = []
     for label, key, unit, icon in WEATHER_CARD_VARIABLES:
-        value = format_number(latest.get(key), unit)
+        value = format_weather_card_value(latest.get(key), key=key, unit=unit)
         cards.append(
             f"""
             <article class="argos-weather-card" title="{escape(LABELS.get(key, key))}">
@@ -867,6 +871,12 @@ def render_weather_metric_grid(latest: dict[str, Any]) -> None:
             """
         )
     st.html(f'<section class="argos-weather-grid">{"".join(cards)}</section>')
+
+
+def format_weather_card_value(value: Any, *, key: str, unit: str) -> str:
+    if key in {"wind_direction_deg", "wind_direction_avg10m_deg"}:
+        return format_wind_direction(value)
+    return format_number(value, unit)
 
 
 def render_observations(observations_df: pd.DataFrame, selected_variables: list[str]) -> None:
@@ -1901,6 +1911,18 @@ def format_number(value: Any, unit: str) -> str:
         suffix = f" {unit}" if unit else ""
         return f"{value:.2f}{suffix}"
     return str(value)
+
+
+def format_wind_direction(value: Any) -> str:
+    if value is None:
+        return "-"
+    if not isinstance(value, int | float):
+        return str(value)
+
+    normalized = value % 360
+    compass_points = ("N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW")
+    compass = compass_points[int((normalized + 11.25) // 22.5) % len(compass_points)]
+    return f"{normalized:.0f} deg · {compass}"
 
 
 def format_datetime(value: Any) -> str:
