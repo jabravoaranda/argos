@@ -7,6 +7,7 @@ from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 from argos.config.settings import Settings
 
@@ -44,6 +45,7 @@ class EcowittCloudClient:
     base_url: str
     api_version: str
     credentials: EcowittCloudCredentials
+    local_timezone: str = "Europe/Madrid"
     timeout_seconds: int = 10
     urlopen_func: UrlopenFunc = urlopen
 
@@ -67,6 +69,7 @@ class EcowittCloudClient:
                 api_key=settings.ecowitt_cloud_api_key,
                 mac=settings.ecowitt_cloud_mac,
             ),
+            local_timezone=settings.local_timezone,
             timeout_seconds=settings.ecowitt_cloud_timeout_seconds,
         )
 
@@ -81,8 +84,8 @@ class EcowittCloudClient:
             "application_key": self.credentials.application_key,
             "api_key": self.credentials.api_key,
             "mac": self.credentials.mac,
-            "start_date": format_cloud_datetime(start),
-            "end_date": format_cloud_datetime(end),
+            "start_date": format_cloud_datetime(start, timezone_name=self.local_timezone),
+            "end_date": format_cloud_datetime(end, timezone_name=self.local_timezone),
             "call_back": ",".join(callbacks),
         }
         payload = self._get_json("/device/history", params=params)
@@ -117,5 +120,7 @@ class EcowittCloudClient:
         return f"{base}/api/{version}{path}?{urlencode(params)}"
 
 
-def format_cloud_datetime(value: datetime) -> str:
+def format_cloud_datetime(value: datetime, *, timezone_name: str = "Europe/Madrid") -> str:
+    if value.tzinfo is not None:
+        value = value.astimezone(ZoneInfo(timezone_name))
     return value.strftime("%Y-%m-%d %H:%M:%S")

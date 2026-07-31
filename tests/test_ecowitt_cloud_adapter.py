@@ -46,7 +46,53 @@ def test_parse_cloud_history_payload_extracts_nested_series_with_units() -> None
     assert first.normalized_values["relative_pressure_hpa"] == pytest.approx(1012.8688502)
     assert first.normalized_values["rain_day_mm"] == pytest.approx(2.54)
     assert first.normalized_values["rain_rate_mm_h"] == pytest.approx(5.08)
-    assert "temperature" in first.cloud_payload
+    assert "outdoor.temperature" in first.cloud_payload
+
+
+def test_parse_cloud_history_payload_extracts_ecowitt_dict_series() -> None:
+    payload = {
+        "data": {
+            "outdoor": {
+                "temperature": {"unit": "ºF", "list": {"1784930400": "84.9"}},
+                "humidity": {"unit": "%", "list": {"1784930400": "47"}},
+            },
+            "solar_and_uvi": {
+                "solar": {"unit": "W/m²", "list": {"1784930400": "531.2"}},
+                "uvi": {"unit": "", "list": {"1784930400": "4"}},
+            },
+            "rainfall_piezo": {
+                "rain_rate": {"unit": "in/hr", "list": {"1784930400": "0.03"}},
+            },
+            "wind": {
+                "wind_speed": {"unit": "mph", "list": {"1784930400": "6.9"}},
+                "wind_gust": {"unit": "mph", "list": {"1784930400": "10.3"}},
+                "wind_direction": {"unit": "º", "list": {"1784930400": "202"}},
+            },
+            "pressure": {
+                "relative": {"unit": "inHg", "list": {"1784930400": "29.86"}},
+            },
+            "battery": {
+                "haptic_array_battery": {"unit": "V", "list": {"1784930400": "2.84"}},
+            },
+        }
+    }
+
+    result = parse_cloud_history_payload(payload)
+
+    assert result.warnings == []
+    assert len(result.observations) == 1
+    observation = result.observations[0]
+    assert observation.observed_at_utc == datetime.fromtimestamp(1784930400, tz=UTC)
+    assert observation.normalized_values["outdoor_temperature_c"] == pytest.approx(29.3888889)
+    assert observation.normalized_values["outdoor_humidity_pct"] == pytest.approx(47.0)
+    assert observation.normalized_values["solar_radiation_wm2"] == pytest.approx(531.2)
+    assert observation.normalized_values["uv_index"] == pytest.approx(4.0)
+    assert observation.normalized_values["rain_rate_mm_h"] == pytest.approx(0.762)
+    assert observation.normalized_values["wind_speed_ms"] == pytest.approx(3.084576)
+    assert observation.normalized_values["wind_gust_ms"] == pytest.approx(4.604512)
+    assert observation.normalized_values["wind_direction_deg"] == pytest.approx(202.0)
+    assert observation.normalized_values["relative_pressure_hpa"] == pytest.approx(1011.1754212)
+    assert observation.normalized_values["battery_voltage"] == pytest.approx(2.84)
 
 
 def test_parse_cloud_history_payload_supports_flat_record_lists() -> None:
@@ -81,7 +127,7 @@ def test_parse_cloud_history_payload_skips_ambiguous_units() -> None:
     result = parse_cloud_history_payload(payload)
 
     assert result.observations == []
-    assert result.warnings == ["Ecowitt Cloud field temperature ignored because unit is ambiguous: None."]
+    assert result.warnings == ["Ecowitt Cloud field outdoor.temperature ignored because unit is ambiguous: None."]
 
 
 def test_parse_cloud_history_payload_warns_about_unknown_fields() -> None:
@@ -90,4 +136,4 @@ def test_parse_cloud_history_payload_warns_about_unknown_fields() -> None:
     result = parse_cloud_history_payload(payload)
 
     assert result.observations == []
-    assert result.warnings == ["Unsupported Ecowitt Cloud field ignored: soilmoisture1"]
+    assert result.warnings == ["Unsupported Ecowitt Cloud field ignored: soil.soilmoisture1"]

@@ -30,37 +30,60 @@ class CloudFieldMapping:
 
 FIELD_MAPPINGS: dict[str, CloudFieldMapping] = {
     "tempf": CloudFieldMapping("outdoor_temperature_c", "temperature"),
+    "outdoor.temperature": CloudFieldMapping("outdoor_temperature_c", "temperature"),
     "temperature": CloudFieldMapping("outdoor_temperature_c", "temperature"),
+    "indoor.temperature": CloudFieldMapping("indoor_temperature_c", "temperature"),
+    "indoor.humidity": CloudFieldMapping("indoor_humidity_pct", "percent"),
+    "outdoor.humidity": CloudFieldMapping("outdoor_humidity_pct", "percent"),
     "humidity": CloudFieldMapping("outdoor_humidity_pct", "percent"),
+    "outdoor.vpd": CloudFieldMapping("vpd_kpa", "plain"),
     "baromabsin": CloudFieldMapping("absolute_pressure_hpa", "pressure"),
+    "pressure.absolute": CloudFieldMapping("absolute_pressure_hpa", "pressure"),
     "absolute": CloudFieldMapping("absolute_pressure_hpa", "pressure"),
     "baromrelin": CloudFieldMapping("relative_pressure_hpa", "pressure"),
+    "pressure.relative": CloudFieldMapping("relative_pressure_hpa", "pressure"),
     "relative": CloudFieldMapping("relative_pressure_hpa", "pressure"),
     "winddir": CloudFieldMapping("wind_direction_deg", "degree"),
+    "wind.wind_direction": CloudFieldMapping("wind_direction_deg", "degree"),
     "winddir_avg10m": CloudFieldMapping("wind_direction_avg10m_deg", "degree"),
+    "wind.10_minute_average_wind_direction": CloudFieldMapping("wind_direction_avg10m_deg", "degree"),
     "windspeedmph": CloudFieldMapping("wind_speed_ms", "speed"),
+    "wind.wind_speed": CloudFieldMapping("wind_speed_ms", "speed"),
     "windgustmph": CloudFieldMapping("wind_gust_ms", "speed"),
+    "wind.wind_gust": CloudFieldMapping("wind_gust_ms", "speed"),
     "maxdailygust": CloudFieldMapping("daily_max_gust_ms", "speed"),
     "solarradiation": CloudFieldMapping("solar_radiation_wm2", "solar"),
+    "solar_and_uvi.solar": CloudFieldMapping("solar_radiation_wm2", "solar"),
     "solar": CloudFieldMapping("solar_radiation_wm2", "solar"),
     "uv": CloudFieldMapping("uv_index", "plain"),
+    "solar_and_uvi.uvi": CloudFieldMapping("uv_index", "plain"),
     "rrain_piezo": CloudFieldMapping("rain_rate_mm_h", "rain_rate"),
+    "rainfall_piezo.rain_rate": CloudFieldMapping("rain_rate_mm_h", "rain_rate"),
     "rain_rate": CloudFieldMapping("rain_rate_mm_h", "rain_rate"),
     "erain_piezo": CloudFieldMapping("rain_event_mm", "rain"),
+    "rainfall_piezo.event": CloudFieldMapping("rain_event_mm", "rain"),
     "event": CloudFieldMapping("rain_event_mm", "rain"),
     "hrain_piezo": CloudFieldMapping("rain_hour_mm", "rain"),
+    "rainfall_piezo.1_hour": CloudFieldMapping("rain_hour_mm", "rain"),
     "hourly": CloudFieldMapping("rain_hour_mm", "rain"),
     "last24hrain_piezo": CloudFieldMapping("rain_last_24h_mm", "rain"),
+    "rainfall_piezo.24_hours": CloudFieldMapping("rain_last_24h_mm", "rain"),
     "last_24h": CloudFieldMapping("rain_last_24h_mm", "rain"),
     "drain_piezo": CloudFieldMapping("rain_day_mm", "rain"),
+    "rainfall_piezo.daily": CloudFieldMapping("rain_day_mm", "rain"),
     "daily": CloudFieldMapping("rain_day_mm", "rain"),
     "wrain_piezo": CloudFieldMapping("rain_week_mm", "rain"),
+    "rainfall_piezo.weekly": CloudFieldMapping("rain_week_mm", "rain"),
     "weekly": CloudFieldMapping("rain_week_mm", "rain"),
     "mrain_piezo": CloudFieldMapping("rain_month_mm", "rain"),
+    "rainfall_piezo.monthly": CloudFieldMapping("rain_month_mm", "rain"),
     "monthly": CloudFieldMapping("rain_month_mm", "rain"),
     "yrain_piezo": CloudFieldMapping("rain_year_mm", "rain"),
+    "rainfall_piezo.yearly": CloudFieldMapping("rain_year_mm", "rain"),
     "yearly": CloudFieldMapping("rain_year_mm", "rain"),
     "srain_piezo": CloudFieldMapping("piezo_rain_mm", "rain"),
+    "battery.haptic_array_battery": CloudFieldMapping("battery_voltage", "voltage"),
+    "battery.haptic_array_capacitor": CloudFieldMapping("ws90_capacitor_voltage", "voltage"),
 }
 
 TIME_KEYS = ("time", "datetime", "date", "dateutc", "timestamp")
@@ -116,10 +139,11 @@ def parse_cloud_history_payload(payload: Mapping[str, Any]) -> CloudHistoryParse
 
 def _iter_field_entries(data: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]]:
     entries: list[tuple[str, Mapping[str, Any]]] = []
-    for group_value in data.values():
+    for group_name, group_value in data.items():
         if isinstance(group_value, Mapping):
             for field_name, field_value in group_value.items():
-                entries.extend((field_name, entry) for entry in _coerce_entries(field_value))
+                qualified_name = f"{group_name}.{field_name}"
+                entries.extend((qualified_name, entry) for entry in _coerce_entries(field_value))
         elif isinstance(group_value, list):
             for record in group_value:
                 if isinstance(record, Mapping):
@@ -141,6 +165,15 @@ def _coerce_entries(value: Any) -> list[Mapping[str, Any]]:
         nested_list = value.get("list")
         if isinstance(nested_list, list):
             return [entry for entry in nested_list if isinstance(entry, Mapping)]
+        if isinstance(nested_list, Mapping):
+            unit = value.get("unit")
+            entries: list[Mapping[str, Any]] = []
+            for timestamp, entry_value in nested_list.items():
+                entry = {"time": timestamp, "value": entry_value}
+                if unit is not None:
+                    entry["unit"] = unit
+                entries.append(entry)
+            return entries
         if any(key in value for key in TIME_KEYS) and any(key in value for key in VALUE_KEYS):
             return [value]
     return []
@@ -155,6 +188,8 @@ def _parse_entry_time(entry: Mapping[str, Any]) -> datetime | None:
             return datetime.fromtimestamp(raw_value, tz=UTC)
         if isinstance(raw_value, str):
             normalized = raw_value.strip().replace("Z", "+00:00")
+            if normalized.isdigit():
+                return datetime.fromtimestamp(int(normalized), tz=UTC)
             for candidate in (normalized, normalized.replace(" ", "T")):
                 try:
                     parsed = datetime.fromisoformat(candidate)
@@ -219,13 +254,17 @@ def _convert_value(value: float, *, unit: str | None, unit_kind: str) -> float |
             return value
         return None
     if unit_kind == "rain_rate":
-        if unit_key in {"in/h", "inch/h", "inches/h"}:
+        if unit_key in {"in/h", "in/hr", "inch/h", "inch/hr", "inches/h", "inches/hr"}:
             return inches_to_mm(value)
         if unit_key in {"mm/h", "mmh"}:
             return value
         return None
     if unit_kind in {"percent", "degree", "solar", "plain"}:
         return value
+    if unit_kind == "voltage":
+        if unit_key in {"v", "volt", "volts"}:
+            return value
+        return None
     return None
 
 
@@ -236,4 +275,4 @@ def _normalize_field_name(field_name: str) -> str:
 def _normalize_unit(unit: str | None) -> str:
     if unit is None:
         return ""
-    return unit.strip().lower().replace("°", "").replace(" ", "")
+    return unit.strip().lower().replace("°", "").replace("º", "").replace(" ", "")

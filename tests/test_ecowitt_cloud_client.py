@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -102,3 +102,9 @@ def test_cloud_client_rejects_non_json_response() -> None:
 
 def test_format_cloud_datetime_uses_ecowitt_expected_format() -> None:
     assert format_cloud_datetime(datetime(2026, 7, 10, 9, 8, 7)) == "2026-07-10 09:08:07"
+
+
+def test_format_cloud_datetime_converts_aware_values_to_local_time() -> None:
+    value = datetime(2026, 7, 10, 9, 8, 7, tzinfo=UTC)
+
+    assert format_cloud_datetime(value, timezone_name="Europe/Madrid") == "2026-07-10 11:08:07"
