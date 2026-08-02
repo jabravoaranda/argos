@@ -1,5 +1,12 @@
 # ARGOS Data Ingestion Traceability
 
+Estado: Vigente
+Tipo: Arquitectura
+Fuente de verdad: `docs/00-estado-del-proyecto.md`
+Ultima actualizacion: 2026-08-02
+Responsable logico: Arquitectura de datos
+Revision: 1
+
 Date: 2026-08-02
 
 ARGOS now uses a shared ingestion ledger alongside typed domain tables. The design keeps Ecowitt, AEMET, satellite, flowmeter and field-event schemas specific to their domains, while centralizing run status, idempotent item tracking, cursors and file artifact integrity.

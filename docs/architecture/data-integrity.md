@@ -1,5 +1,12 @@
 # ARGOS Data Integrity
 
+Estado: Vigente
+Tipo: Arquitectura
+Fuente de verdad: `docs/00-estado-del-proyecto.md`
+Ultima actualizacion: 2026-08-02
+Responsable logico: Arquitectura de datos
+Revision: 1
+
 Date: 2026-08-02
 
 ARGOS relies on database-level natural keys for ingestion idempotence wherever the domain has a stable identity.

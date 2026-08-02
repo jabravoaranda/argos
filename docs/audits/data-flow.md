@@ -1,5 +1,11 @@
 # ARGOS Data Flow
 
+Document type: Historical audit
+Snapshot date: 2026-08-02
+Current-state authority: docs/00-estado-del-proyecto.md
+Generated manually/automatically: manual
+Do not use this document as the sole source of current operational state.
+
 ```mermaid
 flowchart LR
     ecowitt_lan["Ecowitt GW2000<br/>Customized HTTP upload"] --> ecowitt_endpoint["POST /api/v1/ecowitt/upload/{token}"]

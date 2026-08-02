@@ -1,5 +1,11 @@
 # ARGOS Ingestion Traceability Gap Analysis
 
+Document type: Historical audit
+Snapshot date: 2026-08-02
+Current-state authority: docs/00-estado-del-proyecto.md
+Generated manually/automatically: manual
+Do not use this document as the sole source of current operational state.
+
 Date: 2026-08-02
 
 Scope: phase 3 data architecture work for shared ingestion traceability. The schema was audited against a restored copy of the real SQLite database, not against `var/argos.db` directly. No conflicting rows were automatically removed, merged, or modified.

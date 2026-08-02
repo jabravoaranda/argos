@@ -1,5 +1,11 @@
 # Legacy Weather Reconciliation
 
+Document type: Historical audit
+Snapshot date: 2026-08-02
+Current-state authority: docs/00-estado-del-proyecto.md
+Generated manually/automatically: automatic via `uv run argos data reconcile-legacy-weather`
+Do not use this document as the sole source of current operational state.
+
 Date: 2026-08-02
 
 No `data/weather` file was moved or deleted. Current code does not consume these files directly.

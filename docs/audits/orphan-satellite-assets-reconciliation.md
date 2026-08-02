@@ -1,10 +1,20 @@
 # Orphan Satellite Assets Reconciliation
 
+Document type: Historical audit
+Snapshot date: 2026-08-02
+Current-state authority: docs/00-estado-del-proyecto.md
+Generated manually/automatically: automatic via `uv run argos data reconcile-orphan-satellite-assets --dry-run`
+Do not use this document as the sole source of current operational state.
+
 Date: 2026-08-02
 
 JSON manifest: `var/manifests/orphan-satellite-assets-20260802T185154Z.json`.
 
 No orphan PNG was deleted. Recoverable rows are applied only with `--apply-recoverable`.
+
+Command: `uv run argos data reconcile-orphan-satellite-assets --dry-run`.
+
+Conclusion: there are no recoverable SQL rows; the remaining files require manual policy decisions before deletion or archival.
 
 ## Summary
 

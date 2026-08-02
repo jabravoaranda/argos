@@ -1,5 +1,12 @@
 # ARGOS Data Layout
 
+Estado: Vigente
+Tipo: Arquitectura
+Fuente de verdad: `docs/00-estado-del-proyecto.md`
+Ultima actualizacion: 2026-08-02
+Responsable logico: Arquitectura de datos
+Revision: 1
+
 Date: 2026-08-02
 
 ARGOS uses SQL as the source of truth for normalized observations, metrics, run state and manual records. Files under `data/` are source evidence, derived products, exports, cache or unresolved legacy material. New code centralizes filesystem roots through settings and stores new data-relative paths where possible.
@@ -29,7 +36,7 @@ data/
 | `processed/` | Derived products worth preserving. | New satellite previews default to `processed/satellite/`. |
 | `exports/` | User-facing downloads. | Retention report only. |
 | `cache/` | Fully regenerable non-authoritative files. | Retention report only. |
-| `legacy/` | Historical files whose semantics are unresolved. | `data/weather` is planned for `legacy/weather/`. |
+| `legacy/` | Historical files whose semantics are unresolved. | Current preserved weather and unscoped satellite legacy files. |
 | `quarantine/` | Corrupt/conflicting files. | Manual review only. |
 
 ## Settings

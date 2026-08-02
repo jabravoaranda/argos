@@ -1,5 +1,12 @@
 # ARGOS Data Retention Policy
 
+Estado: Vigente
+Tipo: Politica operativa
+Fuente de verdad: `docs/00-estado-del-proyecto.md`
+Ultima actualizacion: 2026-08-02
+Responsable logico: Arquitectura de datos
+Revision: 1
+
 Date: 2026-08-02
 
 This phase defines reporting only. No automatic deletion is enabled.

@@ -1,5 +1,12 @@
 # ARGOS Windows Backup Scheduling
 
+Estado: Vigente
+Tipo: Manual operativo
+Fuente de verdad: `docs/00-estado-del-proyecto.md`
+Ultima actualizacion: 2026-08-02
+Responsable logico: Operador ARGOS
+Revision: 1
+
 Date: 2026-08-02
 
 ARGOS provides PowerShell scripts to run and register a daily SQLite backup. The scheduled task is not registered automatically by tests or migrations.

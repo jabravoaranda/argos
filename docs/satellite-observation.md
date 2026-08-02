@@ -1,5 +1,12 @@
 # Satellite observation
 
+Estado: Vigente
+Tipo: Capacidad
+Fuente de verdad: `docs/00-estado-del-proyecto.md`
+Ultima actualizacion: 2026-08-02
+Responsable logico: Mantenimiento de software
+Revision: 1
+
 ARGOS can ingest free Sentinel-2 Level-2A vegetation information from Copernicus Data Space Ecosystem. The module treats Copernicus as an external provider behind an adapter:
 
 ```text
@@ -50,7 +57,7 @@ ARGOS_SATELLITE_MIN_VALID_PIXEL_FRACTION=0.20
 ARGOS_SATELLITE_VALID_PIXEL_FRACTION=0.50
 ARGOS_SATELLITE_UPDATE_INTERVAL_HOURS=24
 ARGOS_SATELLITE_PREVIEW_ENABLED=true
-ARGOS_SATELLITE_ASSET_DIR=data/satellite
+ARGOS_SATELLITE_ASSET_DIR=
 ARGOS_SATELLITE_HTTP_TIMEOUT_SECONDS=30
 ```
 
@@ -84,7 +91,7 @@ Satellite data is stored in:
 - `satellite_metrics`
 - `satellite_assets`
 
-Large binary images are stored under `ARGOS_SATELLITE_ASSET_DIR`; the database stores paths, checksums, sizes, and MIME types only.
+Large binary images are stored under the current data layout, normally `data/processed/satellite/...`; the database stores paths, checksums, sizes, and MIME types only. `ARGOS_SATELLITE_ASSET_DIR` remains a compatibility override and should not be used for the current layout unless explicitly needed.
 
 ## Ingestion
 
@@ -117,7 +124,7 @@ uv run argos satellite backfill --aoi-slug olivos_grandes --from 2025-01-01 --to
 
 If dates are omitted for backfill, ARGOS uses the last `ARGOS_SATELLITE_HISTORY_DAYS` days. Incremental update starts from the last processed acquisition for each AOI with a seven-day overlap. Without `--aoi-slug`, update and backfill process all configured AOIs.
 
-There is no scheduler in the current ARGOS tree. Use cron, systemd timers, Windows Task Scheduler, or another existing orchestrator to run `uv run argos satellite update` no more than daily initially.
+FastAPI starts an internal daily sync worker when `ARGOS_DAILY_SYNC_ENABLED=true`. External scheduling for satellite-only updates is not confirmed as active.
 
 ## API
 

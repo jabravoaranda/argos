@@ -1,14 +1,23 @@
 # ARGOS
 
-Agricultural Remote Guidance and Observation System.
+Estado: Vigente
+Tipo: README tecnico
+Fuente de verdad: `docs/00-estado-del-proyecto.md`
+Ultima actualizacion: 2026-08-02
+Responsable logico: Mantenimiento de software
+Revision: 1
+
+Agricultural Remote Gateway for Observation and Sensing.
 
 ARGOS is being redesigned as a FastAPI-based environmental data platform. The primary Ecowitt GW2000 integration will use the gateway's Customized HTTP upload mode, preserving raw payloads and storing normalized observations in a database.
+
+For current operational state and document navigation, start with [docs/README.md](docs/README.md) and [docs/00-estado-del-proyecto.md](docs/00-estado-del-proyecto.md).
 
 The canonical station identity is the physical site slug `tomillar`. Gateway hardware identifiers such as MAC address, serial number, model or Ecowitt-specific IDs are treated as hardware metadata associated with that station, so the gateway can be replaced without changing the station identity.
 
 ## Current Scope
 
-This branch contains the current ARGOS redesign work: FastAPI foundation, direct Ecowitt ingestion, API analytics, Streamlit dashboard and the first Ecowitt Cloud backfill client.
+This branch contains the current ARGOS redesign work: FastAPI foundation, direct Ecowitt ingestion, AEMET, Sentinel-2, API analytics, Streamlit dashboard, argos-node valve/flowmeter integration and Ecowitt Cloud backfill support.
 
 Included:
 
@@ -30,13 +39,15 @@ Included:
 - Unknown field catalogue for captured fields without normalized mapping.
 - Persisted daily and weekly weather summaries.
 - Streamlit dashboard backed by the FastAPI API.
-- Ecowitt Cloud history client and initial backfill persistence.
+- Ecowitt Cloud history client, adapter and initial backfill persistence.
 - Field diary for manual agronomic events.
 - Unified analytics API and dashboard section for correlations, distributions and trend references.
 
-Still not included:
+Still not declared operational:
 
-- Ecowitt Cloud response adapter for the exact history payload shape.
+- Autonomous irrigation.
+- Unattended irrigation scheduling.
+- Field-validated automatic valve safety shutdown.
 
 ## Installation
 
@@ -201,7 +212,7 @@ The current backfill phase includes:
 - Bounded manual ranges through `ECOWITT_CLOUD_MAX_BACKFILL_HOURS`.
 - Internal manual CLI backfill through `uv run argos ecowitt-cloud backfill`.
 
-The response adapter for the exact Ecowitt Cloud history payload shape is intentionally still pending.
+The response adapter is implemented conservatively. A real target-station Cloud payload is still needed before treating Cloud backfill as routine operation.
 
 Example manual backfill command:
 

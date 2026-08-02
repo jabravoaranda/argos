@@ -1,13 +1,20 @@
 # ARGOS Data Backup and Recovery
 
+Estado: Vigente
+Tipo: Manual operativo
+Fuente de verdad: `docs/00-estado-del-proyecto.md`
+Ultima actualizacion: 2026-08-02
+Responsable logico: Operador ARGOS
+Revision: 1
+
 ## Irrecoverable Data
 
 Protect these files first:
 
 - `var/argos.db`: active SQLite database with normalized observations, raw SQL payloads, manual events, sync state and derived rows.
-- `data/weather`: legacy local weather files until they are reconciled with SQL.
-- `data/aemet`: local AEMET CSV seeds until they are confirmed reproducible.
-- `data/satellite`: satellite preview assets referenced from SQL by path and checksum.
+- `data/raw`: source files needed for reconstruction, including local AEMET CSV seeds.
+- `data/processed/satellite`: satellite preview assets referenced from SQL by path and checksum.
+- `data/legacy`: historical files preserved until explicit review.
 - `.env`: secrets and local configuration. Do not put it in normal data backups; store it separately in an encrypted secret manager.
 
 A copy on the same disk is not enough. It protects against operator mistakes, but not disk failure, theft, ransomware or machine loss. Sync backups to a second physical disk, NAS, or external service.

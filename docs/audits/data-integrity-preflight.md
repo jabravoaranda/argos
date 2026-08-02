@@ -1,5 +1,11 @@
 # Data Integrity Preflight
 
+Document type: Historical audit
+Snapshot date: 2026-08-02
+Current-state authority: docs/00-estado-del-proyecto.md
+Generated manually/automatically: manual
+Do not use this document as the sole source of current operational state.
+
 Date: 2026-08-02
 
 This preflight was run before adding database-level uniqueness for Ecowitt weather observations and satellite assets. The active database `var/argos.db` was not migrated or modified.

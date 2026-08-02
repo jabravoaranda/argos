@@ -1,10 +1,20 @@
 # ARGOS Data File Inventory
 
+Document type: Historical audit
+Snapshot date: 2026-08-02
+Current-state authority: docs/00-estado-del-proyecto.md
+Generated manually/automatically: automatic via `uv run argos data inventory-files`
+Do not use this document as the sole source of current operational state.
+
 Date: 2026-08-02
 
 No files were moved while generating this inventory.
 
 Full JSON manifest: `var/manifests/data-inventory-20260802T185134Z.json`.
+
+Command: `uv run argos data inventory-files`.
+
+Conclusion: current human-readable inventory is summarized here; regenerate the complete machine-readable manifest in `var/manifests/` before making cleanup decisions.
 
 ## Summary
 

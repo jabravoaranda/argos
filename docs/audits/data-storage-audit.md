@@ -1,5 +1,11 @@
 # ARGOS Data Storage Audit
 
+Document type: Historical audit
+Snapshot date: 2026-08-02
+Current-state authority: docs/00-estado-del-proyecto.md
+Generated manually/automatically: manual
+Do not use this document as the sole source of current operational state.
+
 Date: 2026-08-02
 
 Scope: repository inspection plus read-only inspection of the local SQLite database at `C:\Users\Fizico\Documents\github\argos\var\argos.db`. No data, schemas, production code, or existing directories were modified.

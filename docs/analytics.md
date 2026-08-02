@@ -1,5 +1,12 @@
 # ARGOS Analytics
 
+Estado: Vigente
+Tipo: Capacidad
+Fuente de verdad: `docs/00-estado-del-proyecto.md`
+Ultima actualizacion: 2026-08-02
+Responsable logico: Mantenimiento de software
+Revision: 1
+
 La seccion **Analisis** compara datos ya persistidos por ARGOS. No descarga datos, no modifica la ingesta y no cambia las tablas de observaciones originales.
 
 ## Fuentes
