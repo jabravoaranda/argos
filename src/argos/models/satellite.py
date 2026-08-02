@@ -119,6 +119,7 @@ class SatelliteMetric(Base):
 
 class SatelliteAsset(Base):
     __tablename__ = "satellite_assets"
+    __table_args__ = (UniqueConstraint("observation_id", "asset_type", name="uq_satellite_assets_observation_type"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     observation_id: Mapped[int] = mapped_column(ForeignKey("satellite_observations.id"), nullable=False, index=True)

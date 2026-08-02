@@ -123,7 +123,15 @@ class EcowittCloudRawReport(TimestampMixin, Base):
 
 class WeatherObservation(TimestampMixin, Base):
     __tablename__ = "weather_observations"
-    __table_args__ = (Index("ix_weather_observations_gateway_observed", "gateway_id", "observed_at_utc"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "gateway_id",
+            "observed_at_utc",
+            "source",
+            name="uq_weather_observations_gateway_observed_source",
+        ),
+        Index("ix_weather_observations_gateway_observed", "gateway_id", "observed_at_utc"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     station_uuid: Mapped[str | None] = mapped_column(ForeignKey("stations.uuid"), index=True)
