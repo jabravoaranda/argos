@@ -108,6 +108,15 @@ def test_build_parser_accepts_satellite_aoi_slug() -> None:
     assert args.aoi_slug == "olivos_pequenos"
 
 
+def test_build_parser_accepts_data_audit_duplicates() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(["data", "audit-duplicates"])
+
+    assert args.command == "data"
+    assert args.data_command == "audit-duplicates"
+
+
 def test_format_ecowitt_status_outputs_operator_summary() -> None:
     status = EcowittStatus(
         station_slug="tomillar",

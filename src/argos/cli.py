@@ -15,6 +15,7 @@ from argos.services.aemet_import import AemetImportRangeError, AemetImportServic
 from argos.services.ecowitt_backfill import BackfillRangeError, backfill_ecowitt_cloud_range
 from argos.services.ecowitt_status import EcowittStatus, build_ecowitt_status
 from argos.services.satellite_ingestion import SatelliteIngestionService
+from argos.ops.data_duplicates import audit_duplicates, format_duplicate_results, has_structural_duplicates
 
 
 def main() -> None:
@@ -34,6 +35,9 @@ def main() -> None:
         return
     if args.command == "node":
         run_node(args)
+        return
+    if args.command == "data":
+        run_data(args)
         return
     parser.print_help()
 
@@ -116,6 +120,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         help="Polling interval in seconds. Defaults to ARGOS_NODE_POLL_INTERVAL_SECONDS.",
     )
+
+    data_parser = subparsers.add_parser("data", help="Data protection and audit utilities.")
+    data_subparsers = data_parser.add_subparsers(dest="data_command")
+    data_subparsers.add_parser("audit-duplicates", help="Read-only duplicate audit for persisted data.")
 
     return parser
 
@@ -268,6 +276,17 @@ def run_node(args: argparse.Namespace) -> None:
         print("Stopped flowmeter minute capture.")
     except (ArgosNodeError, ArgosNodeStatusError) as exc:
         raise SystemExit(str(exc)) from exc
+
+
+def run_data(args: argparse.Namespace) -> None:
+    if args.data_command != "audit-duplicates":
+        fail("Unknown data command.")
+    with get_sessionmaker()() as session:
+        results = audit_duplicates(session)
+    for line in format_duplicate_results(results):
+        print(line)
+    if has_structural_duplicates(results):
+        raise SystemExit(1)
 
 
 def format_satellite_status(status) -> list[str]:
