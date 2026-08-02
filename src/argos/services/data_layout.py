@@ -11,13 +11,13 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from argos.config.settings import Settings, get_settings
 from argos.models.ingestion import SourceArtifact
 from argos.models.ecowitt import WeatherObservation
-from argos.models.satellite import SatelliteAsset, SatelliteObservation
+from argos.models.satellite import SatelliteAsset, SatelliteMetric, SatelliteObservation, SatelliteZone
 from argos.services.ingestion_trace import (
     create_source_artifact,
     finalize_ingestion_run,
@@ -83,6 +83,32 @@ class StagingAuditIssue:
     relative_path: str
     issue: str
     details: str
+
+
+@dataclass(frozen=True, slots=True)
+class OrphanSatelliteAssetRecord:
+    relative_path: str
+    filename: str
+    size_bytes: int
+    sha256: str
+    modified_at_utc: str
+    name_pattern: str
+    probable_aoi_slug: str | None
+    probable_acquisition_time: str | None
+    probable_scene_id: str | None
+    probable_asset_type: str | None
+    probable_processing_version: str | None
+    satellite_observation_ids: list[int]
+    satellite_metric_count: int
+    satellite_asset_ids: list[int]
+    source_artifact_ids: list[int]
+    duplicate_paths: list[str]
+    canonical_duplicate_path: str | None
+    regenerable: str
+    scientific_or_operational_value: str
+    proposed_classification: str
+    proposed_destination: str
+    ambiguity: str | None
 
 
 def data_paths(settings: Settings | None = None) -> DataPaths:
@@ -392,6 +418,179 @@ def audit_staging(*, session: Session, settings: Settings | None = None, older_t
     return issues
 
 
+def reconcile_orphan_satellite_assets(
+    *,
+    session: Session,
+    settings: Settings | None = None,
+) -> list[OrphanSatelliteAssetRecord]:
+    paths = data_paths(settings)
+    sql_asset_paths = _existing_satellite_asset_paths(session, settings=settings)
+    checksum_paths = _png_paths_by_checksum(paths.data)
+    records = []
+    for path in sorted(paths.data.rglob("*.png")):
+        resolved = path.resolve()
+        if str(resolved) in sql_asset_paths:
+            continue
+        relative = path.relative_to(paths.data).as_posix()
+        checksum = sha256_file(path)
+        parsed = _parse_satellite_preview_path(relative)
+        observation_rows = _matching_satellite_observations(session, parsed)
+        asset_ids = _matching_satellite_asset_ids(session, observation_rows, parsed.get("asset_type"))
+        source_artifact_ids = _matching_source_artifact_ids(session, relative_path=relative, checksum=checksum)
+        duplicate_paths = sorted(item for item in checksum_paths.get(checksum, []) if item != relative)
+        classification, destination, ambiguity = _classify_orphan_satellite_asset(
+            parsed=parsed,
+            observation_rows=observation_rows,
+            asset_ids=asset_ids,
+            source_artifact_ids=source_artifact_ids,
+            duplicate_paths=duplicate_paths,
+        )
+        records.append(
+            OrphanSatelliteAssetRecord(
+                relative_path=relative,
+                filename=path.name,
+                size_bytes=path.stat().st_size,
+                sha256=checksum,
+                modified_at_utc=datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat(),
+                name_pattern=parsed["pattern"],
+                probable_aoi_slug=parsed.get("aoi_slug"),
+                probable_acquisition_time=parsed.get("acquisition_time"),
+                probable_scene_id=parsed.get("scene_id"),
+                probable_asset_type=parsed.get("asset_type"),
+                probable_processing_version=parsed.get("processing_version"),
+                satellite_observation_ids=[row["id"] for row in observation_rows],
+                satellite_metric_count=sum(row["metric_count"] for row in observation_rows),
+                satellite_asset_ids=asset_ids,
+                source_artifact_ids=source_artifact_ids,
+                duplicate_paths=duplicate_paths,
+                canonical_duplicate_path=min([relative, *duplicate_paths]) if duplicate_paths else None,
+                regenerable="conditional: requires Copernicus availability, AOI geometry and processing version",
+                scientific_or_operational_value=(
+                    "visual preview for inspection; SQL metrics remain authoritative for analysis"
+                ),
+                proposed_classification=classification,
+                proposed_destination=destination,
+                ambiguity=ambiguity,
+            )
+        )
+    return records
+
+
+def write_orphan_satellite_reconciliation(
+    records: list[OrphanSatelliteAssetRecord],
+    *,
+    markdown_path: Path,
+    manifest_dir: Path,
+) -> Path:
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    manifest_path = manifest_dir / f"orphan-satellite-assets-{timestamp}.json"
+    payload = {
+        "schema_version": "argos-orphan-satellite-assets-v1",
+        "created_at_utc": datetime.now(UTC).isoformat(),
+        "summary": orphan_satellite_summary(records),
+        "records": [asdict(record) for record in records],
+    }
+    manifest_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# Orphan Satellite Assets Reconciliation",
+        "",
+        f"Date: {datetime.now(UTC).date().isoformat()}",
+        "",
+        f"JSON manifest: `{manifest_path.as_posix()}`.",
+        "",
+        "No orphan PNG was deleted. Recoverable rows are applied only with `--apply-recoverable`.",
+        "",
+        "## Summary",
+        "",
+        "| Classification | Files |",
+        "|---|---:|",
+    ]
+    summary = orphan_satellite_summary(records)
+    for key in ("recoverable_asset", "duplicate_file", "legacy_preview", "regenerable_cache", "unknown", "corrupt", "conflicting"):
+        lines.append(f"| `{key}` | {summary.get(key, 0)} |")
+    lines.extend(
+        [
+            "",
+            "## Files",
+            "",
+            "| Path | Scene | AOI | Asset type | Observations | Duplicates | Classification | Ambiguity |",
+            "|---|---|---|---|---|---:|---|---|",
+        ]
+    )
+    for record in records:
+        lines.append(
+            f"| `{record.relative_path}` | {record.probable_scene_id or '-'} | "
+            f"{record.probable_aoi_slug or '-'} | {record.probable_asset_type or '-'} | "
+            f"{','.join(str(item) for item in record.satellite_observation_ids) or '-'} | "
+            f"{len(record.duplicate_paths)} | `{record.proposed_classification}` | {record.ambiguity or '-'} |"
+        )
+    markdown_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return manifest_path
+
+
+def orphan_satellite_summary(records: list[OrphanSatelliteAssetRecord]) -> dict[str, int]:
+    summary = {key: 0 for key in ("recoverable_asset", "duplicate_file", "legacy_preview", "regenerable_cache", "unknown", "corrupt", "conflicting")}
+    for record in records:
+        summary[record.proposed_classification] = summary.get(record.proposed_classification, 0) + 1
+    summary["total"] = len(records)
+    summary["sql_rows_creatable"] = sum(1 for record in records if record.proposed_classification == "recoverable_asset")
+    summary["ambiguous"] = sum(1 for record in records if record.ambiguity)
+    return summary
+
+
+def apply_recoverable_orphan_satellite_assets(
+    *,
+    session: Session,
+    records: list[OrphanSatelliteAssetRecord],
+    settings: Settings | None = None,
+) -> int:
+    created = 0
+    for record in records:
+        if record.proposed_classification != "recoverable_asset":
+            continue
+        if len(record.satellite_observation_ids) != 1 or record.probable_asset_type is None:
+            continue
+        exists = session.scalar(
+            select(SatelliteAsset).where(
+                SatelliteAsset.observation_id == record.satellite_observation_ids[0],
+                SatelliteAsset.asset_type == record.probable_asset_type,
+            )
+        )
+        if exists is not None:
+            continue
+        path = data_paths(settings).data / record.relative_path
+        artifact = create_source_artifact(
+            session,
+            source_code="copernicus_sentinel2",
+            storage_path=path,
+            artifact_type=record.probable_asset_type,
+            role="derived_preview",
+            mime_type="image/png",
+            immutable=False,
+            regenerable=True,
+            original_filename=record.filename,
+            provider_external_id=record.probable_scene_id,
+            metadata_json={"origin": "legacy_reconciliation", "historical_path": record.relative_path},
+        )
+        artifact.storage_path = record.relative_path
+        session.add(
+            SatelliteAsset(
+                observation_id=record.satellite_observation_ids[0],
+                asset_type=record.probable_asset_type,
+                storage_path=record.relative_path,
+                mime_type="image/png",
+                checksum_sha256=record.sha256,
+                size_bytes=record.size_bytes,
+                source_artifact_id=artifact.id,
+            )
+        )
+        created += 1
+    session.commit()
+    return created
+
+
 def classify_relative_path(relative_path: str) -> str:
     parts = Path(relative_path).parts
     if parts and parts[0] in LAYOUT_CATEGORIES:
@@ -630,3 +829,162 @@ def _register_known_artifact(
             for asset in observation.assets:
                 if asset.storage_path == item.destination_path:
                     asset.source_artifact_id = artifact.id
+
+
+def _existing_satellite_asset_paths(session: Session, *, settings: Settings | None) -> set[str]:
+    root = data_paths(settings).data
+    paths = set()
+    for storage_path in session.scalars(select(SatelliteAsset.storage_path)).all():
+        raw = Path(storage_path)
+        candidates = [raw]
+        if not raw.is_absolute():
+            candidates.extend([root / raw, Path.cwd() / raw])
+        for candidate in candidates:
+            try:
+                paths.add(str(candidate.resolve()))
+            except OSError:
+                paths.add(str(candidate))
+    return paths
+
+
+def _png_paths_by_checksum(root: Path) -> dict[str, list[str]]:
+    by_checksum: dict[str, list[str]] = {}
+    if not root.exists():
+        return by_checksum
+    for path in sorted(root.rglob("*.png")):
+        checksum = sha256_file(path)
+        by_checksum.setdefault(checksum, []).append(path.relative_to(root).as_posix())
+    return by_checksum
+
+
+def _parse_satellite_preview_path(relative_path: str) -> dict[str, str | None]:
+    parts = Path(relative_path).parts
+    result: dict[str, str | None] = {
+        "pattern": "unknown",
+        "aoi_slug": None,
+        "scene_id": None,
+        "asset_type": None,
+        "acquisition_time": None,
+        "processing_version": None,
+    }
+    if not relative_path.lower().endswith(".png"):
+        return result | {"pattern": "non_png"}
+    filename = Path(relative_path).name
+    if filename.endswith("_preview_rgb_png.png"):
+        result["asset_type"] = "preview_rgb_png"
+    elif filename.endswith("_preview_ndvi_png.png"):
+        result["asset_type"] = "preview_ndvi_png"
+    if len(filename) >= 16:
+        try:
+            result["acquisition_time"] = datetime.strptime(filename[:16], "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC).isoformat()
+        except ValueError:
+            pass
+    for part in parts:
+        if part.startswith("S2") and part.endswith(".SAFE"):
+            result["scene_id"] = part
+            pieces = part.split("_")
+            result["processing_version"] = next((piece for piece in pieces if piece.startswith("N")), None)
+            break
+    if len(parts) >= 4 and parts[0] in {"satellite", "processed"}:
+        if parts[0] == "satellite" and parts[2] == "sentinel-2-l2a":
+            result["aoi_slug"] = parts[1]
+            result["pattern"] = "aoi_scoped_preview"
+        elif parts[0] == "satellite" and parts[1] == "sentinel-2-l2a":
+            result["pattern"] = "legacy_unscoped_preview"
+        elif parts[0] == "processed" and len(parts) >= 5 and parts[1] == "satellite":
+            result["aoi_slug"] = parts[2]
+            result["pattern"] = "processed_aoi_scoped_preview"
+    return result
+
+
+def _matching_satellite_observations(session: Session, parsed: dict[str, str | None]) -> list[dict[str, Any]]:
+    scene_id = parsed.get("scene_id")
+    if not scene_id:
+        return []
+    statement = (
+        select(
+            SatelliteObservation.id,
+            SatelliteObservation.external_item_id,
+            SatelliteObservation.processing_version,
+            SatelliteObservation.zone_id,
+            SatelliteObservation.acquisition_time,
+        )
+        .where(SatelliteObservation.external_item_id == scene_id)
+        .order_by(SatelliteObservation.id)
+    )
+    rows = []
+    for observation_id, external_item_id, processing_version, zone_id, acquisition_time in session.execute(statement):
+        if parsed.get("aoi_slug"):
+            zone_slug = session.scalar(select(SatelliteZone.slug).where(SatelliteZone.id == zone_id))
+            if zone_slug != parsed["aoi_slug"]:
+                continue
+        metric_count = int(
+            session.scalar(
+                select(func.count()).select_from(SatelliteMetric).where(SatelliteMetric.observation_id == observation_id)
+            )
+            or 0
+        )
+        rows.append(
+            {
+                "id": observation_id,
+                "external_item_id": external_item_id,
+                "processing_version": processing_version,
+                "zone_id": zone_id,
+                "acquisition_time": acquisition_time,
+                "metric_count": metric_count,
+            }
+        )
+    return rows
+
+
+def _matching_satellite_asset_ids(
+    session: Session,
+    observation_rows: list[dict[str, Any]],
+    asset_type: str | None,
+) -> list[int]:
+    if not observation_rows or asset_type is None:
+        return []
+    observation_ids = [row["id"] for row in observation_rows]
+    return list(
+        session.scalars(
+            select(SatelliteAsset.id).where(
+                SatelliteAsset.observation_id.in_(observation_ids),
+                SatelliteAsset.asset_type == asset_type,
+            )
+        ).all()
+    )
+
+
+def _matching_source_artifact_ids(session: Session, *, relative_path: str, checksum: str) -> list[int]:
+    return list(
+        session.scalars(
+            select(SourceArtifact.id).where(
+                (SourceArtifact.storage_path == relative_path) | (SourceArtifact.sha256 == checksum)
+            )
+        ).all()
+    )
+
+
+def _classify_orphan_satellite_asset(
+    *,
+    parsed: dict[str, str | None],
+    observation_rows: list[dict[str, Any]],
+    asset_ids: list[int],
+    source_artifact_ids: list[int],
+    duplicate_paths: list[str],
+) -> tuple[str, str, str | None]:
+    if parsed["pattern"] == "unknown" or parsed.get("asset_type") is None:
+        return "unknown", "quarantine/satellite/unknown", "unrecognized satellite preview filename"
+    if len(observation_rows) == 1 and not asset_ids:
+        return "recoverable_asset", "processed/satellite", None
+    if len(observation_rows) > 1 and not parsed.get("aoi_slug"):
+        return "legacy_preview", "legacy/satellite", "scene matches multiple AOIs and path has no AOI"
+    if asset_ids and duplicate_paths:
+        return "duplicate_file", "legacy/satellite", None
+    if source_artifact_ids and duplicate_paths:
+        return "duplicate_file", "legacy/satellite", None
+    if observation_rows:
+        return "legacy_preview", "legacy/satellite", "observation exists but asset association is not safely recoverable"
+    if duplicate_paths:
+        return "duplicate_file", "legacy/satellite", None
+    return "legacy_preview", "legacy/satellite", "no matching observation"

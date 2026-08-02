@@ -156,6 +156,17 @@ argos data audit-staging
 
 Neither command deletes files in the current phase.
 
+## Windows Scheduling
+
+Daily Windows scheduling is documented in `docs/operations/windows-backup-scheduling.md` and implemented by:
+
+```powershell
+.\scripts\run_argos_backup.ps1
+.\scripts\register_backup_task.ps1
+```
+
+Do not register the scheduled task until the backup destination and mirror location are confirmed.
+
 ## Monthly Restore Drill
 
 Once per month:

@@ -14,10 +14,14 @@ from argos.services.argos_node_flowmeter import ArgosNodeStatusError, run_flowme
 from argos.services.aemet_import import AemetImportRangeError, AemetImportService
 from argos.services.data_layout import (
     apply_migration_plan,
+    apply_recoverable_orphan_satellite_assets,
     audit_staging,
     build_data_inventory,
     build_migration_plan,
+    orphan_satellite_summary,
     retention_report,
+    reconcile_orphan_satellite_assets,
+    write_orphan_satellite_reconciliation,
     write_inventory_manifest,
     write_inventory_markdown,
     write_weather_reconciliation,
@@ -180,6 +184,14 @@ def build_parser() -> argparse.ArgumentParser:
     retention_parser.add_argument("--limit", type=int, default=200)
     staging_parser = data_subparsers.add_parser("audit-staging", help="Audit staging files; deletes nothing.")
     staging_parser.add_argument("--older-than-hours", type=int, default=24)
+    orphan_sat_parser = data_subparsers.add_parser(
+        "reconcile-orphan-satellite-assets",
+        help="Analyze satellite PNG files not referenced by satellite_assets.",
+    )
+    orphan_sat_parser.add_argument("--dry-run", action="store_true", default=True)
+    orphan_sat_parser.add_argument("--apply-recoverable", action="store_true")
+    orphan_sat_parser.add_argument("--classify-only", action="store_true")
+    orphan_sat_parser.add_argument("--output-json", type=Path, default=None)
 
     return parser
 
@@ -517,6 +529,36 @@ def run_data(args: argparse.Namespace) -> None:
         if issues:
             raise SystemExit(1)
         print("OK staging: issues=0")
+        return
+    if args.data_command == "reconcile-orphan-satellite-assets":
+        with get_sessionmaker()() as session:
+            records = reconcile_orphan_satellite_assets(session=session)
+            output_json = args.output_json.parent if args.output_json else Path("var/manifests")
+            manifest = write_orphan_satellite_reconciliation(
+                records,
+                markdown_path=Path("docs/audits/orphan-satellite-assets-reconciliation.md"),
+                manifest_dir=output_json,
+            )
+            if args.output_json and args.output_json != manifest:
+                args.output_json.write_text(manifest.read_text(encoding="utf-8"), encoding="utf-8")
+                manifest = args.output_json
+            summary = orphan_satellite_summary(records)
+            print(f"Total analyzed: {summary['total']}")
+            print(f"Recoverable: {summary['recoverable_asset']}")
+            print(f"Duplicates: {summary['duplicate_file']}")
+            print(f"Legacy: {summary['legacy_preview']}")
+            print(f"Cache: {summary['regenerable_cache']}")
+            print(f"Unknown: {summary['unknown']}")
+            print(f"Corrupt: {summary['corrupt']}")
+            print(f"Conflicts: {summary['conflicting']}")
+            print(f"SQL rows creatable: {summary['sql_rows_creatable']}")
+            print(f"Ambiguities: {summary['ambiguous']}")
+            print(f"Manifest: {manifest}")
+            if args.apply_recoverable:
+                created = apply_recoverable_orphan_satellite_assets(session=session, records=records)
+                print(f"SQL rows created: {created}")
+            else:
+                print("Dry run only. Pass --apply-recoverable to create recoverable SQL rows.")
         return
     fail("Unknown data command.")
 

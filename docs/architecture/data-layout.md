@@ -87,3 +87,9 @@ The command is idempotent and resumable. It writes manifests and logs under `var
 - Full apply was validated on `.pytest-tmp/layout-copy/data` with a restored DB copy.
 - Copy validation result: 4,727 planned/applied moves, 0 conflicts, 0 source artifact audit issues, 0 missing satellite asset files, 0 size mismatches, 3,067 satellite assets linked to artifacts.
 - Copy validation found 1,534 processed satellite PNG files not referenced by `satellite_assets`; they remain preserved as orphan candidates for manual review.
+
+## Phase 5 Orphan Policy
+
+Unscoped legacy satellite previews under `data/satellite/sentinel-2-l2a/...` are not automatically attached to SQL when the same scene exists for multiple AOIs. The association lacks a zone signal, so these files are classified as `legacy_preview` unless a later manual review supplies stronger evidence.
+
+`argos data reconcile-orphan-satellite-assets` writes a reproducible JSON manifest and markdown report. `--apply-recoverable` creates only unambiguous missing `satellite_assets` rows and corresponding `source_artifacts`; it does not create observations, overwrite existing assets, move files or delete anything.

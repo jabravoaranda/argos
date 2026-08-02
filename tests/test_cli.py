@@ -132,6 +132,7 @@ def test_build_parser_accepts_ingestion_traceability_data_commands() -> None:
     layout = parser.parse_args(["data", "migrate-layout", "--apply"])
     retention = parser.parse_args(["data", "retention-report", "--limit", "10"])
     staging = parser.parse_args(["data", "audit-staging", "--older-than-hours", "12"])
+    orphans = parser.parse_args(["data", "reconcile-orphan-satellite-assets", "--apply-recoverable"])
 
     assert list_runs.data_command == "list-ingestion-runs"
     assert list_runs.source == "aemet_api"
@@ -147,6 +148,7 @@ def test_build_parser_accepts_ingestion_traceability_data_commands() -> None:
     assert layout.apply
     assert retention.limit == 10
     assert staging.older_than_hours == 12
+    assert orphans.apply_recoverable
 
 
 def test_format_ecowitt_status_outputs_operator_summary() -> None:

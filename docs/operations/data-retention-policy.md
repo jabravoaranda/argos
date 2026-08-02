@@ -34,3 +34,7 @@ A future cleanup command may delete only files that are all of:
 - represented in a current manifest.
 
 Deletion still requires a separate implementation and operator approval.
+
+## Phase 5 Status
+
+Satellite orphan PNGs are classified before layout application. `legacy_preview`, `unknown`, `corrupt` and `conflicting` files are preserved. Physical duplicate files are reported by SHA-256 only; no destructive deduplication is implemented.

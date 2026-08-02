@@ -12,12 +12,14 @@ from argos.database.base import Base
 from argos.models.ingestion import SourceArtifact
 from argos.models.satellite import SatelliteAsset, SatelliteObservation, SatelliteSource, SatelliteZone
 from argos.services.data_layout import (
+    apply_recoverable_orphan_satellite_assets,
     apply_migration_plan,
     audit_staging,
     build_data_inventory,
     build_migration_plan,
     data_paths,
     retention_report,
+    reconcile_orphan_satellite_assets,
     safe_data_path,
 )
 
@@ -161,6 +163,89 @@ def test_audit_staging_reports_unregistered_empty_file(tmp_path) -> None:
     assert {issue.issue for issue in issues} >= {"unregistered_file", "partial_or_empty_file"}
 
 
+def test_orphan_satellite_unscoped_scene_is_legacy_when_ambiguous(tmp_path) -> None:
+    settings = make_settings(tmp_path)
+    data_root = data_paths(settings).data
+    orphan = (
+        data_root
+        / "satellite"
+        / "sentinel-2-l2a"
+        / "S2A_MSIL2A_20200104T110441_N0500_R094_T30SUF_20230504T190034.SAFE"
+        / "20200104T111102Z_preview_rgb_png.png"
+    )
+    orphan.parent.mkdir(parents=True)
+    orphan.write_bytes(b"png")
+
+    with in_memory_session() as session:
+        create_satellite_observation(
+            session,
+            zone_slug="north",
+            external_item_id="S2A_MSIL2A_20200104T110441_N0500_R094_T30SUF_20230504T190034.SAFE",
+        )
+        create_satellite_observation(
+            session,
+            zone_slug="south",
+            external_item_id="S2A_MSIL2A_20200104T110441_N0500_R094_T30SUF_20230504T190034.SAFE",
+        )
+        session.commit()
+        records = reconcile_orphan_satellite_assets(session=session, settings=settings)
+        created = apply_recoverable_orphan_satellite_assets(session=session, records=records, settings=settings)
+
+    assert records[0].proposed_classification == "legacy_preview"
+    assert records[0].ambiguity == "scene matches multiple AOIs and path has no AOI"
+    assert created == 0
+
+
+def test_orphan_satellite_recoverable_asset_creates_sql_once(tmp_path) -> None:
+    settings = make_settings(tmp_path)
+    data_root = data_paths(settings).data
+    orphan = (
+        data_root
+        / "satellite"
+        / "north"
+        / "sentinel-2-l2a"
+        / "S2A_MSIL2A_20200104T110441_N0500_R094_T30SUF_20230504T190034.SAFE"
+        / "20200104T111102Z_preview_rgb_png.png"
+    )
+    orphan.parent.mkdir(parents=True)
+    orphan.write_bytes(b"png")
+
+    with in_memory_session() as session:
+        observation = create_satellite_observation(
+            session,
+            zone_slug="north",
+            external_item_id="S2A_MSIL2A_20200104T110441_N0500_R094_T30SUF_20230504T190034.SAFE",
+        )
+        observation_id = observation.id
+        session.commit()
+        records = reconcile_orphan_satellite_assets(session=session, settings=settings)
+        created = apply_recoverable_orphan_satellite_assets(session=session, records=records, settings=settings)
+        second = apply_recoverable_orphan_satellite_assets(session=session, records=records, settings=settings)
+        asset = session.scalar(select(SatelliteAsset))
+
+    assert records[0].proposed_classification == "recoverable_asset"
+    assert created == 1
+    assert second == 0
+    assert asset is not None
+    assert asset.observation_id == observation_id
+
+
+def test_orphan_satellite_duplicate_file_uses_checksum(tmp_path) -> None:
+    settings = make_settings(tmp_path)
+    data_root = data_paths(settings).data
+    first = data_root / "satellite" / "loose" / "a.png"
+    second = data_root / "satellite" / "loose" / "b.png"
+    first.parent.mkdir(parents=True)
+    first.write_bytes(b"same")
+    second.write_bytes(b"same")
+
+    with in_memory_session() as session:
+        records = reconcile_orphan_satellite_assets(session=session, settings=settings)
+
+    assert {record.proposed_classification for record in records} == {"unknown"}
+    assert all(record.duplicate_paths for record in records)
+
+
 def test_settings_derive_layout_directories(tmp_path) -> None:
     settings = make_settings(tmp_path)
     paths = data_paths(settings)
@@ -169,15 +254,25 @@ def test_settings_derive_layout_directories(tmp_path) -> None:
     assert paths.processed == paths.data / "processed"
 
 
-def create_satellite_observation(session: Session) -> SatelliteObservation:
-    source = SatelliteSource(code="sentinel-2-l2a", name="Sentinel", provider="Copernicus", collection="c")
-    zone = SatelliteZone(slug="aoi", name="AOI", geometry_geojson={}, geometry_hash="hash")
-    session.add_all([source, zone])
+def create_satellite_observation(
+    session: Session,
+    *,
+    zone_slug: str = "aoi",
+    external_item_id: str = "item",
+) -> SatelliteObservation:
+    source = session.scalar(select(SatelliteSource).where(SatelliteSource.code == "sentinel-2-l2a"))
+    if source is None:
+        source = SatelliteSource(code="sentinel-2-l2a", name="Sentinel", provider="Copernicus", collection="c")
+        session.add(source)
+    zone = session.scalar(select(SatelliteZone).where(SatelliteZone.slug == zone_slug))
+    if zone is None:
+        zone = SatelliteZone(slug=zone_slug, name=zone_slug.upper(), geometry_geojson={}, geometry_hash=f"hash-{zone_slug}")
+        session.add(zone)
     session.flush()
     observation = SatelliteObservation(
         source_id=source.id,
         zone_id=zone.id,
-        external_item_id="item",
+        external_item_id=external_item_id,
         acquisition_time=datetime(2026, 1, 1, tzinfo=UTC),
         collection="c",
         quality_status="valid",
