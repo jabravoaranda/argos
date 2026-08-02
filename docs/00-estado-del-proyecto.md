@@ -5,7 +5,7 @@ Tipo: Fuente de verdad de estado
 Fuente de verdad: Este documento
 Ultima actualizacion: 2026-08-02
 Responsable logico: Mantenimiento de software
-Revision: 1
+Revision: 2
 
 ## Regla de mantenimiento
 
@@ -61,7 +61,7 @@ No se declara todavia:
 ## 3. Estado de despliegue
 
 - Rama observada: `codex/data-protection-phase-1`.
-- Commit observado: `926ecf2`.
+- Commit de consolidacion documental observado: `b884636`. Para el commit exacto del arbol desplegado, ejecutar `git rev-parse --short HEAD`.
 - Revision Alembic activa: `20260802_0023`.
 - Motor de base de datos: SQLite.
 - Base activa: `var/argos.db`.
