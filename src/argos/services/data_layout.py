@@ -885,15 +885,19 @@ def _parse_satellite_preview_path(relative_path: str) -> dict[str, str | None]:
             pieces = part.split("_")
             result["processing_version"] = next((piece for piece in pieces if piece.startswith("N")), None)
             break
-    if len(parts) >= 4 and parts[0] in {"satellite", "processed"}:
+    if len(parts) >= 4 and parts[0] in {"satellite", "processed", "legacy"}:
         if parts[0] == "satellite" and parts[2] == "sentinel-2-l2a":
             result["aoi_slug"] = parts[1]
             result["pattern"] = "aoi_scoped_preview"
         elif parts[0] == "satellite" and parts[1] == "sentinel-2-l2a":
             result["pattern"] = "legacy_unscoped_preview"
+        elif parts[0] == "processed" and len(parts) >= 5 and parts[1] == "satellite" and parts[2] == "sentinel-2-l2a":
+            result["pattern"] = "processed_legacy_unscoped_preview"
         elif parts[0] == "processed" and len(parts) >= 5 and parts[1] == "satellite":
             result["aoi_slug"] = parts[2]
             result["pattern"] = "processed_aoi_scoped_preview"
+        elif parts[0] == "legacy" and len(parts) >= 5 and parts[1] == "satellite" and parts[2] == "sentinel-2-l2a":
+            result["pattern"] = "legacy_unscoped_preview"
     return result
 
 

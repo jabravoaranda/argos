@@ -119,7 +119,7 @@ Minimum data backup scope:
 
 Secrets from `.env` must be backed up separately and encrypted.
 
-If `data/satellite` or `data/processed/satellite` is omitted, SQL metrics remain available, but preview image endpoints may return missing files. If legacy `data/weather` or AEMET CSVs are omitted before reconciliation, local-only historical evidence may be lost.
+If `data/processed/satellite` is omitted, SQL metrics remain available, but preview image endpoints may return missing files. If `data/legacy` or `data/raw` is omitted, local-only historical evidence may be lost.
 
 ## Second Location Sync
 

@@ -23,10 +23,15 @@ Date: 2026-08-02
 - Active `var/argos.db` is at Alembic `20260802_0023`.
 - SQL integrity check is `ok`.
 - Duplicate and Ecowitt nullability audits are clean.
+- Real `data/` layout has been migrated.
+- Final file count remains 4,727: 1 `raw`, 3,067 `processed`, 1,659 `legacy`.
+- `satellite_assets` uses 3,067 `processed/%` paths and 0 old `satellite/%` paths.
+- 4,602 `source_artifacts` are present and audit clean.
+- Real migration report: `var/migration-reports/data-layout-real/summary-20260802T183446Z.md`.
 
 ## Pending Manual Review
 
 - 125 `data/weather` legacy files remain preserved.
-- 1,534 unscoped satellite PNGs require classification/review before any destructive deduplication.
+- 1,534 unscoped satellite PNGs are preserved under `data/legacy/satellite`; 1,522 are ambiguous legacy previews and 12 are physical duplicates by SHA-256.
 - No automatic file deletion is implemented.
 - Windows scheduled backup task is documented but must be registered explicitly by an operator.

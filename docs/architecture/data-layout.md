@@ -83,13 +83,15 @@ The command is idempotent and resumable. It writes manifests and logs under `var
 ## Current State
 
 - Traceability migrations are deployed on active `var/argos.db` at `20260802_0023`.
-- Physical migration of the real `data/` tree has not been applied.
+- Physical migration of the real `data/` tree has been applied.
 - Full apply was validated on `.pytest-tmp/layout-copy/data` with a restored DB copy.
 - Copy validation result: 4,727 planned/applied moves, 0 conflicts, 0 source artifact audit issues, 0 missing satellite asset files, 0 size mismatches, 3,067 satellite assets linked to artifacts.
-- Copy validation found 1,534 processed satellite PNG files not referenced by `satellite_assets`; they remain preserved as orphan candidates for manual review.
+- Real post-migration state: 4,727 files total, 1 raw AEMET CSV, 3,067 processed satellite previews referenced by SQL, and 1,659 legacy files.
+- The 1,534 unscoped satellite PNG files not referenced by `satellite_assets` were moved to `data/legacy/satellite` after checksum verification and remain preserved for manual review.
+- The real migration summary is `var/migration-reports/data-layout-real/summary-20260802T183446Z.md`.
 
 ## Phase 5 Orphan Policy
 
-Unscoped legacy satellite previews under `data/satellite/sentinel-2-l2a/...` are not automatically attached to SQL when the same scene exists for multiple AOIs. The association lacks a zone signal, so these files are classified as `legacy_preview` unless a later manual review supplies stronger evidence.
+Unscoped legacy satellite previews under `data/legacy/satellite/sentinel-2-l2a/...` are not automatically attached to SQL when the same scene exists for multiple AOIs. The association lacks a zone signal, so these files are classified as `legacy_preview` unless a later manual review supplies stronger evidence.
 
 `argos data reconcile-orphan-satellite-assets` writes a reproducible JSON manifest and markdown report. `--apply-recoverable` creates only unambiguous missing `satellite_assets` rows and corresponding `source_artifacts`; it does not create observations, overwrite existing assets, move files or delete anything.

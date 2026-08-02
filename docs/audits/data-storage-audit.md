@@ -232,7 +232,7 @@ Recommended classification:
 - Never in Git: `data/**`, `var/**`, `.env`, backups containing real data or secrets.
 - Retention policies needed: raw provider responses, satellite previews/cache, backups, temporary staging.
 
-Phase 4 adds inventory manifests, `data/weather` reconciliation, read-compatible support for old and new satellite asset paths, and a dry-run/apply migration command. The real `data/` tree has not been physically migrated; the apply path was validated on a full copy first.
+Phase 4/5 added inventory manifests, `data/weather` reconciliation, read-compatible support for old and new satellite asset paths, orphan satellite reconciliation and a dry-run/apply migration command. The real `data/` tree has been physically migrated after a verified backup and dry-run.
 
 ## 10. Target Architecture
 
