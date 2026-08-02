@@ -7,7 +7,7 @@ import os
 import shutil
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -70,7 +70,7 @@ def create_sqlite_backup(
     if not source_path.exists():
         raise SqliteBackupError(f"SQLite database does not exist: {source_path}")
     backup_dir.mkdir(parents=True, exist_ok=True)
-    created_at = (timestamp or datetime.now(UTC)).astimezone(UTC)
+    created_at = (timestamp or datetime.now(timezone.utc)).astimezone(timezone.utc)
     backup_path = _next_backup_path(backup_dir, created_at)
     manifest_path = backup_path.with_suffix(backup_path.suffix + ".manifest.json")
 
