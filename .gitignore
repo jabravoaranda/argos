@@ -56,6 +56,11 @@ cover/
 data/
 logs/
 
+# Local exported bundles
+*.rar
+*.zip
+*.7z
+
 # Translations
 *.mo
 *.pot

@@ -21,6 +21,8 @@ from argos.services.data_layout import (
     retention_report,
     reconcile_orphan_satellite_assets,
     safe_data_path,
+    write_inventory_markdown,
+    write_orphan_satellite_reconciliation,
 )
 
 
@@ -41,6 +43,26 @@ def test_inventory_classifies_files_and_records_checksums(tmp_path) -> None:
     assert by_path["weather/raw/legacy.json"].proposed_classification == "legacy"
     assert by_path["satellite/aoi/preview.png"].proposed_classification == "processed"
     assert by_path["satellite/aoi/preview.png"].sha256
+
+
+def test_inventory_markdown_is_bounded_and_links_manifest(tmp_path) -> None:
+    settings = make_settings(tmp_path)
+    data_root = data_paths(settings).data
+    for index in range(3):
+        path = data_root / "weather" / f"legacy-{index}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+
+    records = build_data_inventory(settings=settings)
+    markdown_path = tmp_path / "inventory.md"
+    manifest_path = tmp_path / "manifest.json"
+
+    write_inventory_markdown(records, output_path=markdown_path, manifest_path=manifest_path, detail_limit=2)
+
+    output = markdown_path.read_text(encoding="utf-8")
+    assert "Full JSON manifest" in output
+    assert "Showing 2 of 3 files" in output
+    assert "legacy-2.json" not in output
 
 
 def test_safe_data_path_rejects_traversal(tmp_path) -> None:
@@ -194,6 +216,25 @@ def test_orphan_satellite_unscoped_scene_is_legacy_when_ambiguous(tmp_path) -> N
     assert records[0].proposed_classification == "legacy_preview"
     assert records[0].ambiguity == "scene matches multiple AOIs and path has no AOI"
     assert created == 0
+
+
+def test_orphan_satellite_markdown_is_bounded(tmp_path) -> None:
+    settings = make_settings(tmp_path)
+    data_root = data_paths(settings).data
+    for index in range(101):
+        path = data_root / "satellite" / "loose" / f"{index}.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(str(index).encode("ascii"))
+
+    with in_memory_session() as session:
+        records = reconcile_orphan_satellite_assets(session=session, settings=settings)
+
+    markdown_path = tmp_path / "orphans.md"
+    write_orphan_satellite_reconciliation(records, markdown_path=markdown_path, manifest_dir=tmp_path)
+
+    output = markdown_path.read_text(encoding="utf-8")
+    assert "Showing 100 of 101 files" in output
+    assert output.count("| `satellite/loose/") == 100
 
 
 def test_orphan_satellite_recoverable_asset_creates_sql_once(tmp_path) -> None:

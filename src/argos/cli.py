@@ -448,7 +448,7 @@ def run_data(args: argparse.Namespace) -> None:
         with get_sessionmaker()() as session:
             records = build_data_inventory(session=session)
         manifest = write_inventory_manifest(records, manifest_dir=args.manifest_dir)
-        write_inventory_markdown(records, output_path=args.markdown)
+        write_inventory_markdown(records, output_path=args.markdown, manifest_path=manifest)
         print(f"Files inventoried: {len(records)}")
         print(f"Manifest: {manifest}")
         print(f"Markdown: {args.markdown}")

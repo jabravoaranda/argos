@@ -27,6 +27,7 @@ from argos.services.ingestion_trace import (
 
 LAYOUT_CATEGORIES = ("raw", "staging", "processed", "exports", "cache", "legacy", "quarantine")
 MANIFEST_SCHEMA_VERSION = "argos-data-inventory-v1"
+MARKDOWN_DETAIL_LIMIT = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,7 +210,13 @@ def write_inventory_manifest(records: list[FileInventoryRecord], *, manifest_dir
     return manifest_path
 
 
-def write_inventory_markdown(records: list[FileInventoryRecord], *, output_path: Path) -> None:
+def write_inventory_markdown(
+    records: list[FileInventoryRecord],
+    *,
+    output_path: Path,
+    manifest_path: Path | None = None,
+    detail_limit: int = MARKDOWN_DETAIL_LIMIT,
+) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = {}
     for record in records:
@@ -220,12 +227,10 @@ def write_inventory_markdown(records: list[FileInventoryRecord], *, output_path:
         f"Date: {datetime.now(UTC).date().isoformat()}",
         "",
         "No files were moved while generating this inventory.",
-        "",
-        "## Summary",
-        "",
-        "| Classification | Files |",
-        "|---|---:|",
     ]
+    if manifest_path is not None:
+        lines.extend(["", f"Full JSON manifest: `{manifest_path.as_posix()}`."])
+    lines.extend(["", "## Summary", "", "| Classification | Files |", "|---|---:|"])
     lines.extend(f"| `{key}` | {counts[key]} |" for key in sorted(counts))
     lines.extend(
         [
@@ -236,13 +241,16 @@ def write_inventory_markdown(records: list[FileInventoryRecord], *, output_path:
             "|---|---:|---|---|---|---|---|---|",
         ]
     )
-    for record in records:
+    for record in records[:detail_limit]:
         lines.append(
             "| "
             f"`{record.relative_path}` | {record.size_bytes} | {record.mime_type or '-'} | "
             f"`{record.sha256}` | {record.sql_reference or '-'} | "
             f"`{record.proposed_classification}` | {record.regenerable} | {record.proposed_decision} |"
         )
+    omitted = max(0, len(records) - detail_limit)
+    if omitted:
+        lines.extend(["", f"Showing {detail_limit} of {len(records)} files. See the JSON manifest for all rows."])
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -519,13 +527,16 @@ def write_orphan_satellite_reconciliation(
             "|---|---|---|---|---|---:|---|---|",
         ]
     )
-    for record in records:
+    for record in records[:MARKDOWN_DETAIL_LIMIT]:
         lines.append(
             f"| `{record.relative_path}` | {record.probable_scene_id or '-'} | "
             f"{record.probable_aoi_slug or '-'} | {record.probable_asset_type or '-'} | "
             f"{','.join(str(item) for item in record.satellite_observation_ids) or '-'} | "
             f"{len(record.duplicate_paths)} | `{record.proposed_classification}` | {record.ambiguity or '-'} |"
         )
+    omitted = max(0, len(records) - MARKDOWN_DETAIL_LIMIT)
+    if omitted:
+        lines.extend(["", f"Showing {MARKDOWN_DETAIL_LIMIT} of {len(records)} files. See the JSON manifest for all rows."])
     markdown_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return manifest_path
 
