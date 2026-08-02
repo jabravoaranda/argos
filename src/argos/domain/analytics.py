@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class AnalyticsVariable:
+    variable_id: str
+    source: str
+    label: str
+    unit: str
+    description: str
+    data_type: str
+    temporal_resolution: str
+    aggregation_supported: bool
+    valid_aggregations: tuple[str, ...]
+    database_mapping: str
+    zone_dimension: str | None = None
+    quality_field: str | None = None
+    enabled: bool = True
+
+
+CONTINUOUS_AGGREGATIONS = ("mean", "median", "min", "max", "std", "p05", "p25", "p75", "p95", "last")
+SUM_AGGREGATIONS = ("sum", "last")
+BINARY_AGGREGATIONS = ("active_fraction", "last")
+
+ANALYTICS_VARIABLES: tuple[AnalyticsVariable, ...] = (
+    AnalyticsVariable(
+        "ecowitt.outdoor_temperature",
+        "ecowitt",
+        "Temperatura Ecowitt",
+        "deg C",
+        "Temperatura exterior medida por Ecowitt.",
+        "continuous",
+        "irregular_minutely",
+        True,
+        CONTINUOUS_AGGREGATIONS,
+        "weather_observations.outdoor_temperature_c",
+    ),
+    AnalyticsVariable(
+        "ecowitt.relative_humidity",
+        "ecowitt",
+        "Humedad relativa Ecowitt",
+        "%",
+        "Humedad relativa exterior medida por Ecowitt.",
+        "continuous",
+        "irregular_minutely",
+        True,
+        CONTINUOUS_AGGREGATIONS,
+        "weather_observations.outdoor_humidity_pct",
+    ),
+    AnalyticsVariable(
+        "ecowitt.solar_radiation",
+        "ecowitt",
+        "Radiación solar Ecowitt",
+        "W/m2",
+        "Radiación solar medida por Ecowitt.",
+        "continuous",
+        "irregular_minutely",
+        True,
+        CONTINUOUS_AGGREGATIONS,
+        "weather_observations.solar_radiation_wm2",
+    ),
+    AnalyticsVariable(
+        "ecowitt.rain_rate",
+        "ecowitt",
+        "Lluvia actual Ecowitt",
+        "mm/h",
+        "Intensidad instantánea de lluvia Ecowitt.",
+        "continuous",
+        "irregular_minutely",
+        True,
+        CONTINUOUS_AGGREGATIONS,
+        "weather_observations.rain_rate_mm_h",
+    ),
+    AnalyticsVariable(
+        "ecowitt.wind_speed",
+        "ecowitt",
+        "Viento Ecowitt",
+        "m/s",
+        "Velocidad media de viento Ecowitt.",
+        "continuous",
+        "irregular_minutely",
+        True,
+        CONTINUOUS_AGGREGATIONS,
+        "weather_observations.wind_speed_ms",
+    ),
+    AnalyticsVariable(
+        "aemet.temperature_mean",
+        "aemet",
+        "Temperatura media AEMET",
+        "deg C",
+        "Temperatura media diaria AEMET.",
+        "continuous",
+        "daily",
+        True,
+        CONTINUOUS_AGGREGATIONS,
+        "weather_daily_observations.temperature_mean_c",
+    ),
+    AnalyticsVariable(
+        "aemet.precipitation",
+        "aemet",
+        "Precipitación AEMET",
+        "mm",
+        "Precipitación diaria acumulada AEMET.",
+        "continuous",
+        "daily",
+        True,
+        SUM_AGGREGATIONS,
+        "weather_daily_observations.precipitation_mm",
+        quality_field="quality_flag",
+    ),
+    AnalyticsVariable(
+        "aemet.wind_speed",
+        "aemet",
+        "Viento medio AEMET",
+        "m/s",
+        "Velocidad media diaria de viento AEMET.",
+        "continuous",
+        "daily",
+        True,
+        CONTINUOUS_AGGREGATIONS,
+        "weather_daily_observations.wind_speed_mean_ms",
+    ),
+    AnalyticsVariable(
+        "satellite.ndvi",
+        "satellite",
+        "NDVI",
+        "",
+        "Indice de vegetacion Sentinel-2.",
+        "continuous",
+        "irregular_satellite",
+        True,
+        ("mean", "median", "min", "max", "p25", "p75", "last"),
+        "satellite_metrics.ndvi.mean",
+        zone_dimension="aoi_slug",
+        quality_field="quality_status",
+    ),
+    AnalyticsVariable(
+        "satellite.ndmi",
+        "satellite",
+        "NDMI",
+        "",
+        "Indice Sentinel-2 asociado a contenido de agua de vegetacion.",
+        "continuous",
+        "irregular_satellite",
+        True,
+        ("mean", "median", "min", "max", "p25", "p75", "last"),
+        "satellite_metrics.ndmi.mean",
+        zone_dimension="aoi_slug",
+        quality_field="quality_status",
+    ),
+    AnalyticsVariable(
+        "satellite.valid_pixel_fraction",
+        "satellite",
+        "Fraccion valida satelite",
+        "",
+        "Fraccion de pixeles validos dentro del AOI.",
+        "continuous",
+        "irregular_satellite",
+        True,
+        CONTINUOUS_AGGREGATIONS,
+        "satellite_observations.valid_pixel_fraction",
+        zone_dimension="aoi_slug",
+        quality_field="quality_status",
+    ),
+    AnalyticsVariable(
+        "controller.flow_rate",
+        "controller",
+        "Caudal medio",
+        "L/min",
+        "Caudal medio minutal del caudalimetro.",
+        "continuous",
+        "minutely",
+        True,
+        CONTINUOUS_AGGREGATIONS,
+        "argos_node_flowmeter_minutes.avg_flow_l_min",
+    ),
+    AnalyticsVariable(
+        "controller.water_volume",
+        "controller",
+        "Volumen de agua",
+        "L",
+        "Volumen minutal calculado desde pulsos del caudalimetro.",
+        "continuous",
+        "minutely",
+        True,
+        SUM_AGGREGATIONS,
+        "argos_node_flowmeter_minutes.volume_l",
+    ),
+    AnalyticsVariable(
+        "controller.valve_state",
+        "controller",
+        "Estado EV",
+        "0/1",
+        "Estado binario de la electrovalvula 1.",
+        "binary",
+        "minutely",
+        True,
+        BINARY_AGGREGATIONS,
+        "argos_node_flowmeter_minutes.relay1_state_end",
+    ),
+)
+
+ANALYTICS_VARIABLE_BY_ID = {variable.variable_id: variable for variable in ANALYTICS_VARIABLES}

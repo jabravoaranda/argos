@@ -7,8 +7,10 @@ from typing import NoReturn
 
 from argos.config.settings import get_settings
 from argos.database.session import get_sessionmaker
+from argos.dashboard.argos_node_client import ArgosNodeClient, ArgosNodeError
 from argos.integrations.aemet.client import AemetClient, AemetConfigError
 from argos.integrations.ecowitt_cloud import DEFAULT_HISTORY_CALLBACKS, EcowittCloudClient, EcowittCloudConfigError
+from argos.services.argos_node_flowmeter import ArgosNodeStatusError, run_flowmeter_minute_capture
 from argos.services.aemet_import import AemetImportRangeError, AemetImportService
 from argos.services.ecowitt_backfill import BackfillRangeError, backfill_ecowitt_cloud_range
 from argos.services.ecowitt_status import EcowittStatus, build_ecowitt_status
@@ -29,6 +31,9 @@ def main() -> None:
         return
     if args.command == "aemet":
         run_aemet(args)
+        return
+    if args.command == "node":
+        run_node(args)
         return
     parser.print_help()
 
@@ -72,13 +77,15 @@ def build_parser() -> argparse.ArgumentParser:
     satellite_subparsers = satellite_parser.add_subparsers(dest="satellite_command")
     satellite_subparsers.add_parser("status", help="Report satellite module status.")
     satellite_backfill = satellite_subparsers.add_parser("backfill", help="Import Sentinel-2 history.")
-    satellite_backfill.add_argument("--zone", default=None, help="Satellite zone name. Defaults to full farm.")
+    satellite_backfill.add_argument("--aoi-slug", default=None, help="Configured AOI slug. Defaults to all AOIs.")
+    satellite_backfill.add_argument("--zone", default=None, help="Deprecated alias for --aoi-slug.")
     satellite_backfill.add_argument("--from", dest="start", default=None, type=parse_utc_datetime, help="UTC start datetime.")
     satellite_backfill.add_argument("--to", dest="end", default=None, type=parse_utc_datetime, help="UTC end datetime.")
     satellite_backfill.add_argument("--force", action="store_true", help="Reprocess existing observations.")
     satellite_backfill.add_argument("--dry-run", action="store_true", help="Search only; do not write observations.")
     satellite_update = satellite_subparsers.add_parser("update", help="Import new Sentinel-2 observations.")
-    satellite_update.add_argument("--zone", default=None, help="Satellite zone name. Defaults to full farm.")
+    satellite_update.add_argument("--aoi-slug", default=None, help="Configured AOI slug. Defaults to all AOIs.")
+    satellite_update.add_argument("--zone", default=None, help="Deprecated alias for --aoi-slug.")
     satellite_update.add_argument("--force", action="store_true", help="Reprocess existing observations.")
     satellite_update.add_argument("--dry-run", action="store_true", help="Search only; do not write observations.")
 
@@ -95,6 +102,20 @@ def build_parser() -> argparse.ArgumentParser:
     aemet_csv = aemet_subparsers.add_parser("import-csv", help="Import a local AEMET daily climatology CSV export.")
     aemet_csv.add_argument("--station", default=None, help="AEMET station id. Defaults to AEMET_STATION_ID.")
     aemet_csv.add_argument("--path", required=True, type=Path, help="Path to the AEMET CSV file.")
+
+    node_parser = subparsers.add_parser("node", help="argos-node capture utilities.")
+    node_subparsers = node_parser.add_subparsers(dest="node_command")
+    flowmeter_parser = node_subparsers.add_parser(
+        "capture-flowmeter-minutely",
+        help="Poll GET /status and persist one aggregated flowmeter row per UTC minute.",
+    )
+    flowmeter_parser.add_argument("--node-url", default=None, help="argos-node base URL. Defaults to ARGOS_NODE_URL.")
+    flowmeter_parser.add_argument(
+        "--poll-seconds",
+        default=None,
+        type=float,
+        help="Polling interval in seconds. Defaults to ARGOS_NODE_POLL_INTERVAL_SECONDS.",
+    )
 
     return parser
 
@@ -170,14 +191,14 @@ def run_satellite(args: argparse.Namespace) -> None:
             result = service.backfill(
                 start=args.start,
                 end=args.end,
-                zone_name=args.zone,
+                aoi_slug=args.aoi_slug or args.zone,
                 force=args.force,
                 dry_run=args.dry_run,
             )
             print_satellite_result(result)
             return
         if args.satellite_command == "update":
-            result = service.update(zone_name=args.zone, force=args.force, dry_run=args.dry_run)
+            result = service.update(aoi_slug=args.aoi_slug or args.zone, force=args.force, dry_run=args.dry_run)
             print_satellite_result(result)
             return
     fail("Unknown satellite command.")
@@ -225,8 +246,32 @@ def run_aemet(args: argparse.Namespace) -> None:
     fail("Unknown AEMET command.")
 
 
+def run_node(args: argparse.Namespace) -> None:
+    settings = get_settings()
+    if args.node_command != "capture-flowmeter-minutely":
+        fail("Unknown node command.")
+    node_url = args.node_url or settings.argos_node_url
+    if not node_url:
+        fail("Missing node URL. Pass --node-url or set ARGOS_NODE_URL.")
+    client = ArgosNodeClient(base_url=node_url, timeout_seconds=settings.argos_node_timeout_seconds)
+    poll_seconds = args.poll_seconds or settings.argos_node_poll_interval_seconds
+    print(f"Capturing flowmeter minutes from {node_url.rstrip('/')} every {poll_seconds:g}s. Press Ctrl+C to stop.")
+    try:
+        run_flowmeter_minute_capture(
+            session_factory=get_sessionmaker(),
+            client=client,
+            poll_interval_seconds=poll_seconds,
+            hydrological_year_reset_month=settings.argos_flowmeter_hydrological_year_reset_month,
+            hydrological_year_reset_day=settings.argos_flowmeter_hydrological_year_reset_day,
+        )
+    except KeyboardInterrupt:
+        print("Stopped flowmeter minute capture.")
+    except (ArgosNodeError, ArgosNodeStatusError) as exc:
+        raise SystemExit(str(exc)) from exc
+
+
 def format_satellite_status(status) -> list[str]:
-    return [
+    lines = [
         f"Status: {status.status}",
         f"Enabled: {'yes' if status.enabled else 'no'}",
         f"Configured: {'yes' if status.configured else 'no'}",
@@ -238,6 +283,9 @@ def format_satellite_status(status) -> list[str]:
         f"Observations: {status.observation_count}",
         f"Message: {status.message}",
     ]
+    for aoi in status.aois or []:
+        lines.append(f"AOI: {aoi.slug} · {aoi.name} · {aoi.geometry_hash} · {aoi.area_m2:.1f} m2")
+    return lines
 
 
 def print_satellite_result(result) -> None:

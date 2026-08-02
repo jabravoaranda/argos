@@ -1,6 +1,22 @@
 from __future__ import annotations
 
+from typing import Any
+
 from argos.dashboard.api_client import ArgosApiClient
+
+
+class FakeResponse:
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    def __enter__(self) -> "FakeResponse":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self.body
 
 
 def test_api_client_builds_urls_with_query_params() -> None:
@@ -51,11 +67,70 @@ def test_api_client_builds_satellite_export_urls() -> None:
                 "to": "2026-07-01T23:59:59Z",
                 "quality_status": "valid",
                 "zone_id": 1,
+                "aoi_slug": "olivos_pequenos",
                 "metric": "ndvi",
             },
         )
-        == "http://localhost:8080/api/v1/satellite/export.json?from=2026-06-01T00%3A00%3A00Z&to=2026-07-01T23%3A59%3A59Z&quality_status=valid&zone_id=1&metric=ndvi"
+        == "http://localhost:8080/api/v1/satellite/export.json?from=2026-06-01T00%3A00%3A00Z&to=2026-07-01T23%3A59%3A59Z&quality_status=valid&zone_id=1&aoi_slug=olivos_pequenos&metric=ndvi"
     )
+
+
+def test_api_client_builds_field_event_export_url() -> None:
+    client = ArgosApiClient(base_url="http://localhost:8080")
+
+    assert (
+        client.get_field_events_export_csv_url(
+            start="2026-07-01T00:00:00Z",
+            end="2026-08-01T23:59:59Z",
+            event_type="irrigation",
+            zone_slug="olivos_pequenos",
+            search="goteo",
+        )
+        == "http://localhost:8080/api/v1/field-events/export.csv?from=2026-07-01T00%3A00%3A00Z&to=2026-08-01T23%3A59%3A59Z&event_type=irrigation&zone_slug=olivos_pequenos&search=goteo"
+    )
+
+
+def test_api_client_sends_field_event_json(monkeypatch) -> None:
+    requests: list[Any] = []
+
+    def fake_urlopen(request: Any, timeout: int) -> FakeResponse:
+        requests.append((request, timeout))
+        return FakeResponse(b'{"id": 1, "title": "Riego"}')
+
+    monkeypatch.setattr("argos.dashboard.api_client.urlopen", fake_urlopen)
+    client = ArgosApiClient(base_url="http://localhost:8080", admin_token="admin", timeout_seconds=3)
+
+    result = client.create_field_event({"title": "Riego"})
+
+    request, timeout = requests[0]
+    assert result["id"] == 1
+    assert request.full_url == "http://localhost:8080/api/v1/field-events"
+    assert request.get_method() == "POST"
+    assert request.data == b'{"title": "Riego"}'
+    assert request.headers["Content-type"] == "application/json"
+    assert request.headers["X-argos-admin-token"] == "admin"
+    assert timeout == 3
+
+
+def test_api_client_sends_analytics_json(monkeypatch) -> None:
+    requests: list[Any] = []
+
+    def fake_urlopen(request: Any, timeout: int) -> FakeResponse:
+        requests.append((request, timeout))
+        return FakeResponse(b'{"correlation": 1.0}')
+
+    monkeypatch.setattr("argos.dashboard.api_client.urlopen", fake_urlopen)
+    client = ArgosApiClient(base_url="http://localhost:8080", timeout_seconds=4)
+
+    result = client.analytics_correlation({"variable_x": "ecowitt.outdoor_temperature"})
+
+    request, timeout = requests[0]
+    assert result["correlation"] == 1.0
+    assert request.full_url == "http://localhost:8080/api/v1/analytics/correlation"
+    assert request.get_method() == "POST"
+    assert request.data == b'{"variable_x": "ecowitt.outdoor_temperature"}'
+    assert request.headers["Content-type"] == "application/json"
+    assert timeout == 4
 
 
 def test_api_client_requires_admin_token_for_admin_endpoints() -> None:
@@ -85,6 +160,17 @@ def test_api_client_requires_admin_token_for_satellite_updates() -> None:
 
     try:
         client.update_satellite()
+    except RuntimeError as exc:
+        assert "Admin token is required" in str(exc)
+    else:
+        raise AssertionError("Expected missing admin token error.")
+
+
+def test_api_client_requires_admin_token_for_field_event_writes() -> None:
+    client = ArgosApiClient(base_url="http://localhost:8080")
+
+    try:
+        client.create_field_event({"title": "Riego"})
     except RuntimeError as exc:
         assert "Admin token is required" in str(exc)
     else:

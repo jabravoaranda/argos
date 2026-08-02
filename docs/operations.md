@@ -54,13 +54,13 @@ uv run argos ecowitt status
 Admin endpoints require:
 
 ```text
-X-ARGOS-ADMIN-TOKEN: <ECOWITT_INGEST_TOKEN>
+X-ARGOS-ADMIN-TOKEN: <ARGOS_ADMIN_TOKEN>
 ```
 
 Examples:
 
 ```powershell
-$headers = @{ "X-ARGOS-ADMIN-TOKEN" = $env:ECOWITT_INGEST_TOKEN }
+$headers = @{ "X-ARGOS-ADMIN-TOKEN" = $env:ARGOS_ADMIN_TOKEN }
 
 Invoke-RestMethod http://127.0.0.1:8080/api/v1/weather/admin/raw-reports?limit=3 -Headers $headers
 Invoke-RestMethod http://127.0.0.1:8080/api/v1/weather/admin/events?limit=10 -Headers $headers
@@ -73,7 +73,7 @@ Raw reports are preserved complete in the database for scientific traceability. 
 ## Recompute Statistics
 
 ```powershell
-$headers = @{ "X-ARGOS-ADMIN-TOKEN" = $env:ECOWITT_INGEST_TOKEN }
+$headers = @{ "X-ARGOS-ADMIN-TOKEN" = $env:ARGOS_ADMIN_TOKEN }
 
 Invoke-RestMethod `
   -Method Post `

@@ -16,6 +16,7 @@ from argos.models.ecowitt import DailyStatistic, WeeklyStatistic
 def test_weather_latest_observations_and_gateway_status(monkeypatch, tmp_path) -> None:
     db_url = f"sqlite:///{tmp_path / 'argos.db'}"
     monkeypatch.setenv("ECOWITT_INGEST_TOKEN", "test-token")
+    monkeypatch.setenv("ARGOS_ADMIN_TOKEN", "test-admin-token")
     monkeypatch.setenv("DATABASE_URL", db_url)
     monkeypatch.setenv("ECOWITT_OFFLINE_AFTER_SECONDS", "180")
     get_settings.cache_clear()
@@ -138,10 +139,17 @@ def test_weather_daily_and_weekly_summaries(monkeypatch, tmp_path) -> None:
         assert len(session.scalars(select(DailyStatistic)).all()) == 1
         assert len(session.scalars(select(WeeklyStatistic)).all()) == 1
 
-    recompute_response = client.post(
+    wrong_admin_response = client.post(
         "/api/v1/weather/statistics/recompute",
         params={"from": "2026-07-01T00:00:00Z", "to": "2026-07-31T23:59:59Z"},
         headers={"X-ARGOS-ADMIN-TOKEN": "test-token"},
+    )
+    assert wrong_admin_response.status_code == 403
+
+    recompute_response = client.post(
+        "/api/v1/weather/statistics/recompute",
+        params={"from": "2026-07-01T00:00:00Z", "to": "2026-07-31T23:59:59Z"},
+        headers={"X-ARGOS-ADMIN-TOKEN": "test-admin-token"},
     )
     assert recompute_response.status_code == 200
     assert recompute_response.json() == {"daily_count": 1, "weekly_count": 1}
@@ -157,6 +165,7 @@ def test_weather_daily_and_weekly_summaries(monkeypatch, tmp_path) -> None:
 def test_weather_admin_endpoints_and_gap_detection(monkeypatch, tmp_path) -> None:
     db_url = f"sqlite:///{tmp_path / 'argos.db'}"
     monkeypatch.setenv("ECOWITT_INGEST_TOKEN", "test-token")
+    monkeypatch.setenv("ARGOS_ADMIN_TOKEN", "test-admin-token")
     monkeypatch.setenv("DATABASE_URL", db_url)
     monkeypatch.setenv("ECOWITT_EXPECTED_INTERVAL_SECONDS", "60")
     get_settings.cache_clear()
@@ -180,7 +189,7 @@ def test_weather_admin_endpoints_and_gap_detection(monkeypatch, tmp_path) -> Non
 
     assert client.get("/api/v1/weather/admin/data-gaps").status_code == 403
 
-    admin_headers = {"X-ARGOS-ADMIN-TOKEN": "test-token"}
+    admin_headers = {"X-ARGOS-ADMIN-TOKEN": "test-admin-token"}
     gaps = client.get("/api/v1/weather/admin/data-gaps", headers=admin_headers).json()
     assert len(gaps) == 1
     assert gaps[0]["expected_reports"] == 4

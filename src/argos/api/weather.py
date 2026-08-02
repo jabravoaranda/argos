@@ -42,7 +42,7 @@ def require_admin_token(
     x_argos_admin_token: str | None = Header(default=None),
     settings: Settings = Depends(get_settings),
 ) -> None:
-    if x_argos_admin_token is None or not hmac.compare_digest(x_argos_admin_token, settings.ecowitt_ingest_token):
+    if x_argos_admin_token is None or not hmac.compare_digest(x_argos_admin_token, settings.argos_admin_token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid admin token.")
 
 

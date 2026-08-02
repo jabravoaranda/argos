@@ -157,6 +157,7 @@ class FakeAemetClient:
 def test_aemet_service_upserts_duplicates_corrections_empty_range_and_idempotency(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'argos.db'}")
     monkeypatch.setenv("ECOWITT_INGEST_TOKEN", "test-token")
+    monkeypatch.setenv("ARGOS_ADMIN_TOKEN", "test-admin-token")
     get_settings.cache_clear()
     reset_database_caches()
     Base.metadata.create_all(get_engine())
@@ -225,7 +226,7 @@ def test_aemet_admin_sync_endpoint_imports_data(monkeypatch, tmp_path) -> None:
     response = client.post(
         "/api/v1/weather/aemet/backfill",
         params={"station": "6127X", "from": "2026-07-01", "to": "2026-07-01"},
-        headers={"X-ARGOS-ADMIN-TOKEN": "test-token"},
+        headers={"X-ARGOS-ADMIN-TOKEN": "test-admin-token"},
     )
 
     assert response.status_code == 200
@@ -241,6 +242,7 @@ def test_aemet_admin_sync_endpoint_imports_data(monkeypatch, tmp_path) -> None:
 def test_aemet_observations_accept_long_dashboard_range(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'argos.db'}")
     monkeypatch.setenv("ECOWITT_INGEST_TOKEN", "test-token")
+    monkeypatch.setenv("ARGOS_ADMIN_TOKEN", "test-admin-token")
     get_settings.cache_clear()
     reset_database_caches()
     Base.metadata.create_all(get_engine())
@@ -283,7 +285,7 @@ def test_aemet_admin_csv_endpoint_imports_data(monkeypatch, tmp_path) -> None:
     response = client.post(
         "/api/v1/weather/aemet/import-csv",
         params={"station": "6127X", "path": str(csv_path)},
-        headers={"X-ARGOS-ADMIN-TOKEN": "test-token"},
+        headers={"X-ARGOS-ADMIN-TOKEN": "test-admin-token"},
     )
 
     assert response.status_code == 200

@@ -57,8 +57,8 @@ class ArgosApiClient:
     def get_satellite_status(self) -> dict[str, Any]:
         return self._get_json("/api/v1/satellite/status")
 
-    def get_satellite_latest(self) -> dict[str, Any] | None:
-        return self._get_json("/api/v1/satellite/latest")
+    def get_satellite_latest(self, *, aoi_slug: str | None = None) -> dict[str, Any] | None:
+        return self._get_json("/api/v1/satellite/latest", params={"aoi_slug": aoi_slug})
 
     def get_satellite_zones(self) -> list[dict[str, Any]]:
         return self._get_json("/api/v1/satellite/zones")
@@ -68,10 +68,11 @@ class ArgosApiClient:
         *,
         quality_status: str | None = None,
         zone_id: int | None = None,
+        aoi_slug: str | None = None,
     ) -> dict[str, Any]:
         return self._get_json(
             "/api/v1/satellite/bounds",
-            params={"quality_status": quality_status, "zone_id": zone_id},
+            params={"quality_status": quality_status, "zone_id": zone_id, "aoi_slug": aoi_slug},
         )
 
     def get_satellite_observations(
@@ -81,10 +82,11 @@ class ArgosApiClient:
         end: str | None,
         quality_status: str | None = None,
         zone_id: int | None = None,
+        aoi_slug: str | None = None,
     ) -> list[dict[str, Any]]:
         return self._get_json(
             "/api/v1/satellite/observations",
-            params={"from": start, "to": end, "quality_status": quality_status, "zone_id": zone_id},
+            params={"from": start, "to": end, "quality_status": quality_status, "zone_id": zone_id, "aoi_slug": aoi_slug},
         )
 
     def get_satellite_timeseries(
@@ -94,10 +96,11 @@ class ArgosApiClient:
         start: str | None,
         end: str | None,
         quality_status: str | None = None,
+        aoi_slug: str | None = None,
     ) -> dict[str, Any]:
         return self._get_json(
             "/api/v1/satellite/timeseries",
-            params={"metric": metric, "from": start, "to": end, "quality_status": quality_status},
+            params={"metric": metric, "from": start, "to": end, "quality_status": quality_status, "aoi_slug": aoi_slug},
         )
 
     def get_satellite_export_json(
@@ -107,6 +110,7 @@ class ArgosApiClient:
         end: str | None,
         quality_status: str | None = None,
         zone_id: int | None = None,
+        aoi_slug: str | None = None,
         metric: str | None = None,
     ) -> list[dict[str, Any]]:
         return self._get_json(
@@ -116,15 +120,23 @@ class ArgosApiClient:
                 "to": end,
                 "quality_status": quality_status,
                 "zone_id": zone_id,
+                "aoi_slug": aoi_slug,
                 "metric": metric,
             },
         )
 
-    def update_satellite(self, *, zone: str | None = None, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
+    def update_satellite(
+        self,
+        *,
+        aoi_slug: str | None = None,
+        zone: str | None = None,
+        force: bool = False,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
         return self._request_json(
             "/api/v1/satellite/update",
             method="POST",
-            params={"zone": zone, "force": force, "dry_run": dry_run},
+            params={"aoi_slug": aoi_slug, "zone": zone, "force": force, "dry_run": dry_run},
             admin=True,
         )
 
@@ -133,6 +145,7 @@ class ArgosApiClient:
         *,
         start: str,
         end: str,
+        aoi_slug: str | None = None,
         zone: str | None = None,
         force: bool = False,
         dry_run: bool = False,
@@ -140,7 +153,7 @@ class ArgosApiClient:
         return self._request_json(
             "/api/v1/satellite/backfill",
             method="POST",
-            params={"from": start, "to": end, "zone": zone, "force": force, "dry_run": dry_run},
+            params={"from": start, "to": end, "aoi_slug": aoi_slug, "zone": zone, "force": force, "dry_run": dry_run},
             admin=True,
         )
 
@@ -198,6 +211,84 @@ class ArgosApiClient:
             admin=True,
         )
 
+    def get_field_event_catalog(self) -> dict[str, Any]:
+        return self._get_json("/api/v1/field-events/catalog")
+
+    def get_field_events(
+        self,
+        *,
+        start: str | None = None,
+        end: str | None = None,
+        event_type: str | None = None,
+        zone_slug: str | None = None,
+        search: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return self._get_json(
+            "/api/v1/field-events",
+            params={
+                "from": start,
+                "to": end,
+                "event_type": event_type,
+                "zone_slug": zone_slug,
+                "search": search,
+                "limit": limit,
+                "offset": offset,
+            },
+        )
+
+    def create_field_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json(
+            "/api/v1/field-events",
+            method="POST",
+            json_payload=payload,
+            admin=True,
+        )
+
+    def update_field_event(self, event_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json(
+            f"/api/v1/field-events/{event_id}",
+            method="PATCH",
+            json_payload=payload,
+            admin=True,
+        )
+
+    def delete_field_event(self, event_id: int) -> None:
+        self._request_json(f"/api/v1/field-events/{event_id}", method="DELETE", admin=True)
+
+    def get_field_events_export_csv_url(
+        self,
+        *,
+        start: str | None = None,
+        end: str | None = None,
+        event_type: str | None = None,
+        zone_slug: str | None = None,
+        search: str | None = None,
+    ) -> str:
+        return self._build_url(
+            "/api/v1/field-events/export.csv",
+            params={"from": start, "to": end, "event_type": event_type, "zone_slug": zone_slug, "search": search},
+        )
+
+    def get_analytics_variables(self) -> list[dict[str, Any]]:
+        return self._get_json("/api/v1/analytics/variables")
+
+    def analytics_series(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json("/api/v1/analytics/series", method="POST", json_payload=payload)
+
+    def analytics_correlation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json("/api/v1/analytics/correlation", method="POST", json_payload=payload)
+
+    def analytics_correlation_matrix(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json("/api/v1/analytics/correlation-matrix", method="POST", json_payload=payload)
+
+    def analytics_distribution(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json("/api/v1/analytics/distribution", method="POST", json_payload=payload)
+
+    def analytics_trend(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json("/api/v1/analytics/trend", method="POST", json_payload=payload)
+
     def _get_json(
         self,
         path: str,
@@ -213,19 +304,25 @@ class ArgosApiClient:
         *,
         method: str,
         params: dict[str, Any | None] | None = None,
+        json_payload: dict[str, Any] | None = None,
         admin: bool = False,
     ) -> Any:
         url = self._build_url(path, params=params)
         headers = {"Accept": "application/json"}
+        data = None
+        if json_payload is not None:
+            data = json.dumps(json_payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
         if admin:
             if not self.admin_token:
                 raise ArgosApiError("Admin token is required for this endpoint.")
             headers["X-ARGOS-ADMIN-TOKEN"] = self.admin_token
 
-        request = Request(url, headers=headers, method=method)
+        request = Request(url, data=data, headers=headers, method=method)
         try:
             with urlopen(request, timeout=self.timeout_seconds) as response:
-                return json.loads(response.read().decode("utf-8"))
+                body = response.read().decode("utf-8").strip()
+                return json.loads(body) if body else None
         except HTTPError as exc:
             raise ArgosApiError(f"ARGOS API returned HTTP {exc.code} for {path}.") from exc
         except URLError as exc:

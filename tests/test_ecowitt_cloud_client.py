@@ -12,6 +12,7 @@ from argos.integrations.ecowitt_cloud import (
     EcowittCloudConfigError,
     EcowittCloudCredentials,
     EcowittCloudError,
+    format_cloud_mac,
     format_cloud_datetime,
 )
 
@@ -31,10 +32,30 @@ class FakeResponse:
 
 
 def test_cloud_client_from_settings_requires_credentials() -> None:
-    settings = Settings(ecowitt_ingest_token="test-token", _env_file=None)
+    settings = Settings(argos_admin_token="test-admin-token", ecowitt_ingest_token="test-token", _env_file=None)
 
     with pytest.raises(EcowittCloudConfigError):
         EcowittCloudClient.from_settings(settings)
+
+
+def test_format_cloud_mac_adds_colons_for_ecowitt_history_api() -> None:
+    assert format_cloud_mac("14080871B1AF") == "14:08:08:71:B1:AF"
+    assert format_cloud_mac("14-08-08-71-b1-af") == "14:08:08:71:B1:AF"
+
+
+def test_cloud_client_from_settings_formats_mac_for_history_api() -> None:
+    settings = Settings(
+        argos_admin_token="test-admin-token",
+        ecowitt_ingest_token="test-token",
+        ecowitt_cloud_application_key="app",
+        ecowitt_cloud_api_key="api",
+        ecowitt_cloud_mac="14080871B1AF",
+        _env_file=None,
+    )
+
+    client = EcowittCloudClient.from_settings(settings)
+
+    assert client.credentials.mac == "14:08:08:71:B1:AF"
 
 
 def test_cloud_client_builds_history_request() -> None:

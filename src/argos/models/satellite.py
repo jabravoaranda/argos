@@ -31,9 +31,10 @@ class SatelliteSource(SatelliteTimestampMixin, Base):
 
 class SatelliteZone(SatelliteTimestampMixin, Base):
     __tablename__ = "satellite_zones"
-    __table_args__ = (UniqueConstraint("geometry_hash", name="uq_satellite_zones_geometry_hash"),)
+    __table_args__ = (UniqueConstraint("slug", name="uq_satellite_zones_slug"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     geometry_geojson: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     geometry_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
@@ -81,6 +82,14 @@ class SatelliteObservation(SatelliteTimestampMixin, Base):
     zone: Mapped[SatelliteZone] = relationship(back_populates="observations")
     metrics: Mapped[list["SatelliteMetric"]] = relationship(back_populates="observation", cascade="all, delete-orphan")
     assets: Mapped[list["SatelliteAsset"]] = relationship(back_populates="observation", cascade="all, delete-orphan")
+
+    @property
+    def aoi_slug(self) -> str | None:
+        return self.zone.slug if self.zone else None
+
+    @property
+    def zone_name(self) -> str | None:
+        return self.zone.name if self.zone else None
 
 
 class SatelliteMetric(Base):

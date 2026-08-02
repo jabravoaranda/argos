@@ -30,6 +30,7 @@ router = APIRouter(prefix="/api/v1/satellite", tags=["satellite"])
 
 EXPORT_COLUMNS = [
     "acquisition_time",
+    "aoi_slug",
     "zone_name",
     "metric_code",
     "mean",
@@ -71,10 +72,13 @@ def satellite_zones(session: Session = Depends(get_db_session)) -> list[Satellit
 @router.get("/bounds")
 def satellite_bounds(
     zone_id: int | None = None,
+    aoi_slug: str | None = None,
     quality_status: str | None = None,
     session: Session = Depends(get_db_session),
 ) -> dict[str, str | None]:
-    first, last = SatelliteRepository(session).observation_bounds(zone_id=zone_id, quality_status=quality_status)
+    repository = SatelliteRepository(session)
+    resolved_zone_id = resolve_satellite_zone_id(repository, zone_id=zone_id, aoi_slug=aoi_slug, missing_ok=True)
+    first, last = repository.observation_bounds(zone_id=resolved_zone_id, quality_status=quality_status)
     return {
         "first_date": first.date().isoformat() if first else None,
         "last_date": last.date().isoformat() if last else None,
@@ -84,13 +88,15 @@ def satellite_bounds(
 @router.get("/observations", response_model=list[SatelliteObservationRead])
 def satellite_observations(
     zone_id: int | None = None,
+    aoi_slug: str | None = None,
     start: datetime | None = Query(default=None, alias="from"),
     end: datetime | None = Query(default=None, alias="to"),
     quality_status: str | None = None,
     session: Session = Depends(get_db_session),
 ) -> list[SatelliteObservationRead]:
-    observations = SatelliteRepository(session).observations(
-        zone_id=zone_id,
+    repository = SatelliteRepository(session)
+    observations = repository.observations(
+        zone_id=resolve_satellite_zone_id(repository, zone_id=zone_id, aoi_slug=aoi_slug, missing_ok=True),
         start=start,
         end=end,
         quality_status=quality_status,
@@ -109,6 +115,7 @@ def satellite_observation(observation_id: int, session: Session = Depends(get_db
 @router.get("/timeseries", response_model=SatelliteTimeseriesRead)
 def satellite_timeseries(
     zone_id: int | None = None,
+    aoi_slug: str | None = None,
     metric: str = "ndvi",
     start: datetime | None = Query(default=None, alias="from"),
     end: datetime | None = Query(default=None, alias="to"),
@@ -116,7 +123,12 @@ def satellite_timeseries(
     session: Session = Depends(get_db_session),
 ) -> SatelliteTimeseriesRead:
     repository = SatelliteRepository(session)
-    observations = repository.observations(zone_id=zone_id, start=start, end=end, quality_status=quality_status)
+    observations = repository.observations(
+        zone_id=resolve_satellite_zone_id(repository, zone_id=zone_id, aoi_slug=aoi_slug, missing_ok=True),
+        start=start,
+        end=end,
+        quality_status=quality_status,
+    )
     selected_zone = observations[0].zone if observations else None
     points = []
     for observation in observations:
@@ -145,9 +157,13 @@ def satellite_timeseries(
 @router.get("/latest", response_model=SatelliteObservationRead | None)
 def latest_satellite_observation(
     zone_id: int | None = None,
+    aoi_slug: str | None = None,
     session: Session = Depends(get_db_session),
 ) -> SatelliteObservationRead | None:
-    observation = SatelliteRepository(session).latest_observation(zone_id=zone_id)
+    repository = SatelliteRepository(session)
+    observation = repository.latest_observation(
+        zone_id=resolve_satellite_zone_id(repository, zone_id=zone_id, aoi_slug=aoi_slug, missing_ok=True)
+    )
     if observation is None:
         return None
     return SatelliteObservationRead.model_validate(observation)
@@ -156,6 +172,7 @@ def latest_satellite_observation(
 @router.get("/export.json", response_model=list[SatelliteExportRow])
 def export_satellite_json(
     zone_id: int | None = None,
+    aoi_slug: str | None = None,
     metric: str | None = None,
     start: datetime | None = Query(default=None, alias="from"),
     end: datetime | None = Query(default=None, alias="to"),
@@ -165,6 +182,7 @@ def export_satellite_json(
     rows = build_satellite_export_rows(
         session=session,
         zone_id=zone_id,
+        aoi_slug=aoi_slug,
         metric=metric,
         start=start,
         end=end,
@@ -176,6 +194,7 @@ def export_satellite_json(
 @router.get("/export.csv")
 def export_satellite_csv(
     zone_id: int | None = None,
+    aoi_slug: str | None = None,
     metric: str | None = None,
     start: datetime | None = Query(default=None, alias="from"),
     end: datetime | None = Query(default=None, alias="to"),
@@ -185,6 +204,7 @@ def export_satellite_csv(
     rows = build_satellite_export_rows(
         session=session,
         zone_id=zone_id,
+        aoi_slug=aoi_slug,
         metric=metric,
         start=start,
         end=end,
@@ -217,6 +237,7 @@ def satellite_asset(asset_id: int, session: Session = Depends(get_db_session)) -
 
 @router.post("/update", response_model=SatelliteIngestionRead)
 def update_satellite(
+    aoi_slug: str | None = None,
     zone: str | None = None,
     force: bool = False,
     dry_run: bool = False,
@@ -224,7 +245,11 @@ def update_satellite(
     session: Session = Depends(get_db_session),
     settings: Settings = Depends(get_settings),
 ) -> SatelliteIngestionRead:
-    result = SatelliteIngestionService(session=session, settings=settings).update(zone_name=zone, force=force, dry_run=dry_run)
+    result = SatelliteIngestionService(session=session, settings=settings).update(
+        aoi_slug=aoi_slug or zone,
+        force=force,
+        dry_run=dry_run,
+    )
     return SatelliteIngestionRead.model_validate(result, from_attributes=True)
 
 
@@ -232,6 +257,7 @@ def update_satellite(
 def backfill_satellite(
     start: datetime | None = Query(default=None, alias="from"),
     end: datetime | None = Query(default=None, alias="to"),
+    aoi_slug: str | None = None,
     zone: str | None = None,
     force: bool = False,
     dry_run: bool = False,
@@ -242,7 +268,7 @@ def backfill_satellite(
     result = SatelliteIngestionService(session=session, settings=settings).backfill(
         start=start,
         end=end,
-        zone_name=zone,
+        aoi_slug=aoi_slug or zone,
         force=force,
         dry_run=dry_run,
     )
@@ -253,13 +279,15 @@ def build_satellite_export_rows(
     *,
     session: Session,
     zone_id: int | None,
+    aoi_slug: str | None,
     metric: str | None,
     start: datetime | None,
     end: datetime | None,
     quality_status: str | None,
 ) -> list[dict]:
-    observations = SatelliteRepository(session).observations(
-        zone_id=zone_id,
+    repository = SatelliteRepository(session)
+    observations = repository.observations(
+        zone_id=resolve_satellite_zone_id(repository, zone_id=zone_id, aoi_slug=aoi_slug, missing_ok=True),
         start=start,
         end=end,
         quality_status=quality_status,
@@ -272,6 +300,7 @@ def build_satellite_export_rows(
             rows.append(
                 {
                     "acquisition_time": observation.acquisition_time,
+                    "aoi_slug": observation.zone.slug,
                     "zone_name": observation.zone.name,
                     "metric_code": metric_record.metric_code,
                     "mean": metric_record.mean,
@@ -290,3 +319,22 @@ def build_satellite_export_rows(
                 }
             )
     return rows
+
+
+def resolve_satellite_zone_id(
+    repository: SatelliteRepository,
+    *,
+    zone_id: int | None,
+    aoi_slug: str | None,
+    missing_ok: bool = False,
+) -> int | None:
+    if aoi_slug is None:
+        return zone_id
+    zone = repository.zone_by_slug(aoi_slug)
+    if zone is None:
+        if missing_ok and zone_id is None:
+            return -1
+        raise HTTPException(status_code=404, detail=f"Satellite AOI {aoi_slug!r} not found.")
+    if zone_id is not None and zone.id != zone_id:
+        raise HTTPException(status_code=400, detail="zone_id and aoi_slug refer to different satellite zones.")
+    return zone.id

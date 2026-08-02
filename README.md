@@ -31,6 +31,8 @@ Included:
 - Persisted daily and weekly weather summaries.
 - Streamlit dashboard backed by the FastAPI API.
 - Ecowitt Cloud history client and initial backfill persistence.
+- Field diary for manual agronomic events.
+- Unified analytics API and dashboard section for correlations, distributions and trend references.
 
 Still not included:
 
@@ -47,6 +49,7 @@ Edit `.env` and set a real ingestion token:
 
 ```dotenv
 ECOWITT_INGEST_TOKEN=replace-with-a-random-token
+ARGOS_ADMIN_TOKEN=replace-with-an-admin-token
 ```
 
 For local development the default database is SQLite:
@@ -110,6 +113,15 @@ GET /api/v1/weather/admin/raw-reports
 GET /api/v1/weather/admin/events
 GET /api/v1/weather/admin/unknown-fields
 GET /api/v1/weather/admin/data-gaps
+GET /api/v1/field-events
+POST /api/v1/field-events
+GET /api/v1/field-events/export.csv
+GET /api/v1/analytics/variables
+POST /api/v1/analytics/series
+POST /api/v1/analytics/correlation
+POST /api/v1/analytics/correlation-matrix
+POST /api/v1/analytics/distribution
+POST /api/v1/analytics/trend
 ```
 
 The gateway status endpoint reports the latest gateway seen by ARGOS and marks it offline when the last report is older than `ECOWITT_OFFLINE_AFTER_SECONDS`.
@@ -122,9 +134,9 @@ uv run argos ecowitt status
 
 Daily and weekly summaries are persisted in `daily_statistics` and `weekly_statistics`. New Ecowitt observations update the affected day and ISO week automatically. The recompute endpoint is idempotent and can be used after migrations or historical imports.
 
-ARGOS detects gaps when consecutive observations for the same gateway are farther apart than twice `ECOWITT_EXPECTED_INTERVAL_SECONDS`. Gaps are stored in `data_gaps` and exposed through the admin API. Admin endpoints and statistics recomputation currently require the `X-ARGOS-ADMIN-TOKEN` header with the same value as `ECOWITT_INGEST_TOKEN`.
+ARGOS detects gaps when consecutive observations for the same gateway are farther apart than twice `ECOWITT_EXPECTED_INTERVAL_SECONDS`. Gaps are stored in `data_gaps` and exposed through the admin API. Admin endpoints and statistics recomputation require the `X-ARGOS-ADMIN-TOKEN` header with the value of `ARGOS_ADMIN_TOKEN`.
 
-See [docs/operations.md](docs/operations.md) for operational checks.
+See [docs/operations.md](docs/operations.md) for operational checks, [docs/field-diary.md](docs/field-diary.md) for field diary usage and [docs/analytics.md](docs/analytics.md) for the analytics API and dashboard contract.
 
 ## Quality Checks
 
@@ -159,7 +171,9 @@ Dashboard views:
 - Inicio: compact station identity, API/gateway state, latest communication, hardware and current weather cards.
 - Observaciones: interactive time-series chart and downloadable observation table, with source filtering for `DIRECT` and `BACKFILLED` observations.
 - Resúmenes: daily and weekly API summaries plus monthly, seasonal and annual aggregates derived from daily statistics.
-- Tendencias: moving averages, period anomalies, simple linear trends and descriptive statistics for selected variables.
+- Análisis: cross-source correlations, distributions, aligned series and trend/reference diagnostics over already persisted data.
+- Diario de campo: manual agronomic events that can be overlaid in analysis views.
+- Actualizar datos: manual historical backfill tools for Ecowitt, AEMET and satellite sources.
 - AEMET: stored official daily observations, selected-variable charts and admin-token-protected import/sync actions.
 - Satélite: Sentinel-2 index charts, quality filtering, compact coverage metadata and Copernicus update/backfill actions.
 - Válvulas: local argos-node valve controls and timing diagnostics.

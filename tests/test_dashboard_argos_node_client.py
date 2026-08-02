@@ -46,6 +46,24 @@ def test_argos_node_client_gets_valve_state(monkeypatch: pytest.MonkeyPatch) -> 
     assert timeout == 2
 
 
+def test_argos_node_client_gets_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    requests: list[Any] = []
+
+    def fake_urlopen(request: Any, timeout: int) -> FakeResponse:
+        requests.append((request, timeout))
+        return FakeResponse(b'{"flowmeter": {"implemented": true}}')
+
+    monkeypatch.setattr("argos.dashboard.argos_node_client.urlopen", fake_urlopen)
+
+    client = ArgosNodeClient(base_url="http://10.194.83.1", timeout_seconds=2)
+
+    assert client.get_status() == {"flowmeter": {"implemented": True}}
+    request, timeout = requests[0]
+    assert request.full_url == "http://10.194.83.1/status"
+    assert request.get_method() == "GET"
+    assert timeout == 2
+
+
 def test_argos_node_client_posts_open_and_close(monkeypatch: pytest.MonkeyPatch) -> None:
     requests: list[Any] = []
 
@@ -82,6 +100,27 @@ def test_argos_node_client_posts_generic_valve_actions(monkeypatch: pytest.Monke
     assert [request.full_url for request in requests] == [
         "http://10.194.83.1/valves/2/open",
         "http://10.194.83.1/valves/2/close",
+    ]
+
+
+def test_argos_node_client_posts_flowmeter_resets(monkeypatch: pytest.MonkeyPatch) -> None:
+    requests: list[Any] = []
+
+    def fake_urlopen(request: Any, timeout: int) -> FakeResponse:
+        requests.append(request)
+        return FakeResponse(b"{}")
+
+    monkeypatch.setattr("argos.dashboard.argos_node_client.urlopen", fake_urlopen)
+
+    client = ArgosNodeClient(base_url="http://10.194.83.1")
+
+    assert client.reset_flowmeter_total() == {}
+    assert client.reset_flowmeter_session() == {}
+    assert client.reset_flowmeter_hydrological_year() == {}
+    assert [request.full_url for request in requests] == [
+        "http://10.194.83.1/flowmeter/reset-total",
+        "http://10.194.83.1/flowmeter/reset-session",
+        "http://10.194.83.1/flowmeter/reset-hydrological-year",
     ]
 
 

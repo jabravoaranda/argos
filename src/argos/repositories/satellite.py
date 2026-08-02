@@ -32,14 +32,16 @@ class SatelliteRepository:
     def get_or_create_zone(
         self,
         *,
+        slug: str,
         name: str,
         geometry_geojson: dict[str, Any],
         geometry_hash: str,
         area_m2: float | None,
     ) -> SatelliteZone:
-        zone = self.session.scalar(select(SatelliteZone).where(SatelliteZone.geometry_hash == geometry_hash))
+        zone = self.session.scalar(select(SatelliteZone).where(SatelliteZone.slug == slug))
         if zone is None:
             zone = SatelliteZone(
+                slug=slug,
                 name=name,
                 geometry_geojson=geometry_geojson,
                 geometry_hash=geometry_hash,
@@ -51,16 +53,21 @@ class SatelliteRepository:
             self.session.flush()
             return zone
         zone.name = name or zone.name
-        zone.geometry_geojson = geometry_geojson
-        zone.area_m2 = area_m2
+        if zone.geometry_hash != geometry_hash:
+            zone.geometry_geojson = geometry_geojson
+            zone.geometry_hash = geometry_hash
+            zone.area_m2 = area_m2
         zone.enabled = True
         return zone
+
+    def zone_by_slug(self, slug: str) -> SatelliteZone | None:
+        return self.session.scalar(select(SatelliteZone).where(SatelliteZone.slug == slug))
 
     def sources(self) -> list[SatelliteSource]:
         return list(self.session.scalars(select(SatelliteSource).order_by(SatelliteSource.code)).all())
 
     def zones(self, *, enabled_only: bool = False) -> list[SatelliteZone]:
-        statement = select(SatelliteZone).order_by(SatelliteZone.name, SatelliteZone.id)
+        statement = select(SatelliteZone).order_by(SatelliteZone.slug, SatelliteZone.id)
         if enabled_only:
             statement = statement.where(SatelliteZone.enabled.is_(True))
         return list(self.session.scalars(statement).all())

@@ -19,11 +19,23 @@ class ArgosNodeClient:
     def get_valve(self, valve_id: int) -> dict[str, Any] | None:
         return self._request_json("GET", f"/valves/{valve_id}")
 
+    def get_status(self) -> dict[str, Any] | None:
+        return self._request_json("GET", "/status")
+
     def open_valve(self, valve_id: int) -> dict[str, Any] | None:
         return self._request_json("POST", f"/valves/{valve_id}/open")
 
     def close_valve(self, valve_id: int) -> dict[str, Any] | None:
         return self._request_json("POST", f"/valves/{valve_id}/close")
+
+    def reset_flowmeter_total(self) -> dict[str, Any] | None:
+        return self._request_json("POST", "/flowmeter/reset-total")
+
+    def reset_flowmeter_session(self) -> dict[str, Any] | None:
+        return self._request_json("POST", "/flowmeter/reset-session")
+
+    def reset_flowmeter_hydrological_year(self) -> dict[str, Any] | None:
+        return self._request_json("POST", "/flowmeter/reset-hydrological-year")
 
     def get_valve_1(self) -> dict[str, Any] | None:
         return self.get_valve(1)

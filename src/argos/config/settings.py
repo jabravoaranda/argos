@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     local_timezone: str = "Europe/Madrid"
     log_level: str = "INFO"
     station_slug: str = "tomillar"
+    argos_admin_token: str = Field(min_length=1)
     ecowitt_ingest_token: str = Field(min_length=1)
     ecowitt_capture_raw: bool = False
     ecowitt_expected_interval_seconds: int = 60
@@ -29,6 +30,7 @@ class Settings(BaseSettings):
     ecowitt_cloud_timeout_seconds: int = 10
     ecowitt_cloud_max_backfill_hours: int = 24
     argos_satellite_enabled: bool = False
+    argos_satellite_aois_json: str | None = None
     copernicus_client_id: str | None = None
     copernicus_client_secret: str | None = None
     copernicus_token_url: str = (
@@ -38,7 +40,6 @@ class Settings(BaseSettings):
     copernicus_catalog_url: str = "https://sh.dataspace.copernicus.eu/catalog/v1"
     copernicus_statistics_url: str = "https://sh.dataspace.copernicus.eu/statistics/v1"
     copernicus_process_url: str = "https://sh.dataspace.copernicus.eu/process/v1"
-    argos_satellite_aoi_geojson: str | None = None
     argos_satellite_history_days: int = 730
     argos_satellite_max_cloud_cover: float = 60.0
     argos_satellite_min_valid_pixel_fraction: float = 0.20
@@ -57,6 +58,14 @@ class Settings(BaseSettings):
     aemet_sync_lookback_days: int = 7
     aemet_backfill_start_date: date = date(1900, 1, 1)
     aemet_seed_csv_path: str | None = None
+    argos_node_url: str | None = None
+    argos_node_timeout_seconds: int = 5
+    argos_node_poll_interval_seconds: float = 5.0
+    argos_flowmeter_hydrological_year_reset_month: int = 10
+    argos_flowmeter_hydrological_year_reset_day: int = 1
+    argos_daily_sync_enabled: bool = True
+    argos_daily_sync_interval_hours: float = 24.0
+    ecowitt_cloud_sync_lookback_hours: int = 24
 
 
 @lru_cache

@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from argos.config.settings import Settings
 from argos.database.base import Base
-from argos.integrations.copernicus import StacItem
-from argos.models.satellite import SatelliteObservation
+from argos.integrations.copernicus import CopernicusError, StacItem
+from argos.models.satellite import SatelliteAsset, SatelliteObservation, SatelliteZone
 from argos.services.satellite_ingestion import SatelliteIngestionService, parse_statistical_response
 
 
@@ -41,6 +41,17 @@ class FakeSatelliteAdapter:
         self.statistics_calls += 1
         return statistical_payload(sample_count=10, no_data_count=2)
 
+    def get_sentinel2_preview_png(self, **_kwargs: Any) -> bytes:
+        return b"png"
+
+
+class FailFirstStatisticsAdapter(FakeSatelliteAdapter):
+    def get_sentinel2_statistics(self, **_kwargs: Any) -> dict[str, Any]:
+        self.statistics_calls += 1
+        if self.statistics_calls == 1:
+            raise CopernicusError("temporary statistics failure")
+        return statistical_payload(sample_count=10, no_data_count=2)
+
 
 def test_parse_statistical_response_extracts_metrics_and_quality_counts() -> None:
     metrics, valid_fraction, invalid_fraction = parse_statistical_response(
@@ -56,7 +67,12 @@ def test_parse_statistical_response_extracts_metrics_and_quality_counts() -> Non
 
 def test_satellite_status_disabled_without_credentials() -> None:
     with in_memory_session() as session:
-        settings = Settings(ecowitt_ingest_token="test-token", argos_satellite_enabled=False)
+        settings = Settings(
+            _env_file=None,
+            argos_admin_token="test-admin-token",
+            ecowitt_ingest_token="test-token",
+            argos_satellite_enabled=False,
+        )
         status = SatelliteIngestionService(session=session, settings=settings).status()
 
     assert status.status == "disabled"
@@ -66,11 +82,15 @@ def test_satellite_status_disabled_without_credentials() -> None:
 def test_satellite_backfill_is_idempotent() -> None:
     adapter = FakeSatelliteAdapter()
     settings = Settings(
+        _env_file=None,
+        argos_admin_token="test-admin-token",
         ecowitt_ingest_token="test-token",
         argos_satellite_enabled=True,
         copernicus_client_id="client",
         copernicus_client_secret="secret",
-        argos_satellite_aoi_geojson=json.dumps(POLYGON),
+        argos_satellite_aois_json=json.dumps(
+            {"olivos_pequenos": {"name": "Olivos pequeños", "geometry": POLYGON}}
+        ),
         argos_satellite_preview_enabled=False,
     )
     with in_memory_session() as session:
@@ -93,6 +113,133 @@ def test_satellite_backfill_is_idempotent() -> None:
     assert adapter.statistics_calls == 1
 
 
+def test_satellite_backfill_processes_configured_aois_independently(tmp_path) -> None:
+    adapter = FakeSatelliteAdapter()
+    settings = Settings(
+        _env_file=None,
+        argos_admin_token="test-admin-token",
+        ecowitt_ingest_token="test-token",
+        argos_satellite_enabled=True,
+        copernicus_client_id="client",
+        copernicus_client_secret="secret",
+        argos_satellite_aois_json=json.dumps(
+            {
+                "olivos_pequenos": {"name": "Olivos pequenos", "geometry": POLYGON},
+                "olivos_grandes": {"name": "Olivos grandes", "geometry": shifted_polygon(0.002)},
+            }
+        ),
+        argos_satellite_preview_enabled=True,
+        argos_satellite_asset_dir=str(tmp_path / "satellite"),
+    )
+    with in_memory_session() as session:
+        service = SatelliteIngestionService(session=session, settings=settings, adapter=adapter)  # type: ignore[arg-type]
+
+        result = service.backfill(
+            start=datetime(2026, 1, 1, tzinfo=UTC),
+            end=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        zones = session.scalars(select(SatelliteZone).order_by(SatelliteZone.slug)).all()
+        observation_count = session.scalar(select(func.count()).select_from(SatelliteObservation))
+        asset_paths = session.scalars(select(SatelliteAsset.storage_path)).all()
+
+    assert result.status == "ready"
+    assert result.processed_count == 2
+    assert result.found_count == 2
+    assert [zone.slug for zone in zones] == ["olivos_grandes", "olivos_pequenos"]
+    assert observation_count == 2
+    assert any("olivos_pequenos" in path for path in asset_paths)
+    assert any("olivos_grandes" in path for path in asset_paths)
+
+
+def test_satellite_backfill_can_target_one_aoi() -> None:
+    adapter = FakeSatelliteAdapter()
+    settings = Settings(
+        _env_file=None,
+        argos_admin_token="test-admin-token",
+        ecowitt_ingest_token="test-token",
+        argos_satellite_enabled=True,
+        copernicus_client_id="client",
+        copernicus_client_secret="secret",
+        argos_satellite_aois_json=json.dumps(
+            {
+                "olivos_pequenos": {"name": "Olivos pequenos", "geometry": POLYGON},
+                "olivos_grandes": {"name": "Olivos grandes", "geometry": shifted_polygon(0.002)},
+            }
+        ),
+        argos_satellite_preview_enabled=False,
+    )
+    with in_memory_session() as session:
+        service = SatelliteIngestionService(session=session, settings=settings, adapter=adapter)  # type: ignore[arg-type]
+
+        result = service.backfill(
+            start=datetime(2026, 1, 1, tzinfo=UTC),
+            end=datetime(2026, 1, 2, tzinfo=UTC),
+            aoi_slug="olivos_grandes",
+        )
+        zones = session.scalars(select(SatelliteZone)).all()
+
+    assert result.processed_count == 1
+    assert [zone.slug for zone in zones] == ["olivos_grandes"]
+
+
+def test_satellite_backfill_reports_unknown_aoi_slug() -> None:
+    settings = Settings(
+        _env_file=None,
+        argos_admin_token="test-admin-token",
+        ecowitt_ingest_token="test-token",
+        argos_satellite_enabled=True,
+        copernicus_client_id="client",
+        copernicus_client_secret="secret",
+        argos_satellite_aois_json=json.dumps(
+            {"olivos_pequenos": {"name": "Olivos pequenos", "geometry": POLYGON}}
+        ),
+        argos_satellite_preview_enabled=False,
+    )
+    with in_memory_session() as session:
+        service = SatelliteIngestionService(session=session, settings=settings, adapter=FakeSatelliteAdapter())  # type: ignore[arg-type]
+
+        result = service.backfill(
+            start=datetime(2026, 1, 1, tzinfo=UTC),
+            end=datetime(2026, 1, 2, tzinfo=UTC),
+            aoi_slug="olivos_grandes",
+        )
+
+    assert result.status == "error"
+    assert "not configured" in result.warnings[0]
+
+
+def test_satellite_backfill_keeps_processing_after_one_aoi_failure() -> None:
+    adapter = FailFirstStatisticsAdapter()
+    settings = Settings(
+        _env_file=None,
+        argos_admin_token="test-admin-token",
+        ecowitt_ingest_token="test-token",
+        argos_satellite_enabled=True,
+        copernicus_client_id="client",
+        copernicus_client_secret="secret",
+        argos_satellite_aois_json=json.dumps(
+            {
+                "olivos_pequenos": {"name": "Olivos pequenos", "geometry": POLYGON},
+                "olivos_grandes": {"name": "Olivos grandes", "geometry": shifted_polygon(0.002)},
+            }
+        ),
+        argos_satellite_preview_enabled=False,
+    )
+    with in_memory_session() as session:
+        service = SatelliteIngestionService(session=session, settings=settings, adapter=adapter)  # type: ignore[arg-type]
+
+        result = service.backfill(
+            start=datetime(2026, 1, 1, tzinfo=UTC),
+            end=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        observation_count = session.scalar(select(func.count()).select_from(SatelliteObservation))
+
+    assert result.status == "degraded"
+    assert result.processed_count == 1
+    assert result.failed_count == 1
+    assert observation_count == 1
+
+
 def statistical_payload(*, sample_count: int, no_data_count: int) -> dict[str, Any]:
     outputs = {}
     for metric in ("ndvi", "savi", "ndre", "ndmi"):
@@ -112,6 +259,11 @@ def statistical_payload(*, sample_count: int, no_data_count: int) -> dict[str, A
             }
         }
     return {"data": [{"outputs": outputs}]}
+
+
+def shifted_polygon(delta: float) -> dict[str, Any]:
+    coordinates = [[[lon + delta, lat + delta] for lon, lat in ring] for ring in POLYGON["coordinates"]]
+    return {"type": "Polygon", "coordinates": coordinates}
 
 
 def in_memory_session() -> Session:

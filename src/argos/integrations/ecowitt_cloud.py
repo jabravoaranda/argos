@@ -67,7 +67,7 @@ class EcowittCloudClient:
             credentials=EcowittCloudCredentials(
                 application_key=settings.ecowitt_cloud_application_key,
                 api_key=settings.ecowitt_cloud_api_key,
-                mac=settings.ecowitt_cloud_mac,
+                mac=format_cloud_mac(settings.ecowitt_cloud_mac),
             ),
             local_timezone=settings.local_timezone,
             timeout_seconds=settings.ecowitt_cloud_timeout_seconds,
@@ -118,6 +118,13 @@ class EcowittCloudClient:
         base = self.base_url.rstrip("/")
         version = self.api_version.strip("/")
         return f"{base}/api/{version}{path}?{urlencode(params)}"
+
+
+def format_cloud_mac(value: str) -> str:
+    normalized = "".join(character for character in value.upper() if character.isalnum())
+    if len(normalized) == 12:
+        return ":".join(normalized[index : index + 2] for index in range(0, len(normalized), 2))
+    return value.upper()
 
 
 def format_cloud_datetime(value: datetime, *, timezone_name: str = "Europe/Madrid") -> str:

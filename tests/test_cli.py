@@ -75,6 +75,39 @@ def test_build_parser_accepts_aemet_commands() -> None:
     assert csv.aemet_command == "import-csv"
 
 
+def test_build_parser_accepts_node_capture_flowmeter_minutely_command() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(
+        ["node", "capture-flowmeter-minutely", "--node-url", "http://192.168.1.40", "--poll-seconds", "5"]
+    )
+
+    assert args.command == "node"
+    assert args.node_command == "capture-flowmeter-minutely"
+    assert args.node_url == "http://192.168.1.40"
+    assert args.poll_seconds == 5
+
+
+def test_build_parser_accepts_satellite_aoi_slug() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "satellite",
+            "backfill",
+            "--from",
+            "2026-01-01",
+            "--to",
+            "2026-01-31",
+            "--aoi-slug",
+            "olivos_pequenos",
+        ]
+    )
+
+    assert args.satellite_command == "backfill"
+    assert args.aoi_slug == "olivos_pequenos"
+
+
 def test_format_ecowitt_status_outputs_operator_summary() -> None:
     status = EcowittStatus(
         station_slug="tomillar",

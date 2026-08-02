@@ -43,7 +43,7 @@ COPERNICUS_STAC_URL=https://stac.dataspace.copernicus.eu/v1
 COPERNICUS_CATALOG_URL=https://sh.dataspace.copernicus.eu/catalog/v1
 COPERNICUS_STATISTICS_URL=https://sh.dataspace.copernicus.eu/statistics/v1
 COPERNICUS_PROCESS_URL=https://sh.dataspace.copernicus.eu/process/v1
-ARGOS_SATELLITE_AOI_GEOJSON=
+ARGOS_SATELLITE_AOIS_JSON=
 ARGOS_SATELLITE_HISTORY_DAYS=730
 ARGOS_SATELLITE_MAX_CLOUD_COVER=60
 ARGOS_SATELLITE_MIN_VALID_PIXEL_FRACTION=0.20
@@ -56,15 +56,17 @@ ARGOS_SATELLITE_HTTP_TIMEOUT_SECONDS=30
 
 ## AOI geometry
 
-No farm coordinates are currently stored in ARGOS. Before real ingestion, provide a WGS84 GeoJSON Polygon in `ARGOS_SATELLITE_AOI_GEOJSON`.
+No farm coordinates are currently stored in ARGOS. Before real ingestion, provide one or more WGS84 GeoJSON Polygon or MultiPolygon AOIs in `ARGOS_SATELLITE_AOIS_JSON`.
 
-Example shape:
+Recommended multi-AOI format:
 
 ```json
-{"type":"Polygon","coordinates":[[[-3.700,37.100],[-3.699,37.100],[-3.699,37.101],[-3.700,37.101],[-3.700,37.100]]]}
+{"olivos_pequenos":{"name":"Olivos pequenos","geometry":{"type":"Polygon","coordinates":[[[-3.700,37.100],[-3.699,37.100],[-3.699,37.101],[-3.700,37.101],[-3.700,37.100]]]}},"olivos_grandes":{"name":"Olivos grandes","geometry":{"type":"Polygon","coordinates":[[[-3.702,37.102],[-3.701,37.102],[-3.701,37.103],[-3.702,37.103],[-3.702,37.102]]]}}}
 ```
 
-ARGOS validates that the geometry is a closed GeoJSON Polygon using lon/lat coordinates. It creates or updates a `satellite_zone` named `Finca completa` by default. The schema supports multiple zones later.
+Keep this JSON on one line in `.env`. Each top-level key is the stable `aoi_slug`. Slugs must use lowercase letters, numbers, and underscores, for example `olivos_pequenos` and `olivos_grandes`.
+
+ARGOS validates that each geometry is closed GeoJSON in lon/lat coordinates. It creates or updates one `satellite_zone` per slug, so metrics, previews, deduplication, charts, exports, and API filters remain independent per AOI.
 
 ## Database
 
@@ -109,10 +111,11 @@ Useful options:
 ```bash
 uv run argos satellite backfill --dry-run
 uv run argos satellite backfill --force
-uv run argos satellite update --zone "Finca completa"
+uv run argos satellite update --aoi-slug olivos_pequenos
+uv run argos satellite backfill --aoi-slug olivos_grandes --from 2025-01-01 --to 2026-07-26
 ```
 
-If dates are omitted for backfill, ARGOS uses the last `ARGOS_SATELLITE_HISTORY_DAYS` days. Incremental update starts from the last processed acquisition with a seven-day overlap.
+If dates are omitted for backfill, ARGOS uses the last `ARGOS_SATELLITE_HISTORY_DAYS` days. Incremental update starts from the last processed acquisition for each AOI with a seven-day overlap. Without `--aoi-slug`, update and backfill process all configured AOIs.
 
 There is no scheduler in the current ARGOS tree. Use cron, systemd timers, Windows Task Scheduler, or another existing orchestrator to run `uv run argos satellite update` no more than daily initially.
 
@@ -142,6 +145,7 @@ Time series filters:
 
 ```text
 zone_id
+aoi_slug
 metric=ndvi|savi|ndre|ndmi
 from
 to
@@ -207,6 +211,8 @@ When `ARGOS_SATELLITE_PREVIEW_ENABLED=true`, ARGOS requests small PNG previews f
 
 These previews are visual aids only. They are not used to calculate statistics.
 
+Preview files are stored below `ARGOS_SATELLITE_ASSET_DIR/<aoi_slug>/sentinel-2-l2a/...` so AOI outputs cannot overwrite each other.
+
 ## Quotas
 
 Copernicus services have quotas and processing units. ARGOS reduces usage by:
@@ -223,8 +229,9 @@ HTTP 429 responses are retried with bounded backoff and reported as degraded/err
 ## Troubleshooting
 
 - `disabled`: set `ARGOS_SATELLITE_ENABLED=true`.
-- `not_configured`: provide credentials and `ARGOS_SATELLITE_AOI_GEOJSON`.
+- `not_configured`: provide credentials and `ARGOS_SATELLITE_AOIS_JSON`.
 - `Geometría no definida`: the AOI is missing or invalid.
+- `Satellite AOI '<slug>' is not configured`: check the requested `--aoi-slug` or API `aoi_slug` against `ARGOS_SATELLITE_AOIS_JSON`.
 - `Credenciales no disponibles`: OAuth variables are missing.
 - `Última actualización fallida`: inspect application logs and retry with `--dry-run`.
 

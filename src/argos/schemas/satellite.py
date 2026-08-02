@@ -22,6 +22,7 @@ class SatelliteZoneRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    slug: str
     name: str
     geometry_geojson: dict[str, Any]
     geometry_hash: str
@@ -63,12 +64,21 @@ class SatelliteAssetRead(BaseModel):
     size_bytes: int
 
 
+class SatelliteZoneSummaryRead(BaseModel):
+    slug: str
+    name: str
+    geometry_hash: str
+    area_m2: float | None
+
+
 class SatelliteObservationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     source_id: int
     zone_id: int
+    aoi_slug: str | None
+    zone_name: str | None
     external_item_id: str
     acquisition_time: datetime
     interval_start: datetime | None
@@ -98,6 +108,7 @@ class SatelliteStatusRead(BaseModel):
     latest_update_time: datetime | None
     zone_count: int
     observation_count: int
+    aois: list[SatelliteZoneSummaryRead] | None = None
 
 
 class SatelliteTimeseriesPoint(BaseModel):
@@ -130,6 +141,7 @@ class SatelliteIngestionRead(BaseModel):
 
 class SatelliteExportRow(BaseModel):
     acquisition_time: datetime
+    aoi_slug: str
     zone_name: str
     metric_code: str
     mean: float | None

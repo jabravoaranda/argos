@@ -14,14 +14,21 @@ from argos.config.settings import Settings, get_settings
 from argos.integrations.copernicus import CopernicusError, CopernicusSatelliteAdapter, StacItem
 from argos.repositories.satellite import SatelliteRepository
 from argos.services.satellite_geometry import (
+    ConfiguredAOI,
     SatelliteGeometryError,
-    estimate_polygon_area_m2,
-    geometry_hash,
-    load_aoi_geojson,
+    get_configured_aois,
 )
 from argos.services.satellite_indices import PROCESSING_VERSION, SATELLITE_METRICS, quality_status
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class SatelliteAOIStatus:
+    slug: str
+    name: str
+    geometry_hash: str
+    area_m2: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +43,7 @@ class SatelliteModuleStatus:
     latest_update_time: datetime | None = None
     zone_count: int = 0
     observation_count: int = 0
+    aois: list[SatelliteAOIStatus] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,24 +74,34 @@ class SatelliteIngestionService:
     def status(self) -> SatelliteModuleStatus:
         enabled = self.settings.argos_satellite_enabled
         credentials_available = bool(self.settings.copernicus_client_id and self.settings.copernicus_client_secret)
-        geometry_defined = bool(self.settings.argos_satellite_aoi_geojson)
+        aois: dict[str, ConfiguredAOI] = {}
+        warnings: list[str] = []
+        try:
+            aois = self._configured_aois()
+            geometry_error = None
+        except SatelliteGeometryError as exc:
+            geometry_error = exc
+        geometry_defined = bool(aois)
         zones = self.repository.zones()
         observation_count = self.repository.observation_count()
         latest = self.repository.latest_observation_timestamps()
         if not enabled:
             status = "disabled"
             message = "Satellite module is disabled."
+        elif geometry_error is not None:
+            status = "not_configured"
+            message = str(geometry_error)
         elif not credentials_available or not geometry_defined:
             status = "not_configured"
             missing = []
             if not credentials_available:
                 missing.append("Copernicus OAuth credentials")
             if not geometry_defined:
-                missing.append("AOI GeoJSON")
+                missing.append("Satellite AOIs")
             message = "Missing " + " and ".join(missing) + "."
         else:
             status = "ready"
-            message = "Satellite module is configured."
+            message = "Satellite module is configured." if not warnings else " ".join(warnings)
         return SatelliteModuleStatus(
             status=status,
             enabled=enabled,
@@ -93,8 +111,12 @@ class SatelliteIngestionService:
             message=message,
             latest_acquisition_time=latest[0] if latest else None,
             latest_update_time=(latest[1] or latest[2]) if latest else None,
-            zone_count=len(zones),
+            zone_count=len(aois) if aois else len(zones),
             observation_count=observation_count,
+            aois=[
+                SatelliteAOIStatus(slug=aoi.slug, name=aoi.name, geometry_hash=aoi.geometry_hash, area_m2=aoi.area_m2)
+                for aoi in aois.values()
+            ],
         )
 
     def backfill(
@@ -102,47 +124,98 @@ class SatelliteIngestionService:
         *,
         start: datetime | None,
         end: datetime | None,
+        aoi_slug: str | None = None,
         zone_name: str | None = None,
         force: bool = False,
         dry_run: bool = False,
     ) -> SatelliteIngestionResult:
         end = _ensure_utc(end or datetime.now(UTC))
         start = _ensure_utc(start or (end - timedelta(days=self.settings.argos_satellite_history_days)))
-        return self._run_range(start=start, end=end, zone_name=zone_name, force=force, dry_run=dry_run)
+        if zone_name and not aoi_slug:
+            aoi_slug = zone_name
+        return self._run_range(start=start, end=end, aoi_slug=aoi_slug, force=force, dry_run=dry_run)
 
-    def update(self, *, zone_name: str | None = None, force: bool = False, dry_run: bool = False) -> SatelliteIngestionResult:
+    def update(
+        self,
+        *,
+        aoi_slug: str | None = None,
+        zone_name: str | None = None,
+        force: bool = False,
+        dry_run: bool = False,
+    ) -> SatelliteIngestionResult:
+        if zone_name and not aoi_slug:
+            aoi_slug = zone_name
         source = self.repository.get_or_create_sentinel2_source()
-        zone = self._get_or_create_configured_zone(zone_name=zone_name)
-        latest = self.repository.latest_acquisition_time(zone_id=zone.id)
+        results: list[SatelliteIngestionResult] = []
         end = datetime.now(UTC)
-        start = (latest - timedelta(days=7)) if latest else (end - timedelta(days=self.settings.argos_satellite_history_days))
-        result = self._run_range(start=start, end=end, zone_name=zone.name, force=force, dry_run=dry_run)
+        try:
+            selected_aois = self._selected_aois(aoi_slug)
+        except SatelliteGeometryError as exc:
+            return SatelliteIngestionResult("error", 0, 0, 0, 1, dry_run, [str(exc)], None)
+        for aoi in selected_aois.values():
+            try:
+                zone = self._get_or_create_configured_zone(aoi)
+                latest = self.repository.latest_acquisition_time(zone_id=zone.id)
+                start = (latest - timedelta(days=7)) if latest else (end - timedelta(days=self.settings.argos_satellite_history_days))
+                result = self._run_range(start=start, end=end, aoi_slug=aoi.slug, force=force, dry_run=dry_run)
+                results.append(result)
+            except SatelliteGeometryError as exc:
+                results.append(SatelliteIngestionResult("error", 0, 0, 0, 1, dry_run, [f"{aoi.slug}: {exc}"], None))
         logger.info(
             "satellite ingestion update",
             extra={
                 "provider": "Copernicus Data Space Ecosystem",
-                "zone_id": zone.id,
+                "aoi_slug": aoi_slug,
                 "operation": "satellite_update",
-                "status": result.status,
+                "status": _merge_results(results, dry_run=dry_run).status,
                 "source_id": source.id,
             },
         )
-        return result
+        return _merge_results(results, dry_run=dry_run)
 
     def _run_range(
         self,
         *,
         start: datetime,
         end: datetime,
-        zone_name: str | None,
+        aoi_slug: str | None,
         force: bool,
         dry_run: bool,
     ) -> SatelliteIngestionResult:
         if not self.settings.argos_satellite_enabled:
             return SatelliteIngestionResult("disabled", 0, 0, 0, 0, dry_run, ["Satellite module is disabled."], None)
+        try:
+            selected_aois = self._selected_aois(aoi_slug)
+        except SatelliteGeometryError as exc:
+            return SatelliteIngestionResult("error", 0, 0, 0, 1, dry_run, [str(exc)], None)
         adapter = self.adapter or CopernicusSatelliteAdapter.from_settings(self.settings)
         source = self.repository.get_or_create_sentinel2_source()
-        zone = self._get_or_create_configured_zone(zone_name=zone_name)
+        results = [
+            self._run_aoi_range(
+                adapter=adapter,
+                source_id=source.id,
+                aoi=aoi,
+                start=start,
+                end=end,
+                force=force,
+                dry_run=dry_run,
+            )
+            for aoi in selected_aois.values()
+        ]
+        return _merge_results(results, dry_run=dry_run, processing_units=_processing_units(adapter))
+
+    def _run_aoi_range(
+        self,
+        *,
+        adapter: CopernicusSatelliteAdapter,
+        source_id: int,
+        aoi: ConfiguredAOI,
+        start: datetime,
+        end: datetime,
+        force: bool,
+        dry_run: bool,
+    ) -> SatelliteIngestionResult:
+        zone = self._get_or_create_configured_zone(aoi)
         started = time.monotonic()
         warnings: list[str] = []
         processed_count = 0
@@ -156,11 +229,11 @@ class SatelliteIngestionService:
                 max_cloud_cover=self.settings.argos_satellite_max_cloud_cover,
             )
         except (CopernicusError, SatelliteGeometryError) as exc:
-            return SatelliteIngestionResult("error", 0, 0, 0, 1, dry_run, [str(exc)], _processing_units(adapter))
+            return SatelliteIngestionResult("error", 0, 0, 0, 1, dry_run, [f"{aoi.slug}: {exc}"], _processing_units(adapter))
 
         for item in items:
             existing = self.repository.observation_by_external_key(
-                source_id=source.id,
+                source_id=source_id,
                 zone_id=zone.id,
                 external_item_id=item.id,
                 processing_version=PROCESSING_VERSION,
@@ -180,7 +253,7 @@ class SatelliteIngestionService:
                     partial_threshold=self.settings.argos_satellite_min_valid_pixel_fraction,
                 )
                 observation, _created = self.repository.upsert_observation(
-                    source_id=source.id,
+                    source_id=source_id,
                     zone_id=zone.id,
                     external_item_id=item.id,
                     acquisition_time=item.acquisition_time,
@@ -204,20 +277,21 @@ class SatelliteIngestionService:
                     try:
                         self._store_previews(
                             adapter=adapter,
+                            aoi_slug=aoi.slug,
                             geometry=zone.geometry_geojson,
                             item=item,
                             observation_id=observation.id,
                         )
                     except CopernicusError as exc:
-                        warnings.append(f"{item.id}: preview generation failed: {exc}")
+                        warnings.append(f"{aoi.slug}: {item.id}: preview generation failed: {exc}")
                 self.session.commit()
                 processed_count += 1
-                log_satellite_observation(item, zone_id=zone.id, operation="process_item", status=observation_status)
+                log_satellite_observation(item, zone_id=zone.id, aoi_slug=aoi.slug, operation="process_item", status=observation_status)
             except CopernicusError as exc:
                 self.session.rollback()
                 failed_count += 1
-                warnings.append(f"{item.id}: {exc}")
-                log_satellite_observation(item, zone_id=zone.id, operation="process_item", status="error")
+                warnings.append(f"{aoi.slug}: {item.id}: {exc}")
+                log_satellite_observation(item, zone_id=zone.id, aoi_slug=aoi.slug, operation="process_item", status="error")
 
         duration_ms = round((time.monotonic() - started) * 1000)
         status = "degraded" if failed_count or warnings else "ready"
@@ -226,6 +300,7 @@ class SatelliteIngestionService:
             extra={
                 "provider": "Copernicus Data Space Ecosystem",
                 "zone_id": zone.id,
+                "aoi_slug": aoi.slug,
                 "operation": "satellite_backfill",
                 "duration_ms": duration_ms,
                 "status": status,
@@ -242,20 +317,33 @@ class SatelliteIngestionService:
             processing_units=_processing_units(adapter),
         )
 
-    def _get_or_create_configured_zone(self, *, zone_name: str | None) -> Any:
-        geometry = load_aoi_geojson(self.settings.argos_satellite_aoi_geojson)
-        zone_hash = geometry_hash(geometry)
+    def _configured_aois(self) -> dict[str, ConfiguredAOI]:
+        return get_configured_aois(self.settings)
+
+    def _selected_aois(self, aoi_slug: str | None) -> dict[str, ConfiguredAOI]:
+        aois = self._configured_aois()
+        if not aois:
+            raise SatelliteGeometryError("Satellite AOI geometry is not defined.")
+        if aoi_slug:
+            if aoi_slug not in aois:
+                raise SatelliteGeometryError(f"Satellite AOI {aoi_slug!r} is not configured.")
+            return {aoi_slug: aois[aoi_slug]}
+        return aois
+
+    def _get_or_create_configured_zone(self, aoi: ConfiguredAOI) -> Any:
         return self.repository.get_or_create_zone(
-            name=zone_name or "Finca completa",
-            geometry_geojson=geometry,
-            geometry_hash=zone_hash,
-            area_m2=estimate_polygon_area_m2(geometry),
+            slug=aoi.slug,
+            name=aoi.name,
+            geometry_geojson=aoi.geometry,
+            geometry_hash=aoi.geometry_hash,
+            area_m2=aoi.area_m2,
         )
 
     def _store_previews(
         self,
         *,
         adapter: CopernicusSatelliteAdapter,
+        aoi_slug: str,
         geometry: dict[str, Any],
         item: StacItem,
         observation_id: int,
@@ -264,7 +352,7 @@ class SatelliteIngestionService:
         if not asset_dir.is_absolute():
             asset_dir = Path.cwd() / asset_dir
         acquisition_slug = item.acquisition_time.strftime("%Y%m%dT%H%M%SZ")
-        item_dir = asset_dir / "sentinel-2-l2a" / item.id
+        item_dir = asset_dir / aoi_slug / "sentinel-2-l2a" / item.id
         item_dir.mkdir(parents=True, exist_ok=True)
         for asset_type in ("preview_rgb_png", "preview_ndvi_png"):
             path = item_dir / f"{acquisition_slug}_{asset_type}.png"
@@ -328,12 +416,13 @@ def normalize_metric_stats(stats: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def log_satellite_observation(item: StacItem, *, zone_id: int, operation: str, status: str) -> None:
+def log_satellite_observation(item: StacItem, *, zone_id: int, aoi_slug: str, operation: str, status: str) -> None:
     logger.info(
         "satellite observation",
         extra={
             "provider": "Copernicus Data Space Ecosystem",
             "zone_id": zone_id,
+            "aoi_slug": aoi_slug,
             "external_item_id": item.id,
             "acquisition_time": item.acquisition_time.isoformat(),
             "operation": operation,
@@ -377,3 +466,34 @@ def _ensure_utc(value: datetime) -> datetime:
 def _processing_units(adapter: Any) -> float | None:
     value = getattr(adapter, "processing_units_total", None)
     return float(value) if value is not None else None
+
+
+def _merge_results(
+    results: list[SatelliteIngestionResult],
+    *,
+    dry_run: bool,
+    processing_units: float | None = None,
+) -> SatelliteIngestionResult:
+    if not results:
+        return SatelliteIngestionResult("error", 0, 0, 0, 1, dry_run, ["No satellite AOIs were processed."], processing_units)
+    warnings = [warning for result in results for warning in result.warnings]
+    failed_count = sum(result.failed_count for result in results)
+    status = "degraded" if failed_count or warnings or any(result.status == "degraded" for result in results) else "ready"
+    if all(result.status == "disabled" for result in results):
+        status = "disabled"
+    if any(result.status == "error" for result in results) and not any(
+        result.processed_count or result.skipped_count for result in results
+    ):
+        status = "error"
+    return SatelliteIngestionResult(
+        status=status,
+        found_count=sum(result.found_count for result in results),
+        processed_count=sum(result.processed_count for result in results),
+        skipped_count=sum(result.skipped_count for result in results),
+        failed_count=failed_count,
+        dry_run=dry_run,
+        warnings=warnings,
+        processing_units=processing_units
+        if processing_units is not None
+        else sum(result.processing_units or 0 for result in results),
+    )
