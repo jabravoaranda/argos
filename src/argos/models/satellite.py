@@ -77,6 +77,8 @@ class SatelliteObservation(SatelliteTimestampMixin, Base):
     processing_version: Mapped[str] = mapped_column(String(64), nullable=False)
     geometry_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     raw_metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    ingestion_run_id: Mapped[int | None] = mapped_column(ForeignKey("ingestion_runs.id"), index=True)
+    ingestion_item_id: Mapped[int | None] = mapped_column(ForeignKey("ingestion_items.id"), index=True)
 
     source: Mapped[SatelliteSource] = relationship(back_populates="observations")
     zone: Mapped[SatelliteZone] = relationship(back_populates="observations")
@@ -128,6 +130,7 @@ class SatelliteAsset(Base):
     mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
     checksum_sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_artifact_id: Mapped[int | None] = mapped_column(ForeignKey("source_artifacts.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     observation: Mapped[SatelliteObservation] = relationship(back_populates="assets")

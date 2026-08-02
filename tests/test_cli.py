@@ -117,6 +117,28 @@ def test_build_parser_accepts_data_audit_duplicates() -> None:
     assert args.data_command == "audit-duplicates"
 
 
+def test_build_parser_accepts_ingestion_traceability_data_commands() -> None:
+    parser = build_parser()
+
+    list_runs = parser.parse_args(["data", "list-ingestion-runs", "--source", "aemet_api", "--limit", "5"])
+    show_run = parser.parse_args(["data", "show-ingestion-run", "run-uuid"])
+    audit_runs = parser.parse_args(["data", "audit-ingestion-runs", "--older-than-minutes", "30"])
+    reconcile = parser.parse_args(["data", "reconcile-ingestion-runs", "--mark-interrupted"])
+    cursors = parser.parse_args(["data", "show-sync-cursors", "--source", "ecowitt_cloud"])
+    artifacts = parser.parse_args(["data", "audit-source-artifacts"])
+    nullability = parser.parse_args(["data", "audit-ecowitt-nullability"])
+
+    assert list_runs.data_command == "list-ingestion-runs"
+    assert list_runs.source == "aemet_api"
+    assert list_runs.limit == 5
+    assert show_run.run_uuid == "run-uuid"
+    assert audit_runs.older_than_minutes == 30
+    assert reconcile.mark_interrupted
+    assert cursors.source == "ecowitt_cloud"
+    assert artifacts.data_command == "audit-source-artifacts"
+    assert nullability.data_command == "audit-ecowitt-nullability"
+
+
 def test_format_ecowitt_status_outputs_operator_summary() -> None:
     status = EcowittStatus(
         station_slug="tomillar",

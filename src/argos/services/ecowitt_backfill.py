@@ -14,6 +14,7 @@ from argos.config.settings import get_settings
 from argos.integrations.ecowitt_cloud import DEFAULT_HISTORY_CALLBACKS, EcowittCloudClient
 from argos.repositories.ecowitt_backfill import EcowittBackfillRepository
 from argos.services.ecowitt_cloud_adapter import parse_cloud_history_payload
+from argos.services.ingestion_trace import finalize_ingestion_run, mark_run_failed, start_ingestion_run, update_sync_cursor
 from argos.services.weather_statistics import update_statistics_for_observation
 
 logger = logging.getLogger(__name__)
@@ -95,30 +96,65 @@ def backfill_ecowitt_cloud_range(
     )
     payload = client.get_history(start=start, end=end, callbacks=callbacks)
     parse_result = parse_cloud_history_payload(payload)
-    import_results = [
-        import_backfilled_observation(
-            session=session,
-            gateway_identifier=gateway_identifier,
-            station_slug=station_slug,
-            observed_at_utc=observation.observed_at_utc,
-            normalized_values=observation.normalized_values,
-            cloud_payload=observation.cloud_payload,
-            station_type=station_type,
-            gateway_aliases=gateway_aliases,
-            requested_start_utc=start,
-            requested_end_utc=end,
-            api_version=client.api_version,
-        )
-        for observation in parse_result.observations
-    ]
-    duplicate_count = sum(1 for result in import_results if result.duplicate)
-    return BackfillRangeResult(
-        imported_count=len(import_results) - duplicate_count,
-        duplicate_count=duplicate_count,
-        warning_count=len(parse_result.warnings),
-        warnings=parse_result.warnings,
-        results=import_results,
+    run_trace = start_ingestion_run(
+        session,
+        source_code="ecowitt_cloud",
+        mode="backfill",
+        trigger="manual",
+        requested_start_utc=start,
+        requested_end_utc=end,
+        parameters_json={"gateway_identifier": gateway_identifier, "callbacks": list(callbacks)},
     )
+    session.commit()
+
+    try:
+        import_results: list[BackfillImportResult] = []
+        for observation in parse_result.observations:
+            import_results.append(
+                import_backfilled_observation(
+                    session=session,
+                    gateway_identifier=gateway_identifier,
+                    station_slug=station_slug,
+                    observed_at_utc=observation.observed_at_utc,
+                    normalized_values=observation.normalized_values,
+                    cloud_payload=observation.cloud_payload,
+                    station_type=station_type,
+                    gateway_aliases=gateway_aliases,
+                    requested_start_utc=start,
+                    requested_end_utc=end,
+                    api_version=client.api_version,
+                    ingestion_run_id=run_trace.id,
+                )
+            )
+        duplicate_count = sum(1 for result in import_results if result.duplicate)
+        run_trace.discovered_count = len(parse_result.observations)
+        run_trace.inserted_count = len(import_results) - duplicate_count
+        run_trace.unchanged_count = duplicate_count
+        run_trace.warning_count = len(parse_result.warnings)
+        finalize_ingestion_run(run_trace)
+        update_sync_cursor(
+            session,
+            source_code="ecowitt_cloud",
+            scope="gateway",
+            scope_key=gateway_identifier,
+            cursor_type="datetime_range",
+            cursor_value_json={"last_successful_end_utc": end.isoformat()},
+            last_successful_run=run_trace,
+        )
+        session.commit()
+        return BackfillRangeResult(
+            imported_count=run_trace.inserted_count,
+            duplicate_count=duplicate_count,
+            warning_count=len(parse_result.warnings),
+            warnings=parse_result.warnings,
+            results=import_results,
+        )
+    except Exception as exc:
+        session.rollback()
+        run_trace = session.merge(run_trace)
+        mark_run_failed(run_trace, exc)
+        session.commit()
+        raise
 
 
 def import_backfilled_observation(
@@ -134,6 +170,7 @@ def import_backfilled_observation(
     requested_start_utc: datetime | None = None,
     requested_end_utc: datetime | None = None,
     api_version: str | None = "v3",
+    ingestion_run_id: int | None = None,
 ) -> BackfillImportResult:
     values = _validate_normalized_values(normalized_values)
     payload_dict = dict(cloud_payload)
@@ -181,6 +218,7 @@ def import_backfilled_observation(
         payload_hash=payload_hash,
         api_version=api_version,
         parser_version=BACKFILL_PARSER_VERSION,
+        ingestion_run_id=ingestion_run_id,
     )
 
     existing_observation = repository.get_observation_by_gateway_and_observed_at(
@@ -215,6 +253,7 @@ def import_backfilled_observation(
         observed_at_utc=observed_at_utc,
         received_at_utc=datetime.now(UTC),
         values=values,
+        ingestion_run_id=ingestion_run_id,
     )
     update_statistics_for_observation(session, observation)
     repository.create_event(

@@ -15,12 +15,14 @@ flowchart LR
     cloud_adapter --> cloud_raw_sql[("ecowitt_cloud_raw_reports<br/>raw provider payload")]
     cloud_adapter --> weather_sql
     cloud_adapter --> quality_sql
+    cloud_adapter --> trace[("data_sources<br/>ingestion_runs<br/>ingestion_items<br/>sync_cursors")]
 
     aemet["AEMET OpenData / CSV"] --> aemet_client["AemetClient or import-csv"]
     aemet_client --> aemet_norm["AEMET normalizer"]
     aemet_norm --> aemet_station[("weather_stations")]
     aemet_norm --> aemet_daily[("weather_daily_observations<br/>raw_payload_json + typed columns")]
     aemet_norm --> aemet_runs[("aemet_sync_runs")]
+    aemet_norm --> trace
     local_aemet_csv["data/aemet/6127X.csv<br/>local CSV seed"] -. manual input .-> aemet_client
 
     copernicus["Copernicus CDSE<br/>STAC + Statistics + Process API"] --> sat_service["SatelliteIngestionService<br/>CLI / API / scheduled sync"]
@@ -28,14 +30,18 @@ flowchart LR
     sat_service --> sat_obs[("satellite_observations<br/>raw_metadata_json")]
     sat_service --> sat_metrics[("satellite_metrics")]
     sat_service --> sat_files["data/satellite/**.png<br/>preview assets"]
+    sat_service --> trace
     sat_files --> sat_assets[("satellite_assets<br/>path + checksum + size")]
+    sat_files --> artifacts[("source_artifacts<br/>path + sha256 + provenance")]
     sat_obs --> sat_metrics
     sat_obs --> sat_assets
+    artifacts --> sat_assets
 
     argos_node["argos-node<br/>/status + valve endpoints"] --> node_worker["startup worker or CLI<br/>minute aggregation"]
     node_worker --> flow_minutes[("argos_node_flowmeter_minutes")]
     node_worker --> flow_sessions[("argos_node_flowmeter_sessions")]
     node_worker --> flow_resets[("argos_node_flowmeter_reset_events")]
+    node_worker --> trace
 
     operator["Dashboard / API operator"] --> field_api["/api/v1/field-events"]
     field_api --> field_sql[("field_events")]
@@ -46,6 +52,8 @@ flowchart LR
     weather_sql --> db
     weather_stats --> db
     quality_sql --> db
+    trace --> db
+    artifacts --> db
     aemet_station --> db
     aemet_daily --> db
     aemet_runs --> db

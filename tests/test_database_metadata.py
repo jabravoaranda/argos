@@ -23,6 +23,11 @@ def test_initial_schema_tables_are_registered() -> None:
         "weekly_statistics",
         "unknown_fields",
         "ingestion_events",
+        "data_sources",
+        "ingestion_runs",
+        "ingestion_items",
+        "sync_cursors",
+        "source_artifacts",
         "data_gaps",
         "argos_node_flowmeter_minutes",
         "argos_node_flowmeter_reset_events",
@@ -36,6 +41,8 @@ def test_initial_schema_tables_are_registered() -> None:
     assert _models.ArgosNodeFlowmeterMinute.__tablename__ == "argos_node_flowmeter_minutes"
     assert _models.ArgosNodeFlowmeterSession.__tablename__ == "argos_node_flowmeter_sessions"
     assert _models.FieldEvent.__tablename__ == "field_events"
+    assert _models.DataSource.__tablename__ == "data_sources"
+    assert _models.IngestionRun.__tablename__ == "ingestion_runs"
 
 
 def test_weather_observation_natural_uniqueness_is_registered() -> None:
@@ -54,6 +61,22 @@ def test_satellite_asset_natural_uniqueness_is_registered() -> None:
     }
 
     assert "uq_satellite_assets_observation_type" in constraint_names
+
+
+def test_ingestion_traceability_constraints_are_registered() -> None:
+    data_source_constraints = {
+        constraint.name for constraint in Base.metadata.tables["data_sources"].constraints
+    }
+    item_constraints = {
+        constraint.name for constraint in Base.metadata.tables["ingestion_items"].constraints
+    }
+    cursor_constraints = {
+        constraint.name for constraint in Base.metadata.tables["sync_cursors"].constraints
+    }
+
+    assert "uq_data_sources_code" in data_source_constraints
+    assert "uq_ingestion_items_run_item_key" in item_constraints
+    assert "uq_sync_cursors_source_scope_key" in cursor_constraints
 
 
 def test_weather_observation_duplicate_gateway_timestamp_source_is_rejected() -> None:

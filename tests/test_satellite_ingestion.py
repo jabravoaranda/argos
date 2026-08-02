@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from argos.config.settings import Settings
 from argos.database.base import Base
 from argos.integrations.copernicus import CopernicusError, StacItem
+from argos.models.ingestion import IngestionRun, SourceArtifact, SyncCursor
 from argos.models.satellite import SatelliteAsset, SatelliteObservation, SatelliteZone
 from argos.services.satellite_ingestion import SatelliteIngestionService, parse_statistical_response
 
@@ -104,12 +105,14 @@ def test_satellite_backfill_is_idempotent() -> None:
             end=datetime(2026, 1, 2, tzinfo=UTC),
         )
         observation_count = session.scalar(select(func.count()).select_from(SatelliteObservation))
+        trace_count = session.scalar(select(func.count()).select_from(IngestionRun))
 
     assert first.processed_count == 1
     assert first.found_count == 1
     assert second.processed_count == 0
     assert second.skipped_count == 1
     assert observation_count == 1
+    assert trace_count == 2
     assert adapter.statistics_calls == 1
 
 
@@ -141,6 +144,8 @@ def test_satellite_backfill_processes_configured_aois_independently(tmp_path) ->
         zones = session.scalars(select(SatelliteZone).order_by(SatelliteZone.slug)).all()
         observation_count = session.scalar(select(func.count()).select_from(SatelliteObservation))
         asset_paths = session.scalars(select(SatelliteAsset.storage_path)).all()
+        artifact_count = session.scalar(select(func.count()).select_from(SourceArtifact))
+        cursor_count = session.scalar(select(func.count()).select_from(SyncCursor))
 
     assert result.status == "ready"
     assert result.processed_count == 2
@@ -149,6 +154,8 @@ def test_satellite_backfill_processes_configured_aois_independently(tmp_path) ->
     assert observation_count == 2
     assert any("olivos_pequenos" in path for path in asset_paths)
     assert any("olivos_grandes" in path for path in asset_paths)
+    assert artifact_count == 4
+    assert cursor_count == 2
 
 
 def test_satellite_backfill_can_target_one_aoi() -> None:

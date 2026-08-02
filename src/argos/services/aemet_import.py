@@ -12,6 +12,14 @@ from argos.config.settings import Settings, get_settings
 from argos.integrations.aemet.client import AemetClient
 from argos.repositories.aemet import AemetRepository
 from argos.services.aemet_normalizer import normalize_aemet_daily_records
+from argos.services.ingestion_trace import (
+    create_ingestion_item,
+    fail_ingestion_item,
+    finalize_ingestion_run,
+    finish_ingestion_item,
+    start_ingestion_run,
+    update_sync_cursor,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,29 +90,57 @@ class AemetImportService:
             external_id=station_id,
             **station_defaults_from_metadata(self._fetch_station_metadata(station_id)),
         )
+        run_trace = start_ingestion_run(
+            self.session,
+            source_code="aemet_api",
+            mode=mode,
+            trigger="manual" if mode == "backfill" else "scheduled",
+            requested_start_utc=datetime.combine(start, datetime.min.time(), tzinfo=UTC),
+            requested_end_utc=datetime.combine(end, datetime.min.time(), tzinfo=UTC),
+            parameters_json={"station_id": station_id, "block_days": block_size},
+        )
         run = self.repository.create_sync_run(
             station_id=station.id,
             station_external_id=station_id,
             mode=mode,
             requested_start=start,
             requested_end=end,
+            ingestion_run_id=run_trace.id,
         )
         self.session.commit()
 
         summary = AemetImportSummary(station_external_id=station_id, start=start, end=end)
         for interval_start, interval_end in split_date_range(start=start, end=end, block_days=block_size):
+            item = create_ingestion_item(
+                self.session,
+                run=run_trace,
+                item_key=f"{station_id}:{interval_start.isoformat()}:{interval_end.isoformat()}",
+                item_type="aemet_interval",
+                requested_start_utc=datetime.combine(interval_start, datetime.min.time(), tzinfo=UTC),
+                requested_end_utc=datetime.combine(interval_end, datetime.min.time(), tzinfo=UTC),
+            )
             try:
                 records = self.client.daily_climatology(start=interval_start, end=interval_end, station_id=station_id)
                 normalized_records = normalize_aemet_daily_records(records)
                 for normalized in normalized_records:
-                    _, action = self.repository.upsert_daily_observation(station_id=station.id, normalized=normalized)
+                    _, action = self.repository.upsert_daily_observation(
+                        station_id=station.id,
+                        normalized=normalized,
+                        ingestion_run_id=run_trace.id,
+                        ingestion_item_id=item.id,
+                    )
                     if action == "inserted":
                         summary.inserted += 1
+                        item.inserted_count += 1
                     elif action == "updated":
                         summary.updated += 1
+                        item.updated_count += 1
                     else:
                         summary.skipped += 1
+                        item.unchanged_count += 1
                 summary.records_received += len(records)
+                item.inserted_count = item.inserted_count
+                finish_ingestion_item(item)
                 summary.intervals.append(
                     AemetImportInterval(
                         start=interval_start,
@@ -116,6 +152,7 @@ class AemetImportService:
                 self._update_run(run, summary)
                 self.session.commit()
             except Exception as exc:
+                fail_ingestion_item(item, exc)
                 error = {
                     "start": interval_start.isoformat(),
                     "end": interval_end.isoformat(),
@@ -130,6 +167,25 @@ class AemetImportService:
 
         run.finished_at = datetime.now(UTC)
         self._update_run(run, summary)
+        run_trace.discovered_count = summary.records_received
+        run_trace.inserted_count = summary.inserted
+        run_trace.updated_count = summary.updated
+        run_trace.unchanged_count = summary.skipped
+        run_trace.failed_count = len(summary.errors)
+        run_trace.warning_count = len(summary.errors)
+        if summary.errors:
+            run_trace.error_summary = f"{len(summary.errors)} AEMET interval(s) failed."
+        finalize_ingestion_run(run_trace)
+        if run_trace.status in {"completed", "completed_with_warnings"} and not summary.errors:
+            update_sync_cursor(
+                self.session,
+                source_code="aemet_api",
+                scope="station",
+                scope_key=station_id,
+                cursor_type="date",
+                cursor_value_json={"last_successful_date": end.isoformat()},
+                last_successful_run=run_trace,
+            )
         self.session.commit()
         return summary
 
@@ -157,12 +213,29 @@ class AemetImportService:
             external_id=station_id,
             **station_defaults_from_csv_row(rows[0]),
         )
+        run_trace = start_ingestion_run(
+            self.session,
+            source_code="aemet_csv",
+            mode="csv",
+            trigger="manual",
+            requested_start_utc=datetime.combine(min(observed_dates), datetime.min.time(), tzinfo=UTC),
+            requested_end_utc=datetime.combine(max(observed_dates), datetime.min.time(), tzinfo=UTC),
+            parameters_json={"station_id": station_id, "path": str(path)},
+        )
+        item = create_ingestion_item(
+            self.session,
+            run=run_trace,
+            item_key=str(path),
+            item_type="aemet_csv_file",
+            metadata_json={"filename": path.name},
+        )
         run = self.repository.create_sync_run(
             station_id=station.id,
             station_external_id=station_id,
             mode="csv",
             requested_start=min(observed_dates),
             requested_end=max(observed_dates),
+            ingestion_run_id=run_trace.id,
         )
 
         summary = AemetImportSummary(
@@ -171,13 +244,21 @@ class AemetImportService:
             end=max(observed_dates),
         )
         for normalized in normalized_records:
-            _, action = self.repository.upsert_daily_observation(station_id=station.id, normalized=normalized)
+            _, action = self.repository.upsert_daily_observation(
+                station_id=station.id,
+                normalized=normalized,
+                ingestion_run_id=run_trace.id,
+                ingestion_item_id=item.id,
+            )
             if action == "inserted":
                 summary.inserted += 1
+                item.inserted_count += 1
             elif action == "updated":
                 summary.updated += 1
+                item.updated_count += 1
             else:
                 summary.skipped += 1
+                item.unchanged_count += 1
 
         summary.records_received = len(rows)
         summary.intervals.append(
@@ -190,6 +271,21 @@ class AemetImportService:
         )
         run.finished_at = datetime.now(UTC)
         self._update_run(run, summary)
+        run_trace.discovered_count = summary.records_received
+        run_trace.inserted_count = summary.inserted
+        run_trace.updated_count = summary.updated
+        run_trace.unchanged_count = summary.skipped
+        finish_ingestion_item(item)
+        finalize_ingestion_run(run_trace)
+        update_sync_cursor(
+            self.session,
+            source_code="aemet_csv",
+            scope="station",
+            scope_key=station_id,
+            cursor_type="date",
+            cursor_value_json={"last_imported_date": summary.end.isoformat(), "path": str(path)},
+            last_successful_run=run_trace,
+        )
         self.session.commit()
         return summary
 

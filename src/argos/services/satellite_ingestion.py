@@ -13,6 +13,16 @@ from sqlalchemy.orm import Session
 from argos.config.settings import Settings, get_settings
 from argos.integrations.copernicus import CopernicusError, CopernicusSatelliteAdapter, StacItem
 from argos.repositories.satellite import SatelliteRepository
+from argos.services.ingestion_trace import (
+    create_ingestion_item,
+    create_source_artifact,
+    fail_ingestion_item,
+    finalize_ingestion_run,
+    finish_ingestion_item,
+    mark_run_failed,
+    start_ingestion_run,
+    update_sync_cursor,
+)
 from argos.services.satellite_geometry import (
     ConfiguredAOI,
     SatelliteGeometryError,
@@ -133,7 +143,14 @@ class SatelliteIngestionService:
         start = _ensure_utc(start or (end - timedelta(days=self.settings.argos_satellite_history_days)))
         if zone_name and not aoi_slug:
             aoi_slug = zone_name
-        return self._run_range(start=start, end=end, aoi_slug=aoi_slug, force=force, dry_run=dry_run)
+        return self._run_range(
+            start=start,
+            end=end,
+            aoi_slug=aoi_slug,
+            force=force,
+            dry_run=dry_run,
+            mode="backfill",
+        )
 
     def update(
         self,
@@ -157,7 +174,14 @@ class SatelliteIngestionService:
                 zone = self._get_or_create_configured_zone(aoi)
                 latest = self.repository.latest_acquisition_time(zone_id=zone.id)
                 start = (latest - timedelta(days=7)) if latest else (end - timedelta(days=self.settings.argos_satellite_history_days))
-                result = self._run_range(start=start, end=end, aoi_slug=aoi.slug, force=force, dry_run=dry_run)
+                result = self._run_range(
+                    start=start,
+                    end=end,
+                    aoi_slug=aoi.slug,
+                    force=force,
+                    dry_run=dry_run,
+                    mode="update",
+                )
                 results.append(result)
             except SatelliteGeometryError as exc:
                 results.append(SatelliteIngestionResult("error", 0, 0, 0, 1, dry_run, [f"{aoi.slug}: {exc}"], None))
@@ -181,6 +205,7 @@ class SatelliteIngestionService:
         aoi_slug: str | None,
         force: bool,
         dry_run: bool,
+        mode: str,
     ) -> SatelliteIngestionResult:
         if not self.settings.argos_satellite_enabled:
             return SatelliteIngestionResult("disabled", 0, 0, 0, 0, dry_run, ["Satellite module is disabled."], None)
@@ -190,19 +215,59 @@ class SatelliteIngestionService:
             return SatelliteIngestionResult("error", 0, 0, 0, 1, dry_run, [str(exc)], None)
         adapter = self.adapter or CopernicusSatelliteAdapter.from_settings(self.settings)
         source = self.repository.get_or_create_sentinel2_source()
-        results = [
-            self._run_aoi_range(
-                adapter=adapter,
-                source_id=source.id,
-                aoi=aoi,
-                start=start,
-                end=end,
-                force=force,
-                dry_run=dry_run,
-            )
-            for aoi in selected_aois.values()
-        ]
-        return _merge_results(results, dry_run=dry_run, processing_units=_processing_units(adapter))
+        run_trace = start_ingestion_run(
+            self.session,
+            source_code="copernicus_sentinel2",
+            mode=mode,
+            trigger="manual",
+            requested_start_utc=start,
+            requested_end_utc=end,
+            processing_version=PROCESSING_VERSION,
+            parameters_json={"aoi_slug": aoi_slug, "force": force, "dry_run": dry_run},
+        )
+        self.session.commit()
+        try:
+            results = [
+                self._run_aoi_range(
+                    adapter=adapter,
+                    source_id=source.id,
+                    aoi=aoi,
+                    start=start,
+                    end=end,
+                    force=force,
+                    dry_run=dry_run,
+                    run_trace=run_trace,
+                )
+                for aoi in selected_aois.values()
+            ]
+            result = _merge_results(results, dry_run=dry_run, processing_units=_processing_units(adapter))
+            run_trace.discovered_count = result.found_count
+            run_trace.inserted_count = result.processed_count
+            run_trace.unchanged_count = result.skipped_count
+            run_trace.failed_count = result.failed_count
+            run_trace.warning_count = len(result.warnings)
+            if result.warnings:
+                run_trace.error_summary = "\n".join(result.warnings[:10])
+            finalize_ingestion_run(run_trace)
+            if not dry_run and result.status in {"ready", "degraded"}:
+                for aoi in selected_aois.values():
+                    update_sync_cursor(
+                        self.session,
+                        source_code="copernicus_sentinel2",
+                        scope="aoi",
+                        scope_key=aoi.slug,
+                        cursor_type="datetime",
+                        cursor_value_json={"last_successful_end_utc": end.isoformat()},
+                        last_successful_run=run_trace,
+                    )
+            self.session.commit()
+            return result
+        except Exception as exc:
+            self.session.rollback()
+            run_trace = self.session.merge(run_trace)
+            mark_run_failed(run_trace, exc)
+            self.session.commit()
+            raise
 
     def _run_aoi_range(
         self,
@@ -214,6 +279,7 @@ class SatelliteIngestionService:
         end: datetime,
         force: bool,
         dry_run: bool,
+        run_trace: Any,
     ) -> SatelliteIngestionResult:
         zone = self._get_or_create_configured_zone(aoi)
         started = time.monotonic()
@@ -232,6 +298,16 @@ class SatelliteIngestionService:
             return SatelliteIngestionResult("error", 0, 0, 0, 1, dry_run, [f"{aoi.slug}: {exc}"], _processing_units(adapter))
 
         for item in items:
+            trace_item = create_ingestion_item(
+                self.session,
+                run=run_trace,
+                item_key=f"{aoi.slug}:{item.id}:{PROCESSING_VERSION}",
+                item_type="sentinel2_stac_item",
+                source_external_id=item.id,
+                requested_start_utc=start,
+                requested_end_utc=end,
+                metadata_json={"aoi_slug": aoi.slug, "cloud_cover": item.cloud_cover},
+            )
             existing = self.repository.observation_by_external_key(
                 source_id=source_id,
                 zone_id=zone.id,
@@ -240,9 +316,15 @@ class SatelliteIngestionService:
             )
             if existing is not None and not force:
                 skipped_count += 1
+                trace_item.unchanged_count += 1
+                finish_ingestion_item(trace_item, status="skipped")
+                self.session.commit()
                 continue
             if dry_run:
                 skipped_count += 1
+                trace_item.skipped_count += 1
+                finish_ingestion_item(trace_item, status="skipped")
+                self.session.commit()
                 continue
             try:
                 stats = adapter.get_sentinel2_statistics(geometry=zone.geometry_geojson, item=item)
@@ -271,6 +353,8 @@ class SatelliteIngestionService:
                     geometry_hash=zone.geometry_hash,
                     raw_metadata_json={"stac_item": item.raw, "statistics": stats},
                     force=force,
+                    ingestion_run_id=run_trace.id,
+                    ingestion_item_id=trace_item.id,
                 )
                 self.repository.replace_metrics(observation, metrics)
                 if self.settings.argos_satellite_preview_enabled:
@@ -281,14 +365,22 @@ class SatelliteIngestionService:
                             geometry=zone.geometry_geojson,
                             item=item,
                             observation_id=observation.id,
+                            run_trace=run_trace,
+                            ingestion_item=trace_item,
                         )
                     except CopernicusError as exc:
                         warnings.append(f"{aoi.slug}: {item.id}: preview generation failed: {exc}")
+                        trace_item.warning_count += 1
+                trace_item.inserted_count += 1
+                finish_ingestion_item(trace_item)
                 self.session.commit()
                 processed_count += 1
                 log_satellite_observation(item, zone_id=zone.id, aoi_slug=aoi.slug, operation="process_item", status=observation_status)
             except CopernicusError as exc:
                 self.session.rollback()
+                trace_item = self.session.merge(trace_item)
+                fail_ingestion_item(trace_item, exc)
+                self.session.commit()
                 failed_count += 1
                 warnings.append(f"{aoi.slug}: {item.id}: {exc}")
                 log_satellite_observation(item, zone_id=zone.id, aoi_slug=aoi.slug, operation="process_item", status="error")
@@ -347,6 +439,8 @@ class SatelliteIngestionService:
         geometry: dict[str, Any],
         item: StacItem,
         observation_id: int,
+        run_trace: Any,
+        ingestion_item: Any,
     ) -> None:
         asset_dir = Path(self.settings.argos_satellite_asset_dir)
         if not asset_dir.is_absolute():
@@ -372,6 +466,19 @@ class SatelliteIngestionService:
                 mime_type="image/png",
                 checksum_sha256=sha256(data).hexdigest(),
                 size_bytes=len(data),
+                source_artifact_id=create_source_artifact(
+                    self.session,
+                    source_code="copernicus_sentinel2",
+                    storage_path=path,
+                    artifact_type=asset_type,
+                    role="derived_preview",
+                    run=run_trace,
+                    ingestion_item=ingestion_item,
+                    mime_type="image/png",
+                    regenerable=True,
+                    provider_external_id=item.id,
+                    metadata_json={"aoi_slug": aoi_slug},
+                ).id,
             )
 
 

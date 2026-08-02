@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import NoReturn
 
@@ -16,6 +16,15 @@ from argos.services.ecowitt_backfill import BackfillRangeError, backfill_ecowitt
 from argos.services.ecowitt_status import EcowittStatus, build_ecowitt_status
 from argos.services.satellite_ingestion import SatelliteIngestionService
 from argos.ops.data_duplicates import audit_duplicates, format_duplicate_results, has_structural_duplicates
+from argos.models.ingestion import DataSource, IngestionRun, SyncCursor
+from argos.services.ingestion_trace import (
+    abandoned_runs,
+    audit_source_artifacts,
+    mark_run_interrupted,
+    validate_cursor,
+)
+from sqlalchemy import func, select
+from argos.models.ecowitt import WeatherObservation
 
 
 def main() -> None:
@@ -124,6 +133,21 @@ def build_parser() -> argparse.ArgumentParser:
     data_parser = subparsers.add_parser("data", help="Data protection and audit utilities.")
     data_subparsers = data_parser.add_subparsers(dest="data_command")
     data_subparsers.add_parser("audit-duplicates", help="Read-only duplicate audit for persisted data.")
+    runs_parser = data_subparsers.add_parser("list-ingestion-runs", help="List recent ingestion runs.")
+    runs_parser.add_argument("--source", default=None)
+    runs_parser.add_argument("--status", default=None)
+    runs_parser.add_argument("--limit", type=int, default=20)
+    show_run_parser = data_subparsers.add_parser("show-ingestion-run", help="Show one ingestion run.")
+    show_run_parser.add_argument("run_uuid")
+    audit_runs_parser = data_subparsers.add_parser("audit-ingestion-runs", help="Audit abandoned ingestion runs.")
+    audit_runs_parser.add_argument("--older-than-minutes", type=int, default=60)
+    reconcile_parser = data_subparsers.add_parser("reconcile-ingestion-runs", help="List or mark abandoned ingestion runs.")
+    reconcile_parser.add_argument("--older-than-minutes", type=int, default=60)
+    reconcile_parser.add_argument("--mark-interrupted", action="store_true")
+    cursors_parser = data_subparsers.add_parser("show-sync-cursors", help="Show sync cursors.")
+    cursors_parser.add_argument("--source", default=None)
+    data_subparsers.add_parser("audit-source-artifacts", help="Audit source artifact files and checksums.")
+    data_subparsers.add_parser("audit-ecowitt-nullability", help="Audit Ecowitt observation identity NULL values.")
 
     return parser
 
@@ -279,14 +303,104 @@ def run_node(args: argparse.Namespace) -> None:
 
 
 def run_data(args: argparse.Namespace) -> None:
-    if args.data_command != "audit-duplicates":
-        fail("Unknown data command.")
-    with get_sessionmaker()() as session:
-        results = audit_duplicates(session)
-    for line in format_duplicate_results(results):
-        print(line)
-    if has_structural_duplicates(results):
-        raise SystemExit(1)
+    if args.data_command == "audit-duplicates":
+        with get_sessionmaker()() as session:
+            results = audit_duplicates(session)
+        for line in format_duplicate_results(results):
+            print(line)
+        if has_structural_duplicates(results):
+            raise SystemExit(1)
+        return
+    if args.data_command == "list-ingestion-runs":
+        with get_sessionmaker()() as session:
+            statement = select(IngestionRun, DataSource.code).join(DataSource).order_by(
+                IngestionRun.started_at_utc.desc(), IngestionRun.id.desc()
+            ).limit(args.limit)
+            if args.source:
+                statement = statement.where(DataSource.code == args.source)
+            if args.status:
+                statement = statement.where(IngestionRun.status == args.status)
+            for run, source_code in session.execute(statement):
+                print(
+                    f"{run.run_uuid} {source_code} {run.mode} {run.status} "
+                    f"started={run.started_at_utc} finished={run.finished_at_utc or '-'} "
+                    f"inserted={run.inserted_count} updated={run.updated_count} failed={run.failed_count}"
+                )
+        return
+    if args.data_command == "show-ingestion-run":
+        with get_sessionmaker()() as session:
+            row = session.execute(
+                select(IngestionRun, DataSource.code)
+                .join(DataSource)
+                .where(IngestionRun.run_uuid == args.run_uuid)
+            ).first()
+            if row is None:
+                raise SystemExit("Ingestion run not found.")
+            run, source_code = row
+            print(f"Run: {run.run_uuid}")
+            print(f"Source: {source_code}")
+            print(f"Mode: {run.mode}")
+            print(f"Status: {run.status}")
+            print(f"Requested: {run.requested_start_utc or '-'} to {run.requested_end_utc or '-'}")
+            print(f"Started: {run.started_at_utc}")
+            print(f"Finished: {run.finished_at_utc or '-'}")
+            print(f"Heartbeat: {run.heartbeat_at_utc or '-'}")
+            print(
+                "Counts: "
+                f"discovered={run.discovered_count} inserted={run.inserted_count} "
+                f"updated={run.updated_count} unchanged={run.unchanged_count} "
+                f"skipped={run.skipped_count} rejected={run.rejected_count} "
+                f"failed={run.failed_count} warnings={run.warning_count}"
+            )
+            print(f"Error: {run.error_summary or '-'}")
+        return
+    if args.data_command in {"audit-ingestion-runs", "reconcile-ingestion-runs"}:
+        with get_sessionmaker()() as session:
+            runs = abandoned_runs(session, older_than=timedelta(minutes=args.older_than_minutes))
+            for run in runs:
+                print(f"{run.run_uuid} status={run.status} heartbeat={run.heartbeat_at_utc} started={run.started_at_utc}")
+            if args.data_command == "reconcile-ingestion-runs" and args.mark_interrupted:
+                for run in runs:
+                    mark_run_interrupted(run, reason=f"Marked interrupted by CLI after {args.older_than_minutes} minutes without heartbeat.")
+                session.commit()
+                print(f"Marked interrupted: {len(runs)}")
+            if runs:
+                raise SystemExit(2 if args.data_command == "audit-ingestion-runs" else 0)
+        return
+    if args.data_command == "show-sync-cursors":
+        with get_sessionmaker()() as session:
+            statement = select(SyncCursor, DataSource.code).join(DataSource).order_by(DataSource.code, SyncCursor.scope, SyncCursor.scope_key)
+            if args.source:
+                statement = statement.where(DataSource.code == args.source)
+            for cursor, source_code in session.execute(statement):
+                validate_cursor(cursor)
+                print(
+                    f"{source_code} scope={cursor.scope} key={cursor.scope_key} "
+                    f"type={cursor.cursor_type} value={cursor.cursor_value_json} updated={cursor.updated_at_utc}"
+                )
+        return
+    if args.data_command == "audit-source-artifacts":
+        with get_sessionmaker()() as session:
+            issues = audit_source_artifacts(session)
+        for issue in issues:
+            print(f"{issue.issue}: artifact_id={issue.artifact_id} path={issue.storage_path}")
+        if issues:
+            raise SystemExit(1)
+        print("OK source_artifacts: issues=0")
+        return
+    if args.data_command == "audit-ecowitt-nullability":
+        with get_sessionmaker()() as session:
+            counts = {
+                "gateway_id": session.execute(select(func.count()).select_from(WeatherObservation).where(WeatherObservation.gateway_id.is_(None))).scalar_one(),
+                "observed_at_utc": session.execute(select(func.count()).select_from(WeatherObservation).where(WeatherObservation.observed_at_utc.is_(None))).scalar_one(),
+                "source": session.execute(select(func.count()).select_from(WeatherObservation).where(WeatherObservation.source.is_(None))).scalar_one(),
+            }
+        for key, count in counts.items():
+            print(f"{key}: null_rows={count}")
+        if any(counts.values()):
+            raise SystemExit(1)
+        return
+    fail("Unknown data command.")
 
 
 def format_satellite_status(status) -> list[str]:

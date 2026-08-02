@@ -10,6 +10,7 @@ from argos.database.base import Base
 from argos.database.session import get_engine, get_sessionmaker, reset_database_caches
 from argos.integrations.ecowitt_cloud import EcowittCloudClient, EcowittCloudCredentials
 from argos.models.ecowitt import EcowittCloudRawReport, WeatherObservation
+from argos.models.ingestion import IngestionRun, SyncCursor
 from argos.services.ecowitt_backfill import BackfillRangeError, backfill_ecowitt_cloud_range
 
 
@@ -68,6 +69,8 @@ def test_backfill_ecowitt_cloud_range_fetches_parses_and_imports(monkeypatch, tm
 
         observation = session.scalar(select(WeatherObservation))
         raw_report = session.scalar(select(EcowittCloudRawReport))
+        ingestion_run = session.scalar(select(IngestionRun))
+        cursor = session.scalar(select(SyncCursor))
         assert client.calls == [(start, end, ("outdoor", "rainfall_piezo"))]
         assert result.imported_count == 1
         assert result.duplicate_count == 0
@@ -77,6 +80,12 @@ def test_backfill_ecowitt_cloud_range_fetches_parses_and_imports(monkeypatch, tm
         assert observation.outdoor_temperature_c == 35.1
         assert observation.rain_day_mm == 2.54
         assert raw_report is not None
+        assert ingestion_run is not None
+        assert raw_report.ingestion_run_id == ingestion_run.id
+        assert observation.ingestion_run_id == ingestion_run.id
+        assert ingestion_run.status == "completed"
+        assert cursor is not None
+        assert cursor.cursor_value_json == {"last_successful_end_utc": end.isoformat()}
         assert raw_report.requested_start_utc == start.replace(tzinfo=None)
         assert raw_report.requested_end_utc == end.replace(tzinfo=None)
 
