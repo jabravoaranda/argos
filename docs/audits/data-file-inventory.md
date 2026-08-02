@@ -4,7 +4,7 @@ Date: 2026-08-02
 
 No files were moved while generating this inventory.
 
-JSON manifest: `var/manifests/data-inventory-20260802T170607Z.json`.
+JSON manifest: `var/manifests/data-inventory-20260802T180420Z.json`.
 
 ## Summary
 
