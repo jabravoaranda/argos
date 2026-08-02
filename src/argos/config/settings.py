@@ -47,7 +47,15 @@ class Settings(BaseSettings):
     argos_satellite_valid_pixel_fraction: float = 0.50
     argos_satellite_update_interval_hours: int = 24
     argos_satellite_preview_enabled: bool = True
-    argos_satellite_asset_dir: str = "data/satellite"
+    argos_data_dir: str = "data"
+    argos_raw_dir: str | None = None
+    argos_staging_dir: str | None = None
+    argos_processed_dir: str | None = None
+    argos_exports_dir: str | None = None
+    argos_cache_dir: str | None = None
+    argos_legacy_dir: str | None = None
+    argos_quarantine_dir: str | None = None
+    argos_satellite_asset_dir: str | None = None
     argos_satellite_http_timeout_seconds: int = 30
     aemet_api_key: str | None = None
     aemet_station_id: str = "6127X"

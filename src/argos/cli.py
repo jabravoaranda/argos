@@ -12,6 +12,17 @@ from argos.integrations.aemet.client import AemetClient, AemetConfigError
 from argos.integrations.ecowitt_cloud import DEFAULT_HISTORY_CALLBACKS, EcowittCloudClient, EcowittCloudConfigError
 from argos.services.argos_node_flowmeter import ArgosNodeStatusError, run_flowmeter_minute_capture
 from argos.services.aemet_import import AemetImportRangeError, AemetImportService
+from argos.services.data_layout import (
+    apply_migration_plan,
+    audit_staging,
+    build_data_inventory,
+    build_migration_plan,
+    retention_report,
+    write_inventory_manifest,
+    write_inventory_markdown,
+    write_weather_reconciliation,
+    reconcile_legacy_weather,
+)
 from argos.services.ecowitt_backfill import BackfillRangeError, backfill_ecowitt_cloud_range
 from argos.services.ecowitt_status import EcowittStatus, build_ecowitt_status
 from argos.services.satellite_ingestion import SatelliteIngestionService
@@ -148,6 +159,27 @@ def build_parser() -> argparse.ArgumentParser:
     cursors_parser.add_argument("--source", default=None)
     data_subparsers.add_parser("audit-source-artifacts", help="Audit source artifact files and checksums.")
     data_subparsers.add_parser("audit-ecowitt-nullability", help="Audit Ecowitt observation identity NULL values.")
+    inventory_parser = data_subparsers.add_parser("inventory-files", help="Inventory data/ files without moving them.")
+    inventory_parser.add_argument("--manifest-dir", type=Path, default=Path("var/manifests"))
+    inventory_parser.add_argument("--markdown", type=Path, default=Path("docs/audits/data-file-inventory.md"))
+    reconcile_weather_parser = data_subparsers.add_parser(
+        "reconcile-legacy-weather",
+        help="Analyze data/weather legacy files without moving them.",
+    )
+    reconcile_weather_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("docs/audits/legacy-weather-reconciliation.md"),
+    )
+    migrate_layout_parser = data_subparsers.add_parser("migrate-layout", help="Plan or apply data/ layout migration.")
+    migrate_layout_group = migrate_layout_parser.add_mutually_exclusive_group()
+    migrate_layout_group.add_argument("--dry-run", action="store_true", default=True)
+    migrate_layout_group.add_argument("--apply", action="store_true")
+    migrate_layout_parser.add_argument("--verbose", action="store_true", help="Print every planned file move.")
+    retention_parser = data_subparsers.add_parser("retention-report", help="Report retention eligibility; deletes nothing.")
+    retention_parser.add_argument("--limit", type=int, default=200)
+    staging_parser = data_subparsers.add_parser("audit-staging", help="Audit staging files; deletes nothing.")
+    staging_parser.add_argument("--older-than-hours", type=int, default=24)
 
     return parser
 
@@ -399,6 +431,92 @@ def run_data(args: argparse.Namespace) -> None:
             print(f"{key}: null_rows={count}")
         if any(counts.values()):
             raise SystemExit(1)
+        return
+    if args.data_command == "inventory-files":
+        with get_sessionmaker()() as session:
+            records = build_data_inventory(session=session)
+        manifest = write_inventory_manifest(records, manifest_dir=args.manifest_dir)
+        write_inventory_markdown(records, output_path=args.markdown)
+        print(f"Files inventoried: {len(records)}")
+        print(f"Manifest: {manifest}")
+        print(f"Markdown: {args.markdown}")
+        return
+    if args.data_command == "reconcile-legacy-weather":
+        with get_sessionmaker()() as session:
+            records = build_data_inventory(session=session)
+            results = reconcile_legacy_weather(records=records, session=session)
+        write_weather_reconciliation(results, output_path=args.output)
+        print(f"Legacy weather files analyzed: {len(results)}")
+        print(f"Report: {args.output}")
+        return
+    if args.data_command == "migrate-layout":
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        manifest_dir = Path("var/manifests")
+        with get_sessionmaker()() as session:
+            before_records = build_data_inventory(session=session)
+            before_manifest = write_inventory_manifest(before_records, manifest_dir=manifest_dir)
+            plan = build_migration_plan(session=session)
+            total_bytes = 0
+            log_path = manifest_dir / f"data-layout-migration-{timestamp}.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_lines = [f"created_at_utc={datetime.now(UTC).isoformat()}", f"before_manifest={before_manifest}"]
+            conflicts = 0
+            by_category: dict[str, int] = {}
+            for item in plan:
+                source = Path(get_settings().argos_data_dir) / item.source_path
+                total_bytes += source.stat().st_size if source.exists() else 0
+                conflicts += 1 if item.conflict else 0
+                by_category[item.category] = by_category.get(item.category, 0) + 1
+                line = (
+                    f"{item.category}: {item.source_path} -> {item.destination_path} "
+                    f"sha256={item.checksum_sha256} sql={item.sql_change or '-'} "
+                    f"conflict={item.conflict or '-'}"
+                )
+                if args.verbose:
+                    print(line)
+                log_lines.append(line)
+            print(f"Planned moves: {len(plan)}")
+            for category, count in sorted(by_category.items()):
+                print(f"  {category}: {count}")
+            print(f"Conflicts: {conflicts}")
+            print(f"Space required: {total_bytes} bytes")
+            log_lines.append(f"planned_moves={len(plan)}")
+            log_lines.append(f"conflicts={conflicts}")
+            log_lines.append(f"space_required_bytes={total_bytes}")
+            if args.apply:
+                apply_migration_plan(session=session, plan=plan)
+                after_records = build_data_inventory(session=session)
+                after_manifest = write_inventory_manifest(after_records, manifest_dir=manifest_dir)
+                log_lines.append(f"after_manifest={after_manifest}")
+                print("Applied layout migration.")
+            else:
+                print("Dry run only. Pass --apply to move files and update SQL.")
+            log_path.write_text("\n".join(log_lines) + "\n", encoding="utf-8")
+            print(f"Log: {log_path}")
+        return
+    if args.data_command == "retention-report":
+        records = build_data_inventory()
+        candidates = retention_report(records=records)
+        shown = 0
+        for candidate in candidates:
+            if shown >= args.limit:
+                break
+            print(
+                f"{candidate.category}: {candidate.relative_path} "
+                f"age_days={candidate.age_days} eligible={'yes' if candidate.eligible else 'no'} "
+                f"reason={candidate.reason}"
+            )
+            shown += 1
+        print("No files were deleted.")
+        return
+    if args.data_command == "audit-staging":
+        with get_sessionmaker()() as session:
+            issues = audit_staging(session=session, older_than=timedelta(hours=args.older_than_hours))
+        for issue in issues:
+            print(f"{issue.issue}: {issue.relative_path} {issue.details}")
+        if issues:
+            raise SystemExit(1)
+        print("OK staging: issues=0")
         return
     fail("Unknown data command.")
 

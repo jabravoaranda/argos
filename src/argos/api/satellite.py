@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import io
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
@@ -23,6 +22,7 @@ from argos.schemas.satellite import (
     SatelliteTimeseriesRead,
     SatelliteZoneRead,
 )
+from argos.services.data_layout import resolve_storage_path
 from argos.services.satellite_indices import PROCESSING_VERSION
 from argos.services.satellite_ingestion import SatelliteIngestionService
 
@@ -225,11 +225,15 @@ def export_satellite_csv(
 
 
 @router.get("/assets/{asset_id}")
-def satellite_asset(asset_id: int, session: Session = Depends(get_db_session)) -> FileResponse:
+def satellite_asset(
+    asset_id: int,
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> FileResponse:
     asset = SatelliteRepository(session).asset(asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="Satellite asset not found.")
-    path = Path(asset.storage_path)
+    path = resolve_storage_path(asset.storage_path, settings=settings)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Satellite asset file is missing.")
     return FileResponse(path, media_type=asset.mime_type, filename=path.name)

@@ -99,13 +99,27 @@ uv run uvicorn argos.main:app --host 0.0.0.0 --port 8080
 
 ## Additional Directories
 
-Copy these alongside database backups until ARGOS has a formal artifact registry:
+Keep database backups outside the operational `data/` tree. A copy on the same disk is not sufficient; sync to a second physical location.
+
+Copy these alongside database backups:
 
 ```powershell
 robocopy ".\data" "D:\ARGOS Backups\data" /MIR /XD cache staging
 ```
 
-If `data/satellite` is omitted, SQL metrics remain available, but preview image endpoints may return missing files. If `data/weather` or `data/aemet` is omitted before reconciliation, local-only historical evidence may be lost.
+Minimum data backup scope:
+
+- SQL database.
+- `data/raw`.
+- `data/legacy`.
+- `data/quarantine`.
+- `data/processed/satellite` while preview regeneration remains conditional.
+- `var/manifests`.
+- non-secret reconstruction configuration.
+
+Secrets from `.env` must be backed up separately and encrypted.
+
+If `data/satellite` or `data/processed/satellite` is omitted, SQL metrics remain available, but preview image endpoints may return missing files. If legacy `data/weather` or AEMET CSVs are omitted before reconciliation, local-only historical evidence may be lost.
 
 ## Second Location Sync
 
@@ -132,6 +146,15 @@ Recommended minimum:
 - 12 monthly backups.
 
 This phase does not install an automatic Windows schedule. Add scheduling only after manual backup and restore have been verified.
+
+Use this report before any future cleanup:
+
+```powershell
+argos data retention-report
+argos data audit-staging
+```
+
+Neither command deletes files in the current phase.
 
 ## Monthly Restore Drill
 

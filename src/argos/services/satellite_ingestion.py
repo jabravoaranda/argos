@@ -5,7 +5,6 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -13,6 +12,7 @@ from sqlalchemy.orm import Session
 from argos.config.settings import Settings, get_settings
 from argos.integrations.copernicus import CopernicusError, CopernicusSatelliteAdapter, StacItem
 from argos.repositories.satellite import SatelliteRepository
+from argos.services.data_layout import satellite_asset_root, storage_path_for_sql
 from argos.services.ingestion_trace import (
     create_ingestion_item,
     create_source_artifact,
@@ -442,9 +442,7 @@ class SatelliteIngestionService:
         run_trace: Any,
         ingestion_item: Any,
     ) -> None:
-        asset_dir = Path(self.settings.argos_satellite_asset_dir)
-        if not asset_dir.is_absolute():
-            asset_dir = Path.cwd() / asset_dir
+        asset_dir = satellite_asset_root(self.settings)
         acquisition_slug = item.acquisition_time.strftime("%Y%m%dT%H%M%SZ")
         item_dir = asset_dir / aoi_slug / "sentinel-2-l2a" / item.id
         item_dir.mkdir(parents=True, exist_ok=True)
@@ -462,7 +460,7 @@ class SatelliteIngestionService:
             self.repository.upsert_asset(
                 observation_id=observation_id,
                 asset_type=asset_type,
-                storage_path=str(path),
+                storage_path=storage_path_for_sql(path, settings=self.settings),
                 mime_type="image/png",
                 checksum_sha256=sha256(data).hexdigest(),
                 size_bytes=len(data),

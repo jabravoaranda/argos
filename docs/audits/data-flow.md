@@ -23,13 +23,13 @@ flowchart LR
     aemet_norm --> aemet_daily[("weather_daily_observations<br/>raw_payload_json + typed columns")]
     aemet_norm --> aemet_runs[("aemet_sync_runs")]
     aemet_norm --> trace
-    local_aemet_csv["data/aemet/6127X.csv<br/>local CSV seed"] -. manual input .-> aemet_client
+    local_aemet_csv["data/raw/aemet/*.csv<br/>legacy-readable from data/aemet"] -. manual input .-> aemet_client
 
     copernicus["Copernicus CDSE<br/>STAC + Statistics + Process API"] --> sat_service["SatelliteIngestionService<br/>CLI / API / scheduled sync"]
     sat_service --> sat_zones[("satellite_sources<br/>satellite_zones")]
     sat_service --> sat_obs[("satellite_observations<br/>raw_metadata_json")]
     sat_service --> sat_metrics[("satellite_metrics")]
-    sat_service --> sat_files["data/satellite/**.png<br/>preview assets"]
+    sat_service --> sat_files["data/processed/satellite/**.png<br/>legacy-readable from data/satellite"]
     sat_service --> trace
     sat_files --> sat_assets[("satellite_assets<br/>path + checksum + size")]
     sat_files --> artifacts[("source_artifacts<br/>path + sha256 + provenance")]
@@ -69,5 +69,6 @@ flowchart LR
     db --> fastapi["FastAPI read/admin endpoints"]
     fastapi --> dashboard["Streamlit dashboard"]
     db --> analytics["Analytics services<br/>series, correlations, trends"]
-    data_weather["data/weather<br/>legacy raw JSON + CSV"] -. not referenced by current code .-> audit_note["Audit follow-up<br/>classify or migrate"]
+    inventory["argos data inventory-files<br/>var/manifests + docs/audits"] -. audits .-> db
+    data_weather["data/legacy/weather<br/>planned from data/weather"] -. unresolved legacy .-> audit_note["Legacy reconciliation<br/>no automatic delete"]
 ```

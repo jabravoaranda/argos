@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from argos.config.settings import get_settings
 from argos.models.ingestion import DataSource, IngestionItem, IngestionRun, SourceArtifact, SyncCursor
 
 RUNNING = "running"
@@ -287,7 +288,7 @@ def create_source_artifact(
 def audit_source_artifacts(session: Session) -> list[ArtifactAuditIssue]:
     issues: list[ArtifactAuditIssue] = []
     for artifact in session.scalars(select(SourceArtifact).order_by(SourceArtifact.id)).all():
-        path = Path(artifact.storage_path)
+        path = _resolve_artifact_path(artifact.storage_path)
         if not path.exists():
             issues.append(ArtifactAuditIssue(artifact.id, artifact.storage_path, "missing_file"))
             continue
@@ -341,6 +342,13 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _resolve_artifact_path(storage_path: str) -> Path:
+    path = Path(storage_path)
+    if path.is_absolute() or path.exists():
+        return path
+    return Path(get_settings().argos_data_dir) / storage_path
 
 
 def _as_utc_or_none(value: datetime | None) -> datetime | None:

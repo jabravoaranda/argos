@@ -48,3 +48,18 @@ Supported terminal states are:
 - Satellite ingestion creates one run per requested range, one item per STAC scene, source artifacts for preview PNGs, and AOI cursors after successful non-dry runs.
 - Flowmeter minute capture creates one run per worker invocation and links minute aggregates to it.
 - Ecowitt LAN keeps the new nullable relation available, but this phase does not create one run per HTTP upload because existing raw reports and events already provide request-level evidence and a per-upload run table would add high cardinality without improving idempotence.
+
+## File Layout Integration
+
+Phase 4 adds file inventory and layout migration commands. Historical files that cannot be linked to an exact original ingestion run are not assigned a fabricated source run; their `source_artifacts.run_id` remains `NULL` and metadata marks them as legacy incorporated by an administrative layout operation.
+
+Relevant commands:
+
+```powershell
+argos data inventory-files
+argos data reconcile-legacy-weather
+argos data migrate-layout --dry-run
+argos data migrate-layout --apply
+argos data retention-report
+argos data audit-staging
+```

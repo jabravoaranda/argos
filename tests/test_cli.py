@@ -127,6 +127,11 @@ def test_build_parser_accepts_ingestion_traceability_data_commands() -> None:
     cursors = parser.parse_args(["data", "show-sync-cursors", "--source", "ecowitt_cloud"])
     artifacts = parser.parse_args(["data", "audit-source-artifacts"])
     nullability = parser.parse_args(["data", "audit-ecowitt-nullability"])
+    inventory = parser.parse_args(["data", "inventory-files"])
+    weather = parser.parse_args(["data", "reconcile-legacy-weather"])
+    layout = parser.parse_args(["data", "migrate-layout", "--apply"])
+    retention = parser.parse_args(["data", "retention-report", "--limit", "10"])
+    staging = parser.parse_args(["data", "audit-staging", "--older-than-hours", "12"])
 
     assert list_runs.data_command == "list-ingestion-runs"
     assert list_runs.source == "aemet_api"
@@ -137,6 +142,11 @@ def test_build_parser_accepts_ingestion_traceability_data_commands() -> None:
     assert cursors.source == "ecowitt_cloud"
     assert artifacts.data_command == "audit-source-artifacts"
     assert nullability.data_command == "audit-ecowitt-nullability"
+    assert inventory.data_command == "inventory-files"
+    assert weather.data_command == "reconcile-legacy-weather"
+    assert layout.apply
+    assert retention.limit == 10
+    assert staging.older_than_hours == 12
 
 
 def test_format_ecowitt_status_outputs_operator_summary() -> None:
