@@ -472,28 +472,39 @@ def cached_satellite_chart_rows(
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for metric in metrics:
-        series = ArgosApiClient(base_url=base_url, timeout_seconds=60).get_satellite_timeseries(
-            metric=metric,
-            start=start,
-            end=end,
-            quality_status=quality_status,
-            aoi_slug=aoi_slug,
-        )
-        for point in series.get("points", []):
-            rows.append(
-                {
-                    "acquisition_time": point.get("acquisition_time"),
-                    "metric_code": metric,
-                    "mean": point.get("mean"),
-                    "median": point.get("median"),
-                    "percentile_25": point.get("p25"),
-                    "percentile_75": point.get("p75"),
-                    "valid_pixel_fraction": point.get("valid_pixel_fraction"),
-                    "quality_status": point.get("quality_status"),
-                }
+        rows.extend(
+            ArgosApiClient(base_url=base_url, timeout_seconds=60).get_satellite_export_json(
+                start=start,
+                end=end,
+                quality_status=quality_status,
+                aoi_slug=aoi_slug,
+                metric=metric,
             )
+        )
     return rows
 
+
+@st.cache_data(ttl=60)
+def cached_satellite_latest_per_aoi(base_url: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for zone in ArgosApiClient(base_url=base_url).get_satellite_zones():
+        slug = zone.get("slug")
+        if not slug:
+            continue
+        latest = ArgosApiClient(base_url=base_url).get_satellite_latest(aoi_slug=str(slug))
+        if latest is None:
+            continue
+        rows.append(
+            {
+                "aoi_slug": slug,
+                "zone_name": zone.get("name") or slug,
+                "acquisition_time": latest.get("acquisition_time"),
+                "quality_status": latest.get("quality_status"),
+                "valid_pixel_fraction": latest.get("valid_pixel_fraction"),
+                "cloud_cover_metadata": latest.get("cloud_cover_metadata"),
+            }
+        )
+    return rows
 
 @st.cache_data(ttl=60)
 def cached_field_event_catalog(base_url: str) -> dict[str, Any]:
@@ -3188,6 +3199,15 @@ def satellite_frame_from_rows(rows: list[dict[str, Any]]) -> pd.DataFrame:
     return frame
 
 
+def satellite_acquisition_count(frame: pd.DataFrame) -> int:
+    if frame.empty or "acquisition_time" not in frame:
+        return 0
+    group_columns = ["acquisition_time"]
+    if "aoi_slug" in frame:
+        group_columns.append("aoi_slug")
+    return int(frame[group_columns].drop_duplicates().shape[0])
+
+
 def satellite_aoi_options(*, status: dict[str, Any], zones: list[dict[str, Any]]) -> list[dict[str, str]]:
     options: dict[str, str] = {}
     for zone in zones:
@@ -3243,16 +3263,20 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
 
     metrics = [metric for metric in SATELLITE_LABELS]
     aoi_options = satellite_aoi_options(status=status, zones=zones)
-    selected_aoi_slug = aoi_options[0]["slug"] if aoi_options else None
+    selected_aoi_value = "__all__"
     with st.container(key="satellite_controls", horizontal=True, vertical_alignment="bottom"):
         if aoi_options:
+            aoi_select_options = ["__all__", *[option["slug"] for option in aoi_options]]
             selected_aoi_slug = st.selectbox(
                 "AOI",
-                options=[option["slug"] for option in aoi_options],
-                format_func=lambda slug: next(option["name"] for option in aoi_options if option["slug"] == slug),
+                options=aoi_select_options,
+                format_func=lambda slug: "Todas"
+                if slug == "__all__"
+                else next(option["name"] for option in aoi_options if option["slug"] == slug),
                 key="satellite_aoi_filter",
                 width=230,
             )
+            selected_aoi_value = selected_aoi_slug
         selected_metrics = st.multiselect(
             "Índices satelitales",
             options=metrics,
@@ -3267,6 +3291,7 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
             width=230,
         )
 
+    selected_aoi_slug = None if selected_aoi_value == "__all__" else selected_aoi_value
     quality_status = None if quality_filter == "all" else quality_filter
     try:
         latest = cached_satellite_latest(client.base_url, selected_aoi_slug)
@@ -3295,8 +3320,12 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
         return
 
     chart_frame = satellite_frame_from_rows(chart_rows)
-    acquisition_count = int(chart_frame["acquisition_time"].nunique()) if "acquisition_time" in chart_frame else 0
-    zone_name = next((option["name"] for option in aoi_options if option["slug"] == selected_aoi_slug), "Finca")
+    acquisition_count = satellite_acquisition_count(chart_frame)
+    zone_name = (
+        "Todas"
+        if selected_aoi_slug is None
+        else next((option["name"] for option in aoi_options if option["slug"] == selected_aoi_slug), "Finca")
+    )
     st.html(
         f"""
         <div class="argos-satellite-meta">
@@ -3326,7 +3355,31 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
         )
     if details:
         with st.expander("Detalles satelitales", expanded=False):
-            st.dataframe(pd.DataFrame.from_records(details), hide_index=True)
+            if selected_aoi_slug is None:
+                latest_rows = cached_satellite_latest_per_aoi(client.base_url)
+                latest_frame = satellite_frame_from_rows(latest_rows)
+                if not latest_frame.empty:
+                    latest_frame["quality_status"] = latest_frame["quality_status"].map(
+                        lambda value: SATELLITE_QUALITY_LABELS.get(str(value), value)
+                    )
+                    st.dataframe(
+                        latest_frame[
+                            [
+                                column
+                                for column in [
+                                    "zone_name",
+                                    "acquisition_time",
+                                    "quality_status",
+                                    "valid_pixel_fraction",
+                                    "cloud_cover_metadata",
+                                ]
+                                if column in latest_frame
+                            ]
+                        ],
+                        hide_index=True,
+                    )
+            else:
+                st.dataframe(pd.DataFrame.from_records(details), hide_index=True)
 
     render_satellite_series_table(
         client=client,
@@ -3416,9 +3469,17 @@ def render_satellite_charts(frame: pd.DataFrame, selected: list[str]) -> None:
     if available_selected:
         plot_df = frame[frame["metric_code"].isin(available_selected)].copy()
         plot_df["Índice"] = plot_df["metric_code"].map(lambda value: SATELLITE_LABELS.get(value, value.upper()))
+        has_multiple_aois = "aoi_slug" in plot_df and plot_df["aoi_slug"].dropna().nunique() > 1
+        if has_multiple_aois:
+            plot_df["Parcela"] = plot_df.get("zone_name", plot_df["aoi_slug"]).fillna(plot_df["aoi_slug"])
+            plot_df["Serie"] = plot_df["Parcela"].astype(str) + " · " + plot_df["Índice"].astype(str)
+        else:
+            plot_df["Serie"] = plot_df["Índice"]
         hover_columns = [
             column
             for column in [
+                "zone_name",
+                "aoi_slug",
                 "median",
                 "percentile_25",
                 "percentile_75",
@@ -3432,18 +3493,26 @@ def render_satellite_charts(frame: pd.DataFrame, selected: list[str]) -> None:
             plot_df,
             x="acquisition_time",
             y="mean",
-            color="Índice",
+            color="Serie",
+            line_group="Serie",
             markers=True,
             hover_data=hover_columns,
         )
         figure.update_layout(xaxis_title="Fecha", yaxis_title="Media", legend_title_text="", height=360, margin=dict(t=18))
         st.plotly_chart(figure, width="stretch")
 
-    quality_df = (
-        frame[["acquisition_time", "valid_pixel_fraction", "quality_status"]]
-        .drop_duplicates(subset=["acquisition_time"])
-        .dropna(subset=["valid_pixel_fraction"])
-    )
+    quality_columns = {"acquisition_time", "valid_pixel_fraction", "quality_status"}
+    if quality_columns.issubset(frame.columns):
+        quality_group_columns = ["acquisition_time"]
+        if "aoi_slug" in frame:
+            quality_group_columns.append("aoi_slug")
+        quality_df = (
+            frame[[*quality_group_columns, "valid_pixel_fraction", "quality_status"]]
+            .drop_duplicates(subset=quality_group_columns)
+            .dropna(subset=["valid_pixel_fraction"])
+        )
+    else:
+        quality_df = pd.DataFrame()
     if not quality_df.empty:
         quality_figure = px.bar(
             quality_df,
