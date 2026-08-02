@@ -14,6 +14,7 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     database_url: str = "sqlite:///./var/argos.db"
+    sqlite_busy_timeout_ms: int = 5000
     local_timezone: str = "Europe/Madrid"
     log_level: str = "INFO"
     station_slug: str = "tomillar"
