@@ -28,6 +28,7 @@ from argos.schemas.analytics import (
     AnalyticsDistributionResponse,
     AnalyticsDistributionSummaryRead,
     AnalyticsHistogramBinRead,
+    AnalyticsMatrixPointRead,
     AnalyticsPointRead,
     AnalyticsSeriesRead,
     AnalyticsSeriesRequest,
@@ -163,6 +164,15 @@ class AnalyticsService:
         variable_ids = [variable.variable_id for variable in variables]
         matrix_frame = correlation_matrix(frame[variable_ids], request.method) if variable_ids else pd.DataFrame()
         pair_counts = frame[variable_ids].notna().astype(int).T.dot(frame[variable_ids].notna().astype(int)) if variable_ids else pd.DataFrame()
+        point_frame = frame[variable_ids] if variable_ids else pd.DataFrame()
+        points = [
+            AnalyticsMatrixPointRead(
+                timestamp_utc=pd.Timestamp(cast(Any, timestamp)).to_pydatetime(),
+                timestamp_local=local_timestamp(pd.Timestamp(cast(Any, timestamp)), self.settings),
+                values={variable_id: none_if_nan(row[variable_id]) for variable_id in variable_ids},
+            )
+            for timestamp, row in point_frame.iterrows()
+        ]
         return AnalyticsCorrelationMatrixResponse(
             variables=[variable_read(variable) for variable in variables],
             method=request.method,
@@ -174,6 +184,7 @@ class AnalyticsService:
                 [int(cast(Any, pair_counts.loc[row, column])) for column in variable_ids]
                 for row in variable_ids
             ],
+            points=points,
             warnings=response.warnings,
         )
 
@@ -565,9 +576,12 @@ def correlation_matrix(frame: pd.DataFrame, method: str) -> pd.DataFrame:
 def histogram_bins(values: pd.Series, bins: int | str, density: bool) -> list[AnalyticsHistogramBinRead]:
     if values.empty:
         return []
-    counts, edges = np.histogram(cast(Any, values.to_numpy(dtype=float)), bins=cast(Any, bins), density=density)  # type: ignore[call-overload]
+    finite_values = values[values.map(math.isfinite)]
+    if finite_values.empty:
+        return []
+    counts, edges = np.histogram(cast(Any, finite_values.to_numpy(dtype=float)), bins=cast(Any, bins), density=density)  # type: ignore[call-overload]
     return [
-        AnalyticsHistogramBinRead(left=float(edges[index]), right=float(edges[index + 1]), count=float(count))
+        AnalyticsHistogramBinRead(left=float(edges[index]), right=float(edges[index + 1]), count=none_if_nan(count) or 0.0)
         for index, count in enumerate(counts)
     ]
 

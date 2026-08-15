@@ -82,7 +82,7 @@ class EcowittRawReport(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     station_uuid: Mapped[str | None] = mapped_column(ForeignKey("stations.uuid"), index=True)
-    gateway_id: Mapped[int | None] = mapped_column(ForeignKey("gateways.id"), index=True)
+    gateway_id: Mapped[int] = mapped_column(ForeignKey("gateways.id"), nullable=False, index=True)
     received_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     device_timestamp_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     http_method: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -95,6 +95,7 @@ class EcowittRawReport(TimestampMixin, Base):
     query_string: Mapped[str | None] = mapped_column(Text)
     processing_time_ms: Mapped[int | None] = mapped_column(Integer)
     parser_version: Mapped[str | None] = mapped_column(String(32))
+    ingestion_run_id: Mapped[int | None] = mapped_column(ForeignKey("ingestion_runs.id"), index=True)
 
     gateway: Mapped[Gateway | None] = relationship(back_populates="raw_reports")
     observation: Mapped["WeatherObservation | None"] = relationship(back_populates="raw_report")
@@ -117,13 +118,22 @@ class EcowittCloudRawReport(TimestampMixin, Base):
     payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     api_version: Mapped[str | None] = mapped_column(String(32))
     parser_version: Mapped[str | None] = mapped_column(String(32))
+    ingestion_run_id: Mapped[int | None] = mapped_column(ForeignKey("ingestion_runs.id"), index=True)
 
     observation: Mapped["WeatherObservation | None"] = relationship(back_populates="cloud_raw_report")
 
 
 class WeatherObservation(TimestampMixin, Base):
     __tablename__ = "weather_observations"
-    __table_args__ = (Index("ix_weather_observations_gateway_observed", "gateway_id", "observed_at_utc"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "gateway_id",
+            "observed_at_utc",
+            "source",
+            name="uq_weather_observations_gateway_observed_source",
+        ),
+        Index("ix_weather_observations_gateway_observed", "gateway_id", "observed_at_utc"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     station_uuid: Mapped[str | None] = mapped_column(ForeignKey("stations.uuid"), index=True)
@@ -161,6 +171,7 @@ class WeatherObservation(TimestampMixin, Base):
     battery_voltage: Mapped[float | None] = mapped_column(Float)
     ws90_capacitor_voltage: Mapped[float | None] = mapped_column(Float)
     signal_dbm: Mapped[float | None] = mapped_column(Float)
+    ingestion_run_id: Mapped[int | None] = mapped_column(ForeignKey("ingestion_runs.id"), index=True)
 
     raw_report: Mapped["EcowittRawReport | None"] = relationship(back_populates="observation")
     cloud_raw_report: Mapped["EcowittCloudRawReport | None"] = relationship(back_populates="observation")

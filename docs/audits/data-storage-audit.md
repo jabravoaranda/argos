@@ -1,5 +1,11 @@
 # ARGOS Data Storage Audit
 
+Document type: Historical audit
+Snapshot date: 2026-08-02
+Current-state authority: docs/00-estado-del-proyecto.md
+Generated manually/automatically: manual
+Do not use this document as the sole source of current operational state.
+
 Date: 2026-08-02
 
 Scope: repository inspection plus read-only inspection of the local SQLite database at `C:\Users\Fizico\Documents\github\argos\var\argos.db`. No data, schemas, production code, or existing directories were modified.
@@ -12,7 +18,7 @@ The main source of truth is SQL for normalized and queryable data. Raw payloads 
 
 The `data/` directory is ignored by Git and contains 4,727 files: `data/aemet` has one CSV seed, `data/weather` has legacy JSON/CSV weather captures not referenced by current code, and `data/satellite` has 4,601 PNG preview assets. Rebuilding application containers does not affect these local files in the current repo workflow, but a containerized app would lose SQLite and data artifacts unless `var/` and `data/` are mounted.
 
-No duplicate rows were found in the inspected database for the tested natural keys. Important risks remain: no documented consistent SQLite backup procedure, no automatic backup/restore test, no global ingestion run model across all sources, no natural `UNIQUE` on `weather_observations(gateway_id, observed_at_utc, source)`, partial satellite file/SQL failure windows, and no persistent sync cursor table.
+No duplicate rows were found in the inspected database for the tested natural keys. Phase 1/2 addressed backup/restore tooling, SQLite hardening, duplicate audits, and natural uniqueness for `weather_observations(gateway_id, observed_at_utc, source)` plus `satellite_assets(observation_id, asset_type)`. Phase 3 adds a shared ingestion ledger, durable cursors and checksummed source artifacts. Remaining risks are documented in `docs/audits/ingestion-traceability-gap-analysis.md`.
 
 ## 2. Current Observed Architecture
 
@@ -89,6 +95,11 @@ The inspected database contains 24 tables, all matching the current Alembic head
 | `weekly_statistics` | Derived weekly Ecowitt stats | Weather statistics service | API/dashboard | `id` | `gateway_id, period_start` | gateway/period, station | Derived; no source/version marker |
 | `unknown_fields` | Unmapped Ecowitt fields | Ecowitt parser | Admin quality API | `id` | `field_name` | field_name | Stores sample, not all occurrences |
 | `ingestion_events` | Ecowitt events/warnings | Ecowitt direct/cloud | Admin quality API | `id` | None | gateway, raw_report, station | Not a general ingestion run ledger |
+| `data_sources` | Canonical ingestion source registry | Migrations/services | Ingestion traceability CLI | `id` | `code` | code, source_type | Configuration must remain non-secret |
+| `ingestion_runs` | Shared run ledger | AEMET, Ecowitt Cloud, satellite, flowmeter | CLI/audits/future ops | `id` | `run_uuid` | source/started, status | Legacy rows are not backfilled yet |
+| `ingestion_items` | Per item or interval status | AEMET, satellite | CLI/future diagnostics | `id` | `run_id, item_key` | run/status, external id | Not every legacy source has item granularity |
+| `sync_cursors` | Durable source cursors | AEMET, Ecowitt Cloud, satellite | Sync code and CLI | `id` | `source_id, scope, scope_key` | source/scope | Only advances after successful runs |
+| `source_artifacts` | Checksummed files with provenance | Satellite previews | Asset audits | `id` | None | source/role, sha256, provider external id | Current phase links new artifacts; legacy files can be reconciled later |
 | `data_gaps` | Ecowitt communication gaps | Data quality service | Admin quality API | `id` | None | gateway, station | No uniqueness on same gap interval |
 | `weather_stations` | External weather stations | AEMET import | Weather API/dashboard | `id` | `provider, external_id` | provider/external | Separate from `stations`; good but needs documented semantics |
 | `weather_daily_observations` | AEMET daily normalized rows | AEMET import/CSV | AEMET API/dashboard/analytics | `id` | `station_id, observation_date` | station/date | Good idempotence; corrections overwrite raw payload |
@@ -227,7 +238,7 @@ Recommended classification:
 - Never in Git: `data/**`, `var/**`, `.env`, backups containing real data or secrets.
 - Retention policies needed: raw provider responses, satellite previews/cache, backups, temporary staging.
 
-Do not move current directories yet. First create an inventory manifest, reconcile `data/weather` against SQL, and add read-compatible support for both old and new satellite asset paths.
+Phase 4/5 added inventory manifests, `data/weather` reconciliation, read-compatible support for old and new satellite asset paths, orphan satellite reconciliation and a dry-run/apply migration command. The real `data/` tree has been physically migrated after a verified backup and dry-run.
 
 ## 10. Target Architecture
 
@@ -250,11 +261,11 @@ Objective criteria to migrate to PostgreSQL:
 
 Minimal recommended schema concepts:
 
-- `data_sources`: canonical source registry (`ecowitt_lan`, `ecowitt_cloud`, `aemet`, `copernicus_s2`, `argos_node`, `manual`).
-- `ingestion_runs`: source, mode, requested window, status, started/finished timestamps, code version.
-- `ingestion_items`: item key, status, error, row counts, source artifact id.
-- `source_artifacts`: path or SQL payload reference, checksum, MIME, size, immutable flag.
-- `sync_cursors`: source-specific last successful cursor/window.
+- `data_sources`: canonical source registry (`ecowitt_lan`, `ecowitt_cloud`, `aemet_api`, `aemet_csv`, `copernicus_sentinel2`, `argos_node_flowmeter`, `manual_field_event`).
+- `ingestion_runs`: source, mode, requested window, status, started/finished timestamps, code version and counts.
+- `ingestion_items`: item key, status, error and row counts.
+- `source_artifacts`: path, checksum, MIME, size, immutable flag, regenerable flag and optional run/item links.
+- `sync_cursors`: source-specific last successful cursor/window, advanced only after successful runs.
 - `data_quality_flags`: normalized quality issues linked to observations or runs.
 
 Model recommendation: use a hybrid model. Keep typed domain tables for Ecowitt, AEMET, satellite, flowmeter and field events; add shared source/run/artifact/quality tables for traceability. Avoid a universal EAV observations table as the main storage model because ARGOS already has typed domains with different semantics and query patterns.

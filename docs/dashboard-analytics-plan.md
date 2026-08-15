@@ -1,5 +1,12 @@
 # ARGOS Dashboard Analytics Plan
 
+Estado: Borrador historico
+Tipo: Plan
+Fuente de verdad: `docs/00-estado-del-proyecto.md`
+Ultima actualizacion: 2026-08-02
+Responsable logico: Mantenimiento de software
+Revision: 1
+
 This document tracks the scientific statistics and charts planned for the dashboard. The dashboard should remain a visualization layer over API and analytics services, not a place for ingestion logic.
 
 ## Core descriptive statistics

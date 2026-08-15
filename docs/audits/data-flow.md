@@ -1,5 +1,11 @@
 # ARGOS Data Flow
 
+Document type: Historical audit
+Snapshot date: 2026-08-02
+Current-state authority: docs/00-estado-del-proyecto.md
+Generated manually/automatically: manual
+Do not use this document as the sole source of current operational state.
+
 ```mermaid
 flowchart LR
     ecowitt_lan["Ecowitt GW2000<br/>Customized HTTP upload"] --> ecowitt_endpoint["POST /api/v1/ecowitt/upload/{token}"]
@@ -15,27 +21,33 @@ flowchart LR
     cloud_adapter --> cloud_raw_sql[("ecowitt_cloud_raw_reports<br/>raw provider payload")]
     cloud_adapter --> weather_sql
     cloud_adapter --> quality_sql
+    cloud_adapter --> trace[("data_sources<br/>ingestion_runs<br/>ingestion_items<br/>sync_cursors")]
 
     aemet["AEMET OpenData / CSV"] --> aemet_client["AemetClient or import-csv"]
     aemet_client --> aemet_norm["AEMET normalizer"]
     aemet_norm --> aemet_station[("weather_stations")]
     aemet_norm --> aemet_daily[("weather_daily_observations<br/>raw_payload_json + typed columns")]
     aemet_norm --> aemet_runs[("aemet_sync_runs")]
-    local_aemet_csv["data/aemet/6127X.csv<br/>local CSV seed"] -. manual input .-> aemet_client
+    aemet_norm --> trace
+    local_aemet_csv["data/raw/aemet/*.csv<br/>legacy-readable from data/aemet"] -. manual input .-> aemet_client
 
     copernicus["Copernicus CDSE<br/>STAC + Statistics + Process API"] --> sat_service["SatelliteIngestionService<br/>CLI / API / scheduled sync"]
     sat_service --> sat_zones[("satellite_sources<br/>satellite_zones")]
     sat_service --> sat_obs[("satellite_observations<br/>raw_metadata_json")]
     sat_service --> sat_metrics[("satellite_metrics")]
-    sat_service --> sat_files["data/satellite/**.png<br/>preview assets"]
+    sat_service --> sat_files["data/processed/satellite/**.png<br/>legacy-readable from data/satellite"]
+    sat_service --> trace
     sat_files --> sat_assets[("satellite_assets<br/>path + checksum + size")]
+    sat_files --> artifacts[("source_artifacts<br/>path + sha256 + provenance")]
     sat_obs --> sat_metrics
     sat_obs --> sat_assets
+    artifacts --> sat_assets
 
     argos_node["argos-node<br/>/status + valve endpoints"] --> node_worker["startup worker or CLI<br/>minute aggregation"]
     node_worker --> flow_minutes[("argos_node_flowmeter_minutes")]
     node_worker --> flow_sessions[("argos_node_flowmeter_sessions")]
     node_worker --> flow_resets[("argos_node_flowmeter_reset_events")]
+    node_worker --> trace
 
     operator["Dashboard / API operator"] --> field_api["/api/v1/field-events"]
     field_api --> field_sql[("field_events")]
@@ -46,6 +58,8 @@ flowchart LR
     weather_sql --> db
     weather_stats --> db
     quality_sql --> db
+    trace --> db
+    artifacts --> db
     aemet_station --> db
     aemet_daily --> db
     aemet_runs --> db
@@ -61,5 +75,6 @@ flowchart LR
     db --> fastapi["FastAPI read/admin endpoints"]
     fastapi --> dashboard["Streamlit dashboard"]
     db --> analytics["Analytics services<br/>series, correlations, trends"]
-    data_weather["data/weather<br/>legacy raw JSON + CSV"] -. not referenced by current code .-> audit_note["Audit follow-up<br/>classify or migrate"]
+    inventory["argos data inventory-files<br/>var/manifests + docs/audits"] -. audits .-> db
+    data_weather["data/legacy/weather<br/>planned from data/weather"] -. unresolved legacy .-> audit_note["Legacy reconciliation<br/>no automatic delete"]
 ```

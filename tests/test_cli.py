@@ -108,6 +108,49 @@ def test_build_parser_accepts_satellite_aoi_slug() -> None:
     assert args.aoi_slug == "olivos_pequenos"
 
 
+def test_build_parser_accepts_data_audit_duplicates() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(["data", "audit-duplicates"])
+
+    assert args.command == "data"
+    assert args.data_command == "audit-duplicates"
+
+
+def test_build_parser_accepts_ingestion_traceability_data_commands() -> None:
+    parser = build_parser()
+
+    list_runs = parser.parse_args(["data", "list-ingestion-runs", "--source", "aemet_api", "--limit", "5"])
+    show_run = parser.parse_args(["data", "show-ingestion-run", "run-uuid"])
+    audit_runs = parser.parse_args(["data", "audit-ingestion-runs", "--older-than-minutes", "30"])
+    reconcile = parser.parse_args(["data", "reconcile-ingestion-runs", "--mark-interrupted"])
+    cursors = parser.parse_args(["data", "show-sync-cursors", "--source", "ecowitt_cloud"])
+    artifacts = parser.parse_args(["data", "audit-source-artifacts"])
+    nullability = parser.parse_args(["data", "audit-ecowitt-nullability"])
+    inventory = parser.parse_args(["data", "inventory-files"])
+    weather = parser.parse_args(["data", "reconcile-legacy-weather"])
+    layout = parser.parse_args(["data", "migrate-layout", "--apply"])
+    retention = parser.parse_args(["data", "retention-report", "--limit", "10"])
+    staging = parser.parse_args(["data", "audit-staging", "--older-than-hours", "12"])
+    orphans = parser.parse_args(["data", "reconcile-orphan-satellite-assets", "--apply-recoverable"])
+
+    assert list_runs.data_command == "list-ingestion-runs"
+    assert list_runs.source == "aemet_api"
+    assert list_runs.limit == 5
+    assert show_run.run_uuid == "run-uuid"
+    assert audit_runs.older_than_minutes == 30
+    assert reconcile.mark_interrupted
+    assert cursors.source == "ecowitt_cloud"
+    assert artifacts.data_command == "audit-source-artifacts"
+    assert nullability.data_command == "audit-ecowitt-nullability"
+    assert inventory.data_command == "inventory-files"
+    assert weather.data_command == "reconcile-legacy-weather"
+    assert layout.apply
+    assert retention.limit == 10
+    assert staging.older_than_hours == 12
+    assert orphans.apply_recoverable
+
+
 def test_format_ecowitt_status_outputs_operator_summary() -> None:
     status = EcowittStatus(
         station_slug="tomillar",

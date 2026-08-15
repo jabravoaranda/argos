@@ -60,6 +60,8 @@ class WeatherDailyObservation(TimestampMixin, Base):
     humidity_max_pct: Mapped[float | None] = mapped_column(Float)
     quality_flag: Mapped[str | None] = mapped_column(String(255))
     raw_payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    ingestion_run_id: Mapped[int | None] = mapped_column(ForeignKey("ingestion_runs.id"), index=True)
+    ingestion_item_id: Mapped[int | None] = mapped_column(ForeignKey("ingestion_items.id"), index=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
 
     station: Mapped[WeatherStation] = relationship(back_populates="daily_observations")
@@ -87,5 +89,6 @@ class AemetSyncRun(TimestampMixin, Base):
     updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     errors_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    ingestion_run_id: Mapped[int | None] = mapped_column(ForeignKey("ingestion_runs.id"), index=True)
 
     station: Mapped[WeatherStation | None] = relationship(back_populates="sync_runs")

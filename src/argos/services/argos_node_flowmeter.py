@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 import time
-from threading import Event
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from threading import Event
 from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from argos.dashboard.argos_node_client import ArgosNodeClient, ArgosNodeError
 from argos.models.argos_node import ArgosNodeFlowmeterMinute
 from argos.repositories.argos_node import ArgosNodeRepository
+from argos.services.ingestion_trace import finalize_ingestion_run, mark_run_failed, start_ingestion_run
 
 PULSES_PER_LITER = 27.0
 HYDROLOGICAL_YEAR_RESET_TYPE = "hydrological_year"
@@ -304,6 +305,7 @@ def persist_flowmeter_minute(
     *,
     session: Session,
     aggregate: FlowmeterMinuteAggregate,
+    ingestion_run_id: int | None = None,
 ) -> FlowmeterMinuteCapture:
     repository = ArgosNodeRepository(session)
     minute, created = repository.upsert_flowmeter_minute(
@@ -333,6 +335,7 @@ def persist_flowmeter_minute(
         relay1_state_end=aggregate.relay1_state_end,
         relay1_open_samples_count=aggregate.relay1_open_samples_count,
         relay1_open_fraction=aggregate.relay1_open_fraction,
+        ingestion_run_id=ingestion_run_id,
     )
     session.commit()
     return _capture_from_minute(minute, created=created)
@@ -407,37 +410,65 @@ def run_flowmeter_minute_capture(
     aggregator = FlowmeterMinuteAggregator(node_url=client.base_url)
     completed_windows = 0
     previous_session_active: bool | None = None
-    while (max_completed_windows is None or completed_windows < max_completed_windows) and not _should_stop(stop_event):
-        try:
-            status = client.get_status()
-            if status is None:
-                raise ArgosNodeStatusError("argos-node returned an empty status response.")
-            captured_at_utc = now()
-            sample = sample_from_status(status=status, captured_at_utc=captured_at_utc)
-        except (ArgosNodeError, ArgosNodeStatusError) as exc:
-            logger.warning("argos-node flowmeter poll failed; will retry: %s", exc)
-            _wait_for_next_poll(stop_event=stop_event, sleep=sleep, poll_interval_seconds=poll_interval_seconds)
-            continue
-        if previous_session_active is True and sample.session_active is False:
-            with session_factory() as session:
-                persist_flowmeter_session_close(session=session, node_url=client.base_url, sample=sample)
-        previous_session_active = sample.session_active
-        if hydrological_year_reset_month is not None and hydrological_year_reset_day is not None:
-            with session_factory() as session:
-                maybe_reset_hydrological_year(
-                    session=session,
-                    client=client,
-                    now_utc=captured_at_utc,
-                    reset_month=hydrological_year_reset_month,
-                    reset_day=hydrological_year_reset_day,
-                )
-        completed = aggregator.add_sample(sample)
-        if completed is not None:
-            with session_factory() as session:
-                persist_flowmeter_minute(session=session, aggregate=completed)
-            completed_windows += 1
-        if max_completed_windows is None or completed_windows < max_completed_windows:
-            _wait_for_next_poll(stop_event=stop_event, sleep=sleep, poll_interval_seconds=poll_interval_seconds)
+    with session_factory() as trace_session:
+        run_trace = start_ingestion_run(
+            trace_session,
+            source_code="argos_node_flowmeter",
+            mode="minute_capture",
+            trigger="worker",
+            parameters_json={"node_url": client.base_url, "poll_interval_seconds": poll_interval_seconds},
+        )
+        trace_session.commit()
+        ingestion_run_id = run_trace.id
+    try:
+        while (max_completed_windows is None or completed_windows < max_completed_windows) and not _should_stop(stop_event):
+            try:
+                status = client.get_status()
+                if status is None:
+                    raise ArgosNodeStatusError("argos-node returned an empty status response.")
+                captured_at_utc = now()
+                sample = sample_from_status(status=status, captured_at_utc=captured_at_utc)
+            except (ArgosNodeError, ArgosNodeStatusError) as exc:
+                logger.warning("argos-node flowmeter poll failed; will retry: %s", exc)
+                _wait_for_next_poll(stop_event=stop_event, sleep=sleep, poll_interval_seconds=poll_interval_seconds)
+                continue
+            if previous_session_active is True and sample.session_active is False:
+                with session_factory() as session:
+                    persist_flowmeter_session_close(session=session, node_url=client.base_url, sample=sample)
+            previous_session_active = sample.session_active
+            if hydrological_year_reset_month is not None and hydrological_year_reset_day is not None:
+                with session_factory() as session:
+                    maybe_reset_hydrological_year(
+                        session=session,
+                        client=client,
+                        now_utc=captured_at_utc,
+                        reset_month=hydrological_year_reset_month,
+                        reset_day=hydrological_year_reset_day,
+                    )
+            completed = aggregator.add_sample(sample)
+            if completed is not None:
+                with session_factory() as session:
+                    persist_flowmeter_minute(
+                        session=session,
+                        aggregate=completed,
+                        ingestion_run_id=ingestion_run_id,
+                    )
+                completed_windows += 1
+            if max_completed_windows is None or completed_windows < max_completed_windows:
+                _wait_for_next_poll(stop_event=stop_event, sleep=sleep, poll_interval_seconds=poll_interval_seconds)
+    except Exception as exc:
+        with session_factory() as trace_session:
+            run_trace = trace_session.get(type(run_trace), ingestion_run_id)
+            if run_trace is not None:
+                mark_run_failed(run_trace, exc)
+                trace_session.commit()
+        raise
+    with session_factory() as trace_session:
+        run_trace = trace_session.get(type(run_trace), ingestion_run_id)
+        if run_trace is not None:
+            run_trace.inserted_count = completed_windows
+            finalize_ingestion_run(run_trace)
+            trace_session.commit()
     return completed_windows
 
 

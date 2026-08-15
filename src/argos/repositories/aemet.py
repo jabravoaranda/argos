@@ -83,6 +83,8 @@ class AemetRepository:
         *,
         station_id: int,
         normalized: NormalizedAemetDailyObservation,
+        ingestion_run_id: int | None = None,
+        ingestion_item_id: int | None = None,
     ) -> tuple[WeatherDailyObservation, str]:
         observation = self.session.scalar(
             select(WeatherDailyObservation).where(
@@ -100,6 +102,10 @@ class AemetRepository:
             self.session.add(observation)
 
         changed = _apply_daily_observation(observation, normalized)
+        if ingestion_run_id is not None:
+            observation.ingestion_run_id = ingestion_run_id
+        if ingestion_item_id is not None:
+            observation.ingestion_item_id = ingestion_item_id
         self.session.flush()
         if created:
             return observation, "inserted"
@@ -116,6 +122,7 @@ class AemetRepository:
         mode: str,
         requested_start: date,
         requested_end: date,
+        ingestion_run_id: int | None = None,
     ) -> AemetSyncRun:
         run = AemetSyncRun(
             station_id=station_id,
@@ -127,6 +134,7 @@ class AemetRepository:
             started_at=datetime.now(UTC),
             intervals_json=[],
             errors_json=[],
+            ingestion_run_id=ingestion_run_id,
         )
         self.session.add(run)
         self.session.flush()

@@ -151,6 +151,8 @@ class SatelliteRepository:
         processing_version: str,
         geometry_hash: str,
         raw_metadata_json: dict[str, Any] | None,
+        ingestion_run_id: int | None = None,
+        ingestion_item_id: int | None = None,
         force: bool = False,
     ) -> tuple[SatelliteObservation, bool]:
         observation = self.observation_by_external_key(
@@ -189,6 +191,8 @@ class SatelliteRepository:
         observation.processing_version = processing_version
         observation.geometry_hash = geometry_hash
         observation.raw_metadata_json = raw_metadata_json
+        observation.ingestion_run_id = ingestion_run_id
+        observation.ingestion_item_id = ingestion_item_id
         self.session.flush()
         return observation, created
 
@@ -223,6 +227,7 @@ class SatelliteRepository:
         mime_type: str,
         checksum_sha256: str,
         size_bytes: int,
+        source_artifact_id: int | None = None,
     ) -> SatelliteAsset:
         asset = self.session.scalar(
             select(SatelliteAsset).where(
@@ -237,6 +242,7 @@ class SatelliteRepository:
         asset.mime_type = mime_type
         asset.checksum_sha256 = checksum_sha256
         asset.size_bytes = size_bytes
+        asset.source_artifact_id = source_artifact_id
         self.session.flush()
         return asset
 

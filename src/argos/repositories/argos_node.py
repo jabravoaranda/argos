@@ -53,6 +53,7 @@ class ArgosNodeRepository:
         relay1_state_end: bool | None,
         relay1_open_samples_count: int,
         relay1_open_fraction: float | None,
+        ingestion_run_id: int | None = None,
     ) -> tuple[ArgosNodeFlowmeterMinute, bool]:
         minute = self.flowmeter_minute_by_window(node_url=node_url, window_start_utc=window_start_utc)
         created = minute is None
@@ -84,6 +85,7 @@ class ArgosNodeRepository:
                 relay1_state_end=relay1_state_end,
                 relay1_open_samples_count=relay1_open_samples_count,
                 relay1_open_fraction=relay1_open_fraction,
+                ingestion_run_id=ingestion_run_id,
             )
             self.session.add(minute)
         else:
@@ -111,6 +113,7 @@ class ArgosNodeRepository:
             minute.relay1_state_end = relay1_state_end
             minute.relay1_open_samples_count = relay1_open_samples_count
             minute.relay1_open_fraction = relay1_open_fraction
+            minute.ingestion_run_id = ingestion_run_id or minute.ingestion_run_id
         self.session.flush()
         return minute, created
 

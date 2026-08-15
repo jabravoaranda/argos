@@ -110,6 +110,7 @@ class EcowittBackfillRepository:
         payload_hash: str,
         api_version: str | None,
         parser_version: str | None,
+        ingestion_run_id: int | None = None,
     ) -> EcowittCloudRawReport:
         raw_report = EcowittCloudRawReport(
             station_uuid=station_uuid,
@@ -121,6 +122,7 @@ class EcowittBackfillRepository:
             payload_hash=payload_hash,
             api_version=api_version,
             parser_version=parser_version,
+            ingestion_run_id=ingestion_run_id,
         )
         self.session.add(raw_report)
         self.session.flush()
@@ -152,6 +154,7 @@ class EcowittBackfillRepository:
         observed_at_utc: datetime,
         received_at_utc: datetime,
         values: dict[str, float | None],
+        ingestion_run_id: int | None = None,
     ) -> WeatherObservation:
         observation = WeatherObservation(
             station_uuid=station_uuid,
@@ -161,6 +164,7 @@ class EcowittBackfillRepository:
             source="BACKFILLED",
             observed_at_utc=observed_at_utc,
             received_at_utc=received_at_utc,
+            ingestion_run_id=ingestion_run_id,
             **values,
         )
         self.session.add(observation)

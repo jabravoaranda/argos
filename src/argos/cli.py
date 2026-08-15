@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import NoReturn
 
@@ -12,9 +12,34 @@ from argos.integrations.aemet.client import AemetClient, AemetConfigError
 from argos.integrations.ecowitt_cloud import DEFAULT_HISTORY_CALLBACKS, EcowittCloudClient, EcowittCloudConfigError
 from argos.services.argos_node_flowmeter import ArgosNodeStatusError, run_flowmeter_minute_capture
 from argos.services.aemet_import import AemetImportRangeError, AemetImportService
+from argos.services.data_layout import (
+    apply_migration_plan,
+    apply_recoverable_orphan_satellite_assets,
+    audit_staging,
+    build_data_inventory,
+    build_migration_plan,
+    orphan_satellite_summary,
+    retention_report,
+    reconcile_orphan_satellite_assets,
+    write_orphan_satellite_reconciliation,
+    write_inventory_manifest,
+    write_inventory_markdown,
+    write_weather_reconciliation,
+    reconcile_legacy_weather,
+)
 from argos.services.ecowitt_backfill import BackfillRangeError, backfill_ecowitt_cloud_range
 from argos.services.ecowitt_status import EcowittStatus, build_ecowitt_status
 from argos.services.satellite_ingestion import SatelliteIngestionService
+from argos.ops.data_duplicates import audit_duplicates, format_duplicate_results, has_structural_duplicates
+from argos.models.ingestion import DataSource, IngestionRun, SyncCursor
+from argos.services.ingestion_trace import (
+    abandoned_runs,
+    audit_source_artifacts,
+    mark_run_interrupted,
+    validate_cursor,
+)
+from sqlalchemy import func, select
+from argos.models.ecowitt import WeatherObservation
 
 
 def main() -> None:
@@ -34,6 +59,9 @@ def main() -> None:
         return
     if args.command == "node":
         run_node(args)
+        return
+    if args.command == "data":
+        run_data(args)
         return
     parser.print_help()
 
@@ -116,6 +144,54 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         help="Polling interval in seconds. Defaults to ARGOS_NODE_POLL_INTERVAL_SECONDS.",
     )
+
+    data_parser = subparsers.add_parser("data", help="Data protection and audit utilities.")
+    data_subparsers = data_parser.add_subparsers(dest="data_command")
+    data_subparsers.add_parser("audit-duplicates", help="Read-only duplicate audit for persisted data.")
+    runs_parser = data_subparsers.add_parser("list-ingestion-runs", help="List recent ingestion runs.")
+    runs_parser.add_argument("--source", default=None)
+    runs_parser.add_argument("--status", default=None)
+    runs_parser.add_argument("--limit", type=int, default=20)
+    show_run_parser = data_subparsers.add_parser("show-ingestion-run", help="Show one ingestion run.")
+    show_run_parser.add_argument("run_uuid")
+    audit_runs_parser = data_subparsers.add_parser("audit-ingestion-runs", help="Audit abandoned ingestion runs.")
+    audit_runs_parser.add_argument("--older-than-minutes", type=int, default=60)
+    reconcile_parser = data_subparsers.add_parser("reconcile-ingestion-runs", help="List or mark abandoned ingestion runs.")
+    reconcile_parser.add_argument("--older-than-minutes", type=int, default=60)
+    reconcile_parser.add_argument("--mark-interrupted", action="store_true")
+    cursors_parser = data_subparsers.add_parser("show-sync-cursors", help="Show sync cursors.")
+    cursors_parser.add_argument("--source", default=None)
+    data_subparsers.add_parser("audit-source-artifacts", help="Audit source artifact files and checksums.")
+    data_subparsers.add_parser("audit-ecowitt-nullability", help="Audit Ecowitt observation identity NULL values.")
+    inventory_parser = data_subparsers.add_parser("inventory-files", help="Inventory data/ files without moving them.")
+    inventory_parser.add_argument("--manifest-dir", type=Path, default=Path("var/manifests"))
+    inventory_parser.add_argument("--markdown", type=Path, default=Path("docs/audits/data-file-inventory.md"))
+    reconcile_weather_parser = data_subparsers.add_parser(
+        "reconcile-legacy-weather",
+        help="Analyze data/weather legacy files without moving them.",
+    )
+    reconcile_weather_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("docs/audits/legacy-weather-reconciliation.md"),
+    )
+    migrate_layout_parser = data_subparsers.add_parser("migrate-layout", help="Plan or apply data/ layout migration.")
+    migrate_layout_group = migrate_layout_parser.add_mutually_exclusive_group()
+    migrate_layout_group.add_argument("--dry-run", action="store_true", default=True)
+    migrate_layout_group.add_argument("--apply", action="store_true")
+    migrate_layout_parser.add_argument("--verbose", action="store_true", help="Print every planned file move.")
+    retention_parser = data_subparsers.add_parser("retention-report", help="Report retention eligibility; deletes nothing.")
+    retention_parser.add_argument("--limit", type=int, default=200)
+    staging_parser = data_subparsers.add_parser("audit-staging", help="Audit staging files; deletes nothing.")
+    staging_parser.add_argument("--older-than-hours", type=int, default=24)
+    orphan_sat_parser = data_subparsers.add_parser(
+        "reconcile-orphan-satellite-assets",
+        help="Analyze satellite PNG files not referenced by satellite_assets.",
+    )
+    orphan_sat_parser.add_argument("--dry-run", action="store_true", default=True)
+    orphan_sat_parser.add_argument("--apply-recoverable", action="store_true")
+    orphan_sat_parser.add_argument("--classify-only", action="store_true")
+    orphan_sat_parser.add_argument("--output-json", type=Path, default=None)
 
     return parser
 
@@ -268,6 +344,223 @@ def run_node(args: argparse.Namespace) -> None:
         print("Stopped flowmeter minute capture.")
     except (ArgosNodeError, ArgosNodeStatusError) as exc:
         raise SystemExit(str(exc)) from exc
+
+
+def run_data(args: argparse.Namespace) -> None:
+    if args.data_command == "audit-duplicates":
+        with get_sessionmaker()() as session:
+            results = audit_duplicates(session)
+        for line in format_duplicate_results(results):
+            print(line)
+        if has_structural_duplicates(results):
+            raise SystemExit(1)
+        return
+    if args.data_command == "list-ingestion-runs":
+        with get_sessionmaker()() as session:
+            statement = select(IngestionRun, DataSource.code).join(DataSource).order_by(
+                IngestionRun.started_at_utc.desc(), IngestionRun.id.desc()
+            ).limit(args.limit)
+            if args.source:
+                statement = statement.where(DataSource.code == args.source)
+            if args.status:
+                statement = statement.where(IngestionRun.status == args.status)
+            for run, source_code in session.execute(statement):
+                print(
+                    f"{run.run_uuid} {source_code} {run.mode} {run.status} "
+                    f"started={run.started_at_utc} finished={run.finished_at_utc or '-'} "
+                    f"inserted={run.inserted_count} updated={run.updated_count} failed={run.failed_count}"
+                )
+        return
+    if args.data_command == "show-ingestion-run":
+        with get_sessionmaker()() as session:
+            row = session.execute(
+                select(IngestionRun, DataSource.code)
+                .join(DataSource)
+                .where(IngestionRun.run_uuid == args.run_uuid)
+            ).first()
+            if row is None:
+                raise SystemExit("Ingestion run not found.")
+            run, source_code = row
+            print(f"Run: {run.run_uuid}")
+            print(f"Source: {source_code}")
+            print(f"Mode: {run.mode}")
+            print(f"Status: {run.status}")
+            print(f"Requested: {run.requested_start_utc or '-'} to {run.requested_end_utc or '-'}")
+            print(f"Started: {run.started_at_utc}")
+            print(f"Finished: {run.finished_at_utc or '-'}")
+            print(f"Heartbeat: {run.heartbeat_at_utc or '-'}")
+            print(
+                "Counts: "
+                f"discovered={run.discovered_count} inserted={run.inserted_count} "
+                f"updated={run.updated_count} unchanged={run.unchanged_count} "
+                f"skipped={run.skipped_count} rejected={run.rejected_count} "
+                f"failed={run.failed_count} warnings={run.warning_count}"
+            )
+            print(f"Error: {run.error_summary or '-'}")
+        return
+    if args.data_command in {"audit-ingestion-runs", "reconcile-ingestion-runs"}:
+        with get_sessionmaker()() as session:
+            runs = abandoned_runs(session, older_than=timedelta(minutes=args.older_than_minutes))
+            for run in runs:
+                print(f"{run.run_uuid} status={run.status} heartbeat={run.heartbeat_at_utc} started={run.started_at_utc}")
+            if args.data_command == "reconcile-ingestion-runs" and args.mark_interrupted:
+                for run in runs:
+                    mark_run_interrupted(run, reason=f"Marked interrupted by CLI after {args.older_than_minutes} minutes without heartbeat.")
+                session.commit()
+                print(f"Marked interrupted: {len(runs)}")
+            if runs:
+                raise SystemExit(2 if args.data_command == "audit-ingestion-runs" else 0)
+        return
+    if args.data_command == "show-sync-cursors":
+        with get_sessionmaker()() as session:
+            statement = select(SyncCursor, DataSource.code).join(DataSource).order_by(DataSource.code, SyncCursor.scope, SyncCursor.scope_key)
+            if args.source:
+                statement = statement.where(DataSource.code == args.source)
+            for cursor, source_code in session.execute(statement):
+                validate_cursor(cursor)
+                print(
+                    f"{source_code} scope={cursor.scope} key={cursor.scope_key} "
+                    f"type={cursor.cursor_type} value={cursor.cursor_value_json} updated={cursor.updated_at_utc}"
+                )
+        return
+    if args.data_command == "audit-source-artifacts":
+        with get_sessionmaker()() as session:
+            issues = audit_source_artifacts(session)
+        for issue in issues:
+            print(f"{issue.issue}: artifact_id={issue.artifact_id} path={issue.storage_path}")
+        if issues:
+            raise SystemExit(1)
+        print("OK source_artifacts: issues=0")
+        return
+    if args.data_command == "audit-ecowitt-nullability":
+        with get_sessionmaker()() as session:
+            counts = {
+                "gateway_id": session.execute(select(func.count()).select_from(WeatherObservation).where(WeatherObservation.gateway_id.is_(None))).scalar_one(),
+                "observed_at_utc": session.execute(select(func.count()).select_from(WeatherObservation).where(WeatherObservation.observed_at_utc.is_(None))).scalar_one(),
+                "source": session.execute(select(func.count()).select_from(WeatherObservation).where(WeatherObservation.source.is_(None))).scalar_one(),
+            }
+        for key, count in counts.items():
+            print(f"{key}: null_rows={count}")
+        if any(counts.values()):
+            raise SystemExit(1)
+        return
+    if args.data_command == "inventory-files":
+        with get_sessionmaker()() as session:
+            records = build_data_inventory(session=session)
+        manifest = write_inventory_manifest(records, manifest_dir=args.manifest_dir)
+        write_inventory_markdown(records, output_path=args.markdown, manifest_path=manifest)
+        print(f"Files inventoried: {len(records)}")
+        print(f"Manifest: {manifest}")
+        print(f"Markdown: {args.markdown}")
+        return
+    if args.data_command == "reconcile-legacy-weather":
+        with get_sessionmaker()() as session:
+            records = build_data_inventory(session=session)
+            results = reconcile_legacy_weather(records=records, session=session)
+        write_weather_reconciliation(results, output_path=args.output)
+        print(f"Legacy weather files analyzed: {len(results)}")
+        print(f"Report: {args.output}")
+        return
+    if args.data_command == "migrate-layout":
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        manifest_dir = Path("var/manifests")
+        with get_sessionmaker()() as session:
+            before_records = build_data_inventory(session=session)
+            before_manifest = write_inventory_manifest(before_records, manifest_dir=manifest_dir)
+            plan = build_migration_plan(session=session)
+            total_bytes = 0
+            log_path = manifest_dir / f"data-layout-migration-{timestamp}.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_lines = [f"created_at_utc={datetime.now(UTC).isoformat()}", f"before_manifest={before_manifest}"]
+            conflicts = 0
+            by_category: dict[str, int] = {}
+            for item in plan:
+                source = Path(get_settings().argos_data_dir) / item.source_path
+                total_bytes += source.stat().st_size if source.exists() else 0
+                conflicts += 1 if item.conflict else 0
+                by_category[item.category] = by_category.get(item.category, 0) + 1
+                line = (
+                    f"{item.category}: {item.source_path} -> {item.destination_path} "
+                    f"sha256={item.checksum_sha256} sql={item.sql_change or '-'} "
+                    f"conflict={item.conflict or '-'}"
+                )
+                if args.verbose:
+                    print(line)
+                log_lines.append(line)
+            print(f"Planned moves: {len(plan)}")
+            for category, count in sorted(by_category.items()):
+                print(f"  {category}: {count}")
+            print(f"Conflicts: {conflicts}")
+            print(f"Space required: {total_bytes} bytes")
+            log_lines.append(f"planned_moves={len(plan)}")
+            log_lines.append(f"conflicts={conflicts}")
+            log_lines.append(f"space_required_bytes={total_bytes}")
+            if args.apply:
+                apply_migration_plan(session=session, plan=plan)
+                after_records = build_data_inventory(session=session)
+                after_manifest = write_inventory_manifest(after_records, manifest_dir=manifest_dir)
+                log_lines.append(f"after_manifest={after_manifest}")
+                print("Applied layout migration.")
+            else:
+                print("Dry run only. Pass --apply to move files and update SQL.")
+            log_path.write_text("\n".join(log_lines) + "\n", encoding="utf-8")
+            print(f"Log: {log_path}")
+        return
+    if args.data_command == "retention-report":
+        records = build_data_inventory()
+        candidates = retention_report(records=records)
+        shown = 0
+        for candidate in candidates:
+            if shown >= args.limit:
+                break
+            print(
+                f"{candidate.category}: {candidate.relative_path} "
+                f"age_days={candidate.age_days} eligible={'yes' if candidate.eligible else 'no'} "
+                f"reason={candidate.reason}"
+            )
+            shown += 1
+        print("No files were deleted.")
+        return
+    if args.data_command == "audit-staging":
+        with get_sessionmaker()() as session:
+            issues = audit_staging(session=session, older_than=timedelta(hours=args.older_than_hours))
+        for issue in issues:
+            print(f"{issue.issue}: {issue.relative_path} {issue.details}")
+        if issues:
+            raise SystemExit(1)
+        print("OK staging: issues=0")
+        return
+    if args.data_command == "reconcile-orphan-satellite-assets":
+        with get_sessionmaker()() as session:
+            records = reconcile_orphan_satellite_assets(session=session)
+            output_json = args.output_json.parent if args.output_json else Path("var/manifests")
+            manifest = write_orphan_satellite_reconciliation(
+                records,
+                markdown_path=Path("docs/audits/orphan-satellite-assets-reconciliation.md"),
+                manifest_dir=output_json,
+            )
+            if args.output_json and args.output_json != manifest:
+                args.output_json.write_text(manifest.read_text(encoding="utf-8"), encoding="utf-8")
+                manifest = args.output_json
+            summary = orphan_satellite_summary(records)
+            print(f"Total analyzed: {summary['total']}")
+            print(f"Recoverable: {summary['recoverable_asset']}")
+            print(f"Duplicates: {summary['duplicate_file']}")
+            print(f"Legacy: {summary['legacy_preview']}")
+            print(f"Cache: {summary['regenerable_cache']}")
+            print(f"Unknown: {summary['unknown']}")
+            print(f"Corrupt: {summary['corrupt']}")
+            print(f"Conflicts: {summary['conflicting']}")
+            print(f"SQL rows creatable: {summary['sql_rows_creatable']}")
+            print(f"Ambiguities: {summary['ambiguous']}")
+            print(f"Manifest: {manifest}")
+            if args.apply_recoverable:
+                created = apply_recoverable_orphan_satellite_assets(session=session, records=records)
+                print(f"SQL rows created: {created}")
+            else:
+                print("Dry run only. Pass --apply-recoverable to create recoverable SQL rows.")
+        return
+    fail("Unknown data command.")
 
 
 def format_satellite_status(status) -> list[str]:

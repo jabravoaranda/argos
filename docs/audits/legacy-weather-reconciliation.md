@@ -1,0 +1,139 @@
+# Legacy Weather Reconciliation
+
+Document type: Historical audit
+Snapshot date: 2026-08-02
+Current-state authority: docs/00-estado-del-proyecto.md
+Generated manually/automatically: automatic via `uv run argos data reconcile-legacy-weather`
+Do not use this document as the sole source of current operational state.
+
+Date: 2026-08-02
+
+No `data/weather` file was moved or deleted. Current code does not consume these files directly.
+
+| File | Schema | Range | Gateway/Station | SQL representation | Decision |
+|---|---|---|---|---|---|
+| `weather/2026/2026-07-07.csv` | csv | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/2026/2026-07-08.csv` | csv | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/2026/2026-07-09.csv` | csv | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/2026/2026-07-10.csv` | csv | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-08/20260708T232304+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-08/20260708T234114+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T000126+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T000137+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T000226+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T000326+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T000426+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T000526+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T000626+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T000726+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T000826+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T000926+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T001026+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T001126+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T001226+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T001326+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T001426+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T001526+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T001626+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T001726+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T001826+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T001926+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T002026+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T002126+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T002226+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T002326+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T002426+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T002526+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T002626+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T002726+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T002826+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T002926+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T003026+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T003126+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T003226+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T003326+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T003426+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T003526+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T003626+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T003726+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T003826+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T003926+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T004026+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T004126+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T004226+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T004326+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T004426+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T004526+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T004626+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T004727+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T004828+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T004836+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T004927+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T005001+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T005027+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T005127+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T005150+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T005227+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T005309+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T005327+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T005428+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T005528+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T005628+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T005728+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T005828+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T005928+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T010028+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-09/20260709T010128+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T001511+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T001737+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T001837+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T001841+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T001937+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T001941+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002037+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002041+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002137+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002141+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002237+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002241+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002337+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002341+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002438+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002441+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002450+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002537+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002541+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002637+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002641+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002737+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002741+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002837+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002842+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002937+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T002941+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003037+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003041+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003137+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003141+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003237+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003241+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003338+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003341+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003438+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003442+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003537+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003541+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003638+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003642+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003738+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003742+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003837+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003841+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003938+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T003942+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T004038+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T004042+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T004137+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T004142+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T004238+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |
+| `weather/raw/2026/2026-07-10/20260710T004242+0200.json` | json | 2026 | unknown | unknown | preservacion obligatoria hasta reconciliacion manual |

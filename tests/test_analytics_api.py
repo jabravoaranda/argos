@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+import math
 
 from fastapi.testclient import TestClient
+import pandas as pd
 
 from argos.config.settings import get_settings
 from argos.database.base import Base
@@ -13,6 +15,7 @@ from argos.models.argos_node import ArgosNodeFlowmeterMinute
 from argos.models.ecowitt import WeatherObservation
 from argos.models.field_event import FieldEvent
 from argos.models.satellite import SatelliteMetric, SatelliteObservation, SatelliteSource, SatelliteZone
+from argos.services.analytics import histogram_bins
 
 
 def test_analytics_variables_and_unknown_variable(monkeypatch, tmp_path) -> None:
@@ -170,6 +173,13 @@ def test_analytics_satellite_series_filters_aoi(monkeypatch, tmp_path) -> None:
     points = response.json()["series"][0]["points"]
     assert [point["zone_slug"] for point in points] == ["olivos_pequenos"]
     assert [point["value"] for point in points] == [0.4]
+
+
+def test_density_histogram_sanitizes_degenerate_values() -> None:
+    histogram = histogram_bins(pd.Series([0.42, 0.42, 0.42], dtype="float64"), "auto", density=True)
+
+    assert histogram
+    assert all(math.isfinite(bin_.count) for bin_ in histogram)
 
 
 def analytics_client(monkeypatch, tmp_path) -> TestClient:

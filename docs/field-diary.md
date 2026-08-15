@@ -1,5 +1,12 @@
 # Diario de campo
 
+Estado: Vigente
+Tipo: Capacidad operativa
+Fuente de verdad: `docs/00-estado-del-proyecto.md`
+Ultima actualizacion: 2026-08-02
+Responsable logico: Operador ARGOS
+Revision: 1
+
 ARGOS incluye una tabla manual para registrar actuaciones y acontecimientos cualitativos de la finca. Estos eventos ayudan a interpretar las series de observación, pero no sustituyen a las medidas automáticas de Ecowitt, AEMET, satélite, caudalímetro o válvulas.
 
 ## Base de datos

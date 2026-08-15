@@ -47,6 +47,7 @@ class EcowittCaptureRepository:
         headers_json: dict[str, Any] | None,
         query_string: str | None,
         parser_version: str | None,
+        ingestion_run_id: int | None = None,
     ) -> EcowittRawReport:
         raw_report = EcowittRawReport(
             station_uuid=station_uuid,
@@ -62,6 +63,7 @@ class EcowittCaptureRepository:
             headers_json=headers_json,
             query_string=query_string,
             parser_version=parser_version,
+            ingestion_run_id=ingestion_run_id,
         )
         self.session.add(raw_report)
         self.session.flush()
@@ -108,6 +110,7 @@ class EcowittCaptureRepository:
         observed_at_utc: datetime,
         received_at_utc: datetime,
         values: dict[str, float | None],
+        ingestion_run_id: int | None = None,
     ) -> WeatherObservation:
         observation = WeatherObservation(
             station_uuid=station_uuid,
@@ -117,6 +120,7 @@ class EcowittCaptureRepository:
             source=source,
             observed_at_utc=observed_at_utc,
             received_at_utc=received_at_utc,
+            ingestion_run_id=ingestion_run_id,
             **values,
         )
         self.session.add(observation)

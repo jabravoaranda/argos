@@ -144,11 +144,18 @@ class AnalyticsCorrelationMatrixRequest(AnalyticsSeriesRequest):
     method: Literal["pearson", "spearman"] = "pearson"
 
 
+class AnalyticsMatrixPointRead(BaseModel):
+    timestamp_utc: datetime
+    timestamp_local: str
+    values: dict[str, float | None]
+
+
 class AnalyticsCorrelationMatrixResponse(BaseModel):
     variables: list[AnalyticsVariableRead]
     method: str
     matrix: list[list[float | None]]
     pair_counts: list[list[int]]
+    points: list[AnalyticsMatrixPointRead] = Field(default_factory=list)
     warnings: list[str]
 
 
