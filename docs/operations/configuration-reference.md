@@ -3,9 +3,9 @@
 Estado: Vigente
 Tipo: Referencia operativa
 Fuente de verdad: `src/argos/config/settings.py`
-Ultima actualizacion: 2026-08-02
+Ultima actualizacion: 2026-08-15
 Responsable logico: Mantenimiento de software
-Revision: 1
+Revision: 2
 
 No copiar secretos reales en documentacion, issues ni commits.
 
@@ -73,3 +73,13 @@ No copiar secretos reales en documentacion, issues ni commits.
 | `ARGOS_DAILY_SYNC_INTERVAL_HOURS` | Scheduling | No | `24.0` | No | `24` | Intervalo worker diario. |
 | `ECOWITT_CLOUD_SYNC_LOOKBACK_HOURS` | Scheduling | No | `24` | No | `24` | Lookback sync Cloud. |
 | `ARGOS_BACKUP_DIR` | Backups | No | no definido en settings | No | `D:\ARGOS Backups\sqlite` | Usado por scripts de backup, no por `Settings`. |
+
+## Electroválvulas configuradas en dashboard
+
+La nomenclatura funcional no se configura por variable de entorno. La fuente unica actual es `VALVE_CONTROLS` en `src/argos/dashboard/app.py`:
+
+| Nombre funcional | Identificador tecnico | ID valvula argos-node | Rele fisico |
+|---|---|---:|---:|
+| General | EV8 | 8 | 8 |
+| Sector I | EV6 | 6 | 6 |
+| Sector II | EV7 | 7 | 7 |

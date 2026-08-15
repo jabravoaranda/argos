@@ -62,6 +62,53 @@ DEFAULT_VARIABLES = [
 
 DEFAULT_VALVE_OPENING_DURATION_S = 7.0
 DEFAULT_VALVE_CLOSING_DURATION_S = 7.0
+
+
+@dataclass(frozen=True, slots=True)
+class ValveControl:
+    technical_id: str
+    functional_name: str
+    valve_id: int
+    relay_id: int
+    irrigation: bool = True
+    enabled_for_control: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class CloseAllValveResult:
+    valve: ValveControl
+    response: dict[str, Any] | None = None
+    error: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.error is None
+
+
+@dataclass(frozen=True, slots=True)
+class CloseAllValvesResult:
+    results: tuple[CloseAllValveResult, ...]
+
+    @property
+    def ok(self) -> bool:
+        return all(result.ok for result in self.results)
+
+    @property
+    def succeeded(self) -> tuple[CloseAllValveResult, ...]:
+        return tuple(result for result in self.results if result.ok)
+
+    @property
+    def failed(self) -> tuple[CloseAllValveResult, ...]:
+        return tuple(result for result in self.results if not result.ok)
+
+
+VALVE_CONTROLS: tuple[ValveControl, ...] = (
+    ValveControl(technical_id="EV8", functional_name="General", valve_id=8, relay_id=8),
+    ValveControl(technical_id="EV6", functional_name="Sector I", valve_id=6, relay_id=6),
+    ValveControl(technical_id="EV7", functional_name="Sector II", valve_id=7, relay_id=7),
+    ValveControl(technical_id="EV4", functional_name="Sector III", valve_id=4, relay_id=4, enabled_for_control=False),
+    ValveControl(technical_id="EV5", functional_name="Sector IV", valve_id=5, relay_id=5, enabled_for_control=False),
+)
 FLOWMETER_CHART_WINDOW_HOURS = 1
 DEFAULT_AEMET_STATION = "6127X"
 AEMET_BACKFILL_DEFAULT_START = date(1900, 1, 1)
@@ -118,6 +165,13 @@ OBSERVATION_PERIODS = [
     ("Month", timedelta(days=30)),
     ("Year", timedelta(days=365)),
 ]
+
+OBSERVATION_PERIOD_OPTIONS = {
+    "24 h": timedelta(days=1),
+    "7 días": timedelta(days=7),
+    "30 días": timedelta(days=30),
+    "1 año": timedelta(days=365),
+}
 
 HOME_DUAL_AXIS_CHART_HEIGHT = 405
 DUAL_AXIS_CHART_HEIGHT = 520
@@ -181,6 +235,14 @@ MAIN_PAGES = [
     "Calidad",
 ]
 
+PAGE_GROUPS = {
+    "GENERAL": ("Inicio",),
+    "MONITORIZACIÓN": ("Observaciones", "Resúmenes", "Análisis", "Diario de campo"),
+    "OPERACIÓN": ("Válvulas", "Actualizar datos"),
+    "DATOS EXTERNOS": ("AEMET", "Satélite"),
+    "ADMINISTRACIÓN": ("Calidad",),
+}
+
 MAIN_PAGE_ICONS = {
     "Inicio": ":material/home:",
     "Observaciones": ":material/monitoring:",
@@ -192,6 +254,32 @@ MAIN_PAGE_ICONS = {
     "Satélite": ":material/satellite_alt:",
     "Válvulas": ":material/valve:",
     "Calidad": ":material/fact_check:",
+}
+
+PAGE_ARCHETYPES = {
+    "Inicio": "Dashboard / resumen",
+    "Observaciones": "Monitorización",
+    "Resúmenes": "Dashboard / resumen",
+    "Análisis": "Análisis",
+    "Diario de campo": "Cronología / conocimiento",
+    "Actualizar datos": "Configuración / administración",
+    "AEMET": "Monitorización",
+    "Satélite": "Análisis",
+    "Válvulas": "Operación / control",
+    "Calidad": "Configuración / administración",
+}
+
+PAGE_DESCRIPTIONS = {
+    "Inicio": "Estado general y meteorología reciente",
+    "Observaciones": "Series meteorológicas por ventana temporal",
+    "Resúmenes": "Agregados diarios, semanales y estacionales",
+    "Análisis": "Comparación, correlación y distribución de variables",
+    "Diario de campo": "Eventos, actuaciones y observaciones de finca",
+    "Actualizar datos": "Operaciones manuales de importación y sincronización",
+    "AEMET": "Histórico externo de estación meteorológica",
+    "Satélite": "Índices de vegetación y calidad por zona",
+    "Válvulas": "Control de riego, caudal y acumulados",
+    "Calidad": "Trazabilidad, gaps y datos operacionales",
 }
 
 SPANISH_MONTH_ABBR = {
@@ -242,6 +330,8 @@ def main() -> None:
     observations_df = dataframe_from_records(observations, "observed_at_utc")
     daily_df = dataframe_from_records(daily, "period_start")
     weekly_df = dataframe_from_records(weekly, "period_start")
+
+    render_global_shell_header(selected_page, health=health, latest=latest, status=status)
 
     if selected_page == "Inicio":
         render_home_header()
@@ -328,7 +418,8 @@ def render_sidebar_brand() -> None:
     st.html(
         """
         <div class="argos-sidebar-brand">
-            <strong>ARGOS dashboard</strong>
+            <strong>ARGOS</strong>
+            <span>panel operativo</span>
         </div>
         """
     )
@@ -343,18 +434,21 @@ def render_sidebar_navigation() -> str:
         selected_page = MAIN_PAGES[0]
         st.session_state["argos_selected_page"] = selected_page
 
-    for page in MAIN_PAGES:
-        active = page == selected_page
-        if st.button(
-            page,
-            key=f"argos_nav_{element_key('page', page)}",
-            type="primary" if active else "tertiary",
-            icon=MAIN_PAGE_ICONS.get(page),
-            width="stretch",
-        ):
-            st.session_state["argos_selected_page"] = page
-            selected_page = page
-            st.rerun()
+    for group, pages in PAGE_GROUPS.items():
+        st.html(f'<div class="argos-sidebar-section-label">{escape(group)}</div>')
+        for page in pages:
+            active = page == selected_page
+            if st.button(
+                page,
+                key=f"argos_nav_{element_key('page', page)}",
+                type="primary" if active else "tertiary",
+                icon=MAIN_PAGE_ICONS.get(page),
+                width="stretch",
+            ):
+                st.session_state["argos_selected_page"] = page
+                selected_page = page
+                st.rerun()
+    st.html('<div class="argos-sidebar-version">ARGOS v2.3.0</div>')
     return selected_page
 
 
@@ -655,44 +749,165 @@ def render_home_header() -> None:
     return
 
 
+def render_global_shell_header(
+    page: str,
+    *,
+    health: dict[str, Any],
+    latest: dict[str, Any] | None,
+    status: dict[str, Any],
+) -> None:
+    status_ok = str(health.get("status", "")).lower() in {"ok", "healthy", "ready"}
+    status_label = "Sistema operativo" if status_ok else "Sistema con incidencias"
+    status_tone = "ok" if status_ok else "warn"
+    latest_time = format_compact_local_datetime(latest.get("observed_at_utc")) if latest else "-"
+    updated_at = datetime.now().strftime("%H:%M:%S")
+    temperature = format_number(latest.get("outdoor_temperature_c") if latest else None, "deg C")
+    gateway = status.get("status") or status.get("state") or status.get("gateway_status") or "-"
+
+    st.html(
+        f"""
+        <div class="argos-top-shell">
+            <div class="argos-top-brand">
+                <span class="argos-top-icon">{MAIN_PAGE_ICONS.get(page, ":material/dashboard:")}</span>
+                <div>
+                    <h1>{escape(page)}</h1>
+                    <p>{escape(PAGE_DESCRIPTIONS.get(page, PAGE_ARCHETYPES.get(page, "")))}</p>
+                </div>
+            </div>
+            <div class="argos-top-meta">
+                {status_badge_html(status_label, status_tone)}
+                {shell_pill_html("Arquetipo", PAGE_ARCHETYPES.get(page, "-"))}
+                {shell_pill_html("Meteo", temperature)}
+                {shell_pill_html("Último dato", latest_time)}
+                {shell_pill_html("Nodo", str(gateway))}
+                {shell_pill_html("Actualizado", updated_at)}
+            </div>
+        </div>
+        """
+    )
+
+
+def section_header_html(title: str, subtitle: str | None = None) -> str:
+    subtitle_html = f"<span>{escape(subtitle)}</span>" if subtitle else ""
+    return f'<div class="argos-section-header"><strong>{escape(title)}</strong>{subtitle_html}</div>'
+
+
+def status_badge_html(label: str, tone: str = "info") -> str:
+    return f'<span class="argos-badge {escape(tone)}">{escape(label)}</span>'
+
+
+def shell_pill_html(label: str, value: str) -> str:
+    return (
+        '<span class="argos-shell-pill">'
+        f"<small>{escape(label)}</small>"
+        f"<b>{escape(value)}</b>"
+        "</span>"
+    )
+
+
+def valve_card_status_tone(phase: str) -> str:
+    if phase == "not_operational":
+        return "muted"
+    if phase in {"open", "opening", "sending_open_command"}:
+        return "ok"
+    if phase in {"closed", "closing", "sending_close_command"}:
+        return "muted"
+    if phase == "error":
+        return "danger"
+    return "warn"
+
+
+def phase_is_busy(phase: str) -> bool:
+    return phase in {"sending_open_command", "sending_close_command", "opening", "closing"}
+
+
+def valve_availability_label(valve: ValveControl) -> str:
+    return "Operativa" if valve.enabled_for_control else "No operativa"
+
+
+def valve_card_state_label(phase: str) -> str:
+    labels = {
+        "open": "Abierta estimada",
+        "closed": "Cerrada estimada",
+        "sending_open_command": "Enviando abrir",
+        "opening": "Abriendo",
+        "sending_close_command": "Enviando cerrar",
+        "closing": "Cerrando",
+        "error": "Error de comunicación",
+        "unknown": "Desconocida",
+        "not_operational": "Pendiente servicio",
+    }
+    return labels.get(phase, phase)
+
+
 def apply_compact_dashboard_styles() -> None:
     st.markdown(
         """
         <style>
+            :root {
+                --argos-font-body: 13px;
+                --argos-font-meta: 11px;
+                --argos-font-sidebar: 12.5px;
+                --argos-font-sidebar-label: 10.5px;
+                --argos-font-card-title: 13.5px;
+                --argos-font-section-title: 15.5px;
+                --argos-font-page-title: 19px;
+                --argos-font-kpi: 20px;
+                --argos-font-chip: 10.5px;
+                --argos-font-button: 12.5px;
+                --argos-main-top-offset: 56px;
+                --argos-line-body: 1.24;
+                --argos-line-title: 1.14;
+                --argos-line-meta: 1.16;
+            }
+
+            html,
+            body,
+            .stApp,
+            [data-testid="stAppViewContainer"] {
+                font-size: var(--argos-font-body) !important;
+                line-height: var(--argos-line-body) !important;
+            }
+
+            header[data-testid="stHeader"] {
+                height: 0 !important;
+            }
+
             section[data-testid="stSidebar"] {
-                width: 180px !important;
-                min-width: 180px !important;
-                max-width: 180px !important;
+                width: 192px !important;
+                min-width: 192px !important;
+                max-width: 192px !important;
             }
 
             section[data-testid="stSidebar"] > div {
-                width: 180px !important;
-                min-width: 180px !important;
-                max-width: 180px !important;
-                padding: 0.45rem 0.45rem !important;
+                width: 192px !important;
+                min-width: 192px !important;
+                max-width: 192px !important;
+                padding: 8px 9px !important;
             }
 
             section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
-                width: 180px !important;
-                min-width: 180px !important;
-                max-width: 180px !important;
+                width: 192px !important;
+                min-width: 192px !important;
+                max-width: 192px !important;
             }
 
             section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
-                padding: 0.4rem 0.35rem !important;
+                padding: 7px 6px !important;
             }
 
             .block-container {
                 max-width: 100%;
-                padding: 3.8rem 0.55rem 0.9rem !important;
+                padding: var(--argos-main-top-offset) 8px 10px !important;
             }
 
             [data-testid="stMainBlockContainer"],
             [data-testid="stAppViewBlockContainer"] {
                 max-width: 100%;
-                padding-left: 0.55rem !important;
-                padding-right: 0.55rem !important;
-                padding-bottom: 0.9rem !important;
+                padding-left: 8px !important;
+                padding-right: 8px !important;
+                padding-top: var(--argos-main-top-offset) !important;
+                padding-bottom: 10px !important;
             }
 
             [data-testid="stVerticalBlockBorderWrapper"] {
@@ -700,77 +915,143 @@ def apply_compact_dashboard_styles() -> None:
             }
 
             [data-testid="stVerticalBlockBorderWrapper"] > div {
-                padding: 0.55rem 0.65rem !important;
+                padding: 10px 11px !important;
+            }
+
+            div[data-testid="stDataFrame"] {
+                font-size: 12px !important;
+                line-height: 1.22 !important;
+            }
+
+            div[data-testid="stButton"] > button {
+                align-items: center !important;
+                border-radius: 6px !important;
+                display: inline-flex !important;
+                font-size: var(--argos-font-button) !important;
+                justify-content: center !important;
+                line-height: 1.16 !important;
+                min-height: 34px !important;
+                overflow: visible !important;
+                padding: 5px 10px !important;
+                white-space: nowrap !important;
+                word-break: keep-all !important;
+            }
+
+            div[data-testid="stButton"] > button span {
+                font-size: inherit !important;
+                line-height: 1.16 !important;
+                overflow: visible !important;
+                white-space: nowrap !important;
+                word-break: keep-all !important;
             }
 
             h1 {
-                font-size: 2rem !important;
-                line-height: 1.18 !important;
-                margin-bottom: 0.15rem !important;
+                font-size: var(--argos-font-page-title) !important;
+                line-height: var(--argos-line-title) !important;
+                margin-bottom: 3px !important;
             }
 
             h2 {
-                font-size: 1.25rem !important;
-                line-height: 1.18 !important;
+                font-size: var(--argos-font-section-title) !important;
+                line-height: var(--argos-line-title) !important;
             }
 
             h3 {
-                font-size: 1.05rem !important;
-                line-height: 1.18 !important;
+                font-size: var(--argos-font-card-title) !important;
+                line-height: var(--argos-line-title) !important;
             }
 
             div[data-testid="stMetric"] {
-                padding: 0.45rem 0.6rem !important;
+                padding: 9px 11px !important;
             }
 
             div[data-testid="stMetricLabel"] {
-                font-size: 0.72rem !important;
+                font-size: var(--argos-font-meta) !important;
+                line-height: var(--argos-line-meta) !important;
             }
 
             div[data-testid="stMetricValue"] {
-                font-size: 1.35rem !important;
+                font-size: var(--argos-font-kpi) !important;
                 line-height: 1.1 !important;
             }
 
             .argos-app-header {
                 align-items: baseline;
                 display: flex;
-                gap: 0.65rem;
-                margin: 0 0 0.35rem;
-                min-height: 1.35rem;
+                gap: 9px;
+                margin: 0 0 6px;
+                min-height: 22px;
             }
 
             .argos-app-header strong {
                 color: rgb(38, 39, 48);
-                font-size: 1.02rem;
+                font-size: var(--argos-font-section-title);
                 letter-spacing: 0;
+                line-height: var(--argos-line-title);
             }
 
             .argos-app-header span {
                 color: rgba(49, 51, 63, 0.62);
-                font-size: 0.82rem;
+                font-size: var(--argos-font-meta);
+                line-height: var(--argos-line-meta);
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
 
             div[data-testid="stCaptionContainer"] {
-                font-size: 0.74rem;
-                margin-bottom: 0.12rem;
+                font-size: var(--argos-font-meta) !important;
+                line-height: var(--argos-line-meta) !important;
+                margin-bottom: 2px;
+            }
+
+            div[data-testid="stMarkdownContainer"],
+            div[data-testid="stText"],
+            label,
+            p {
+                font-size: var(--argos-font-body);
+                line-height: var(--argos-line-body);
             }
 
             div[data-testid="stTabs"] [data-baseweb="tab-list"] {
-                gap: 0.25rem;
+                gap: 4px;
                 margin-top: 0;
             }
 
             div[data-testid="stTabs"] [data-baseweb="tab"] {
-                height: 1.8rem;
-                padding: 0 0.55rem;
+                font-size: 12.5px !important;
+                height: 32px;
+                line-height: 1.15;
+                padding: 0 10px;
+                white-space: nowrap;
+            }
+
+            div[data-testid="stSelectbox"] div[data-baseweb="select"],
+            div[data-testid="stMultiSelect"] div[data-baseweb="select"] {
+                min-height: 34px !important;
+            }
+
+            div[data-testid="stSelectbox"] [data-baseweb="select"] *,
+            div[data-testid="stMultiSelect"] [data-baseweb="select"] *,
+            div[data-testid="stSegmentedControl"] *,
+            div[data-testid="stExpander"] * {
+                font-size: 12.5px !important;
+                line-height: 1.18 !important;
+            }
+
+            div[data-testid="stSegmentedControl"] button {
+                min-height: 34px !important;
+                padding: 5px 12px !important;
+                white-space: nowrap !important;
+            }
+
+            div[data-testid="stExpander"] details > summary {
+                min-height: 34px !important;
+                padding: 7px 10px !important;
             }
 
             div[data-testid="stVerticalBlock"] {
-                gap: 0.28rem;
+                gap: 4px;
             }
 
             div[data-testid="stHeading"] {
@@ -778,36 +1059,47 @@ def apply_compact_dashboard_styles() -> None:
             }
 
             section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] {
-                gap: 0.25rem;
+                gap: 4px;
             }
 
             section[data-testid="stSidebar"] h2,
             section[data-testid="stSidebar"] h3 {
-                font-size: 0.82rem !important;
-                margin: 0.18rem 0 0.08rem !important;
+                font-size: 12px !important;
+                line-height: 1.15 !important;
+                margin: 3px 0 2px !important;
             }
 
             section[data-testid="stSidebar"] label {
-                font-size: 0.76rem;
+                font-size: 12px;
+                line-height: 1.16;
             }
 
             .argos-sidebar-brand {
                 border-bottom: 1px solid rgba(49, 51, 63, 0.16);
-                margin: 0 0 0.4rem;
-                padding: 0.05rem 0 0.52rem;
+                margin: 0 0 7px;
+                padding: 2px 0 8px;
             }
 
             .argos-sidebar-brand strong {
-                color: rgb(38, 39, 48);
+                color: #15803d;
                 display: block;
-                font-size: 1rem;
+                font-size: 20px;
                 font-weight: 700;
-                line-height: 1.15;
+                line-height: 1.12;
                 overflow-wrap: anywhere;
             }
 
+            .argos-sidebar-brand span {
+                color: rgba(49, 51, 63, 0.58);
+                display: block;
+                font-size: 10.5px;
+                line-height: 1.15;
+                margin-top: 2px;
+                text-transform: uppercase;
+            }
+
             section[data-testid="stSidebar"] div.stButton {
-                margin-bottom: 4px;
+                margin-bottom: 3px;
             }
 
             section[data-testid="stSidebar"] div.stButton > button {
@@ -816,14 +1108,14 @@ def apply_compact_dashboard_styles() -> None:
                 box-shadow: none;
                 cursor: pointer;
                 display: flex;
-                font-size: 0.92rem;
+                font-size: var(--argos-font-sidebar) !important;
                 font-weight: 500;
-                gap: 10px;
-                height: 34px;
+                gap: 8px;
+                height: 36px !important;
                 justify-content: flex-start;
-                line-height: 1.1;
-                min-height: 32px;
-                padding: 0 12px;
+                line-height: 1.16;
+                min-height: 36px !important;
+                padding: 0 10px !important;
                 text-align: left;
                 transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
                 width: 100%;
@@ -842,19 +1134,285 @@ def apply_compact_dashboard_styles() -> None:
             }
 
             section[data-testid="stSidebar"] div.stButton > button[data-testid="stBaseButton-primary"] {
-                background: #ff4b4b;
-                border-color: #ff4b4b;
-                color: #ffffff;
+                background: rgba(22, 163, 74, 0.12);
+                border-color: rgba(22, 163, 74, 0.18);
+                color: #15803d;
+            }
+
+            section[data-testid="stSidebar"] div.stButton > button[data-testid="stBaseButton-primary"] span {
+                color: #15803d;
             }
 
             section[data-testid="stSidebar"] div.stButton > button[data-testid="stBaseButton-primary"]:hover {
-                background: #ff4b4b;
-                border-color: #ff4b4b;
-                color: #ffffff;
+                background: rgba(22, 163, 74, 0.16);
+                border-color: rgba(22, 163, 74, 0.22);
+                color: #15803d;
+            }
+
+            .argos-sidebar-version {
+                border-top: 1px solid rgba(49, 51, 63, 0.12);
+                color: rgba(49, 51, 63, 0.52);
+                font-size: var(--argos-font-meta);
+                line-height: var(--argos-line-meta);
+                margin-top: 8px;
+                padding-top: 7px;
+            }
+
+            .argos-top-shell {
+                align-items: center;
+                border: 1px solid rgba(148, 163, 184, 0.22);
+                border-radius: 8px;
+                display: flex;
+                gap: 8px;
+                justify-content: space-between;
+                margin: 0 0 5px;
+                min-height: 40px;
+                padding: 5px 9px;
+            }
+
+            .argos-top-brand {
+                align-items: center;
+                display: flex;
+                gap: 8px;
+                min-width: 210px;
+            }
+
+            .argos-top-icon {
+                color: #2563eb;
+                display: inline-flex;
+                font-size: 18px;
+                line-height: 1;
+            }
+
+            .argos-top-shell h1 {
+                font-size: var(--argos-font-page-title) !important;
+                line-height: var(--argos-line-title) !important;
+                margin: 0 !important;
+            }
+
+            .argos-top-shell p {
+                color: rgba(49, 51, 63, 0.62);
+                font-size: var(--argos-font-meta);
+                line-height: var(--argos-line-meta);
+                margin: 2px 0 0;
+            }
+
+            .argos-top-meta {
+                align-items: center;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px;
+                justify-content: flex-end;
+            }
+
+            .argos-badge {
+                align-items: center;
+                border-radius: 999px;
+                display: inline-flex;
+                font-size: var(--argos-font-chip);
+                font-weight: 700;
+                line-height: 1;
+                min-height: 22px;
+                padding: 4px 7px;
+                white-space: nowrap;
+            }
+
+            .argos-badge.ok {
+                background: rgba(22, 163, 74, 0.12);
+                color: #15803d;
+            }
+
+            .argos-badge.info {
+                background: rgba(37, 99, 235, 0.1);
+                color: #2563eb;
+            }
+
+            .argos-badge.warn {
+                background: rgba(217, 119, 6, 0.13);
+                color: #b45309;
+            }
+
+            .argos-badge.danger {
+                background: rgba(239, 68, 68, 0.12);
+                color: #dc2626;
+            }
+
+            .argos-badge.muted {
+                background: rgba(100, 116, 139, 0.12);
+                color: #475569;
+            }
+
+            .argos-shell-pill {
+                align-items: center;
+                border: 1px solid rgba(148, 163, 184, 0.22);
+                border-radius: 7px;
+                display: inline-flex;
+                gap: 4px;
+                min-height: 22px;
+                padding: 4px 7px;
+                white-space: nowrap;
+            }
+
+            .argos-shell-pill small {
+                color: rgba(49, 51, 63, 0.52);
+                font-size: var(--argos-font-chip);
+                line-height: 1;
+            }
+
+            .argos-shell-pill b {
+                color: rgba(38, 39, 48, 0.86);
+                font-size: 11.5px;
+                line-height: 1;
+            }
+
+            .argos-section-header {
+                align-items: baseline;
+                display: flex;
+                gap: 7px;
+                margin: 1px 0 4px;
+            }
+
+            .argos-section-header strong {
+                color: rgb(38, 39, 48);
+                font-size: var(--argos-font-section-title);
+                font-weight: 700;
+                line-height: var(--argos-line-title);
+            }
+
+            .argos-section-header span {
+                color: rgba(49, 51, 63, 0.58);
+                font-size: var(--argos-font-meta);
+                line-height: var(--argos-line-meta);
+            }
+
+            .argos-valve-card-header {
+                align-items: start;
+                display: flex;
+                justify-content: space-between;
+                gap: 8px;
+                margin-bottom: 4px;
+            }
+
+            .argos-valve-card-inner {
+                min-height: 114px;
+            }
+
+            .argos-valve-card-inner.is-disabled {
+                opacity: 0.68;
+            }
+
+            .argos-valve-card-inner h3 {
+                font-size: var(--argos-font-card-title) !important;
+                line-height: var(--argos-line-title) !important;
+                margin: 0 !important;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .argos-valve-card-inner small {
+                color: rgba(49, 51, 63, 0.58);
+                display: block;
+                font-size: var(--argos-font-meta);
+                line-height: var(--argos-line-meta);
+                margin-top: 2px;
+            }
+
+            .argos-valve-card-body {
+                display: grid;
+                gap: 6px;
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .argos-valve-state {
+                display: grid;
+                gap: 2px;
+            }
+
+            .argos-valve-state span {
+                color: rgba(49, 51, 63, 0.58);
+                font-size: var(--argos-font-meta);
+                line-height: var(--argos-line-meta);
+            }
+
+            .argos-valve-state strong {
+                color: rgb(38, 39, 48);
+                font-size: 13px;
+                line-height: var(--argos-line-title);
+            }
+
+            .argos-valve-actions {
+                display: grid;
+                gap: 8px;
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .argos-irrigation-grid {
+                display: grid;
+                gap: 10px;
+                grid-template-columns: minmax(0, 2fr) minmax(20rem, 0.78fr);
+            }
+
+            .argos-session-log {
+                border: 1px solid rgba(148, 163, 184, 0.22);
+                border-radius: 8px;
+                display: grid;
+                gap: 0;
+                padding: 0;
+            }
+
+            .argos-session-log-row {
+                align-items: center;
+                display: grid;
+                gap: 8px;
+                grid-template-columns: 1fr 0.9fr 1.3fr;
+                border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+                min-height: 24px;
+                padding: 0 8px;
+            }
+
+            .argos-session-log-row:last-child {
+                border-bottom: 0;
+            }
+
+            .argos-session-log-row.header span {
+                color: rgba(49, 51, 63, 0.52);
+                font-size: var(--argos-font-chip);
+                font-weight: 700;
+                text-transform: uppercase;
+            }
+
+            .argos-session-log-row span {
+                color: rgba(49, 51, 63, 0.72);
+                font-size: 11.5px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            @media (max-width: 1100px) {
+                .argos-irrigation-grid {
+                    grid-template-columns: 1fr;
+                }
+
+                .argos-top-shell {
+                    align-items: flex-start;
+                    flex-direction: column;
+                }
+
+                .argos-top-meta {
+                    justify-content: flex-start;
+                }
+            }
+
+            section[data-testid="stSidebar"] div.stButton > button[data-testid="stBaseButton-primary"]:hover {
+                background: rgba(22, 163, 74, 0.16);
+                border-color: rgba(22, 163, 74, 0.22);
+                color: #15803d;
             }
 
             section[data-testid="stSidebar"] div.stButton > button:focus-visible {
-                outline: 2px solid rgba(255, 75, 75, 0.55);
+                outline: 2px solid rgba(22, 163, 74, 0.35);
                 outline-offset: 2px;
             }
 
@@ -867,18 +1425,19 @@ def apply_compact_dashboard_styles() -> None:
 
             .argos-sidebar-section-label {
                 color: rgba(49, 51, 63, 0.58);
-                font-size: 0.7rem;
+                font-size: var(--argos-font-sidebar-label);
                 font-weight: 650;
                 letter-spacing: 0;
-                margin: 0.85rem 0 0.28rem;
+                line-height: 1.15;
+                margin: 8px 0 4px;
                 text-transform: uppercase;
             }
 
             .argos-compact-row {
                 align-items: center;
                 display: flex;
-                gap: 0.75rem;
-                margin: 0.25rem 0;
+                gap: 10px;
+                margin: 4px 0;
             }
 
             .argos-compact-metric {
@@ -888,22 +1447,22 @@ def apply_compact_dashboard_styles() -> None:
                 display: inline-block;
                 max-width: 180px;
                 min-width: 140px;
-                padding: 0.38rem 0.5rem;
+                padding: 7px 9px;
                 width: 180px;
             }
 
             .argos-compact-metric span {
                 color: rgba(49, 51, 63, 0.68);
                 display: block;
-                font-size: 0.68rem;
-                line-height: 1.1;
-                margin-bottom: 0.16rem;
+                font-size: var(--argos-font-meta);
+                line-height: var(--argos-line-meta);
+                margin-bottom: 3px;
             }
 
             .argos-compact-metric strong {
                 color: rgb(38, 39, 48);
                 display: block;
-                font-size: 1.12rem;
+                font-size: 18px;
                 font-weight: 500;
                 line-height: 1.1;
             }
@@ -911,62 +1470,61 @@ def apply_compact_dashboard_styles() -> None:
             .argos-flowmeter-grid {
                 display: flex;
                 flex-direction: column;
-                gap: 0.24rem;
+                gap: 4px;
                 margin: 0;
             }
 
             .argos-flowmeter-grid .argos-compact-metric {
                 max-width: none;
                 width: 100%;
-                padding: 0.28rem 0.42rem;
+                padding: 6px 8px;
             }
 
             .argos-flowmeter-grid .argos-compact-metric span {
-                font-size: 0.62rem;
+                font-size: var(--argos-font-meta);
             }
 
             .argos-flowmeter-grid .argos-compact-metric strong {
-                font-size: 0.98rem;
+                font-size: 16px;
             }
 
             .argos-realtime-flowmeter-grid {
                 display: grid;
-                grid-template-columns: repeat(3, minmax(0, 1fr));
-                gap: 0.32rem;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 5px;
                 margin: 0;
             }
 
-            .argos-flowmeter-current,
-            .argos-flowmeter-history {
-                border-radius: 0.45rem;
+            .argos-flowmeter-panel {
+                border-radius: 7px;
                 display: flex;
                 flex-direction: column;
-                gap: 0.42rem;
+                gap: 4px;
                 min-width: 0;
             }
 
-            .argos-flowmeter-current {
-                padding: 0.08rem 0 0.2rem;
+            .argos-flowmeter-panel {
+                padding: 2px 0 4px;
             }
 
-            .argos-flowmeter-history {
+            .argos-flowmeter-secondary {
                 background: rgba(248, 250, 252, 0.92);
                 border: 1px solid rgba(148, 163, 184, 0.22);
-                margin-top: 0.72rem;
-                padding: 0.62rem;
+                margin-top: 5px;
+                padding: 7px;
             }
 
             .argos-flowmeter-section-title {
                 color: rgb(38, 39, 48);
-                font-size: 0.88rem;
+                font-size: var(--argos-font-card-title);
                 font-weight: 600;
-                line-height: 1.2;
+                line-height: var(--argos-line-title);
                 margin: 0;
             }
 
-            .argos-flowmeter-history .argos-flowmeter-section-title {
+            .argos-flowmeter-secondary .argos-flowmeter-section-title {
                 color: rgba(49, 51, 63, 0.72);
-                font-size: 0.76rem;
+                font-size: var(--argos-font-meta);
                 font-weight: 600;
                 text-transform: uppercase;
             }
@@ -974,45 +1532,184 @@ def apply_compact_dashboard_styles() -> None:
             .argos-realtime-flowmeter-grid .argos-compact-metric {
                 max-width: none;
                 min-width: 0;
-                padding: 0.28rem 0.42rem;
+                padding: 5px 7px;
                 width: 100%;
             }
 
             .argos-realtime-flowmeter-grid .argos-compact-metric span {
-                font-size: 0.62rem;
+                font-size: var(--argos-font-meta);
             }
 
             .argos-realtime-flowmeter-grid .argos-compact-metric strong {
-                font-size: 0.98rem;
+                font-size: 16px;
             }
 
-            .argos-flowmeter-current .argos-compact-metric {
-                padding: 0.44rem 0.54rem;
+            .argos-flowmeter-panel .argos-compact-metric {
+                padding: 6px 8px;
             }
 
-            .argos-flowmeter-current .argos-compact-metric span {
-                font-size: 0.68rem;
+            .argos-flowmeter-panel .argos-compact-metric span {
+                font-size: var(--argos-font-meta);
             }
 
-            .argos-flowmeter-current .argos-compact-metric strong {
-                font-size: 1.08rem;
+            .argos-flowmeter-panel .argos-compact-metric strong {
+                font-size: 16px;
                 font-weight: 600;
             }
 
-            .argos-flowmeter-history .argos-compact-metric {
+            .argos-flowmeter-secondary .argos-compact-metric {
                 background: rgba(255, 255, 255, 0.76);
                 border-color: rgba(148, 163, 184, 0.18);
-                padding: 0.34rem 0.44rem;
+                padding: 5px 7px;
             }
 
-            .argos-flowmeter-history .argos-compact-metric span {
-                font-size: 0.6rem;
+            .argos-flowmeter-secondary .argos-compact-metric span {
+                font-size: var(--argos-font-chip);
             }
 
-            .argos-flowmeter-history .argos-compact-metric strong {
+            .argos-flowmeter-secondary .argos-compact-metric strong {
                 color: rgba(38, 39, 48, 0.82);
-                font-size: 0.9rem;
+                font-size: 14px;
                 font-weight: 500;
+            }
+
+            .argos-summary-grid {
+                display: grid;
+                gap: 5px;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .argos-summary-grid .argos-compact-metric {
+                max-width: none;
+                min-width: 0;
+                padding: 6px 8px;
+                width: 100%;
+            }
+
+            .argos-summary-grid .argos-compact-metric span {
+                font-size: var(--argos-font-meta);
+            }
+
+            .argos-summary-grid .argos-compact-metric strong {
+                font-size: 15px;
+            }
+
+            div[data-testid="stPlotlyChart"] {
+                margin-top: -0.1rem;
+            }
+
+            .argos-observations-header {
+                align-items: baseline;
+                display: flex;
+                gap: 8px;
+                min-height: 30px;
+            }
+
+            .argos-observations-header strong {
+                color: rgb(38, 39, 48);
+                font-size: var(--argos-font-section-title);
+                font-weight: 750;
+                line-height: var(--argos-line-title);
+            }
+
+            .argos-observations-header span {
+                color: rgba(49, 51, 63, 0.58);
+                font-size: var(--argos-font-meta);
+                line-height: var(--argos-line-meta);
+            }
+
+            .argos-observations-kpis {
+                display: grid;
+                gap: 8px;
+                grid-template-columns: repeat(7, minmax(0, 1fr));
+                margin: 4px 0 8px;
+            }
+
+            .argos-observation-kpi {
+                align-items: center;
+                border: 1px solid rgba(148, 163, 184, 0.26);
+                border-radius: 8px;
+                display: grid;
+                gap: 5px;
+                grid-template-columns: minmax(0, 1fr);
+                min-height: 66px;
+                padding: 8px 9px;
+            }
+
+            .argos-observation-kpi b {
+                color: rgb(38, 39, 48);
+                display: block;
+                font-size: 17px;
+                line-height: 1.1;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .argos-observation-kpi p {
+                color: rgba(49, 51, 63, 0.64);
+                font-size: var(--argos-font-meta);
+                line-height: var(--argos-line-meta);
+                margin: 2px 0 0;
+            }
+
+            .argos-observation-kpi small {
+                color: rgba(49, 51, 63, 0.54);
+                display: block;
+                font-size: var(--argos-font-chip);
+                line-height: 1.15;
+                margin-top: 2px;
+            }
+
+            .argos-observations-quality {
+                align-items: center;
+                border: 1px solid rgba(148, 163, 184, 0.24);
+                border-radius: 8px;
+                display: flex;
+                gap: 8px;
+                justify-content: space-between;
+                margin-top: 6px;
+                padding: 7px 9px;
+            }
+
+            .argos-observations-quality > div {
+                align-items: center;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 5px;
+            }
+
+            .argos-observations-quality > span {
+                color: #2563eb;
+                font-size: 12px;
+                font-weight: 650;
+                white-space: nowrap;
+            }
+
+            @media (max-width: 1599px) {
+                .argos-observations-kpis {
+                    gap: 6px;
+                }
+
+                .argos-observation-kpi {
+                    grid-template-columns: minmax(0, 1fr);
+                    min-height: 62px;
+                    padding: 7px 8px;
+                }
+
+                .argos-observation-kpi b {
+                    font-size: 15px;
+                }
+
+                .argos-observation-kpi p {
+                    font-size: 10.5px;
+                }
+            }
+
+            @media (max-width: 1199px) {
+                .argos-observations-kpis {
+                    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+                }
             }
 
             @media (max-width: 680px) {
@@ -1023,8 +1720,8 @@ def apply_compact_dashboard_styles() -> None:
 
             .argos-field-event-table {
                 display: grid;
-                gap: 0.24rem;
-                margin-top: 0.45rem;
+                gap: 5px;
+                margin-top: 8px;
             }
 
             .argos-field-event-row {
@@ -1032,16 +1729,16 @@ def apply_compact_dashboard_styles() -> None:
                 border: 1px solid rgba(49, 51, 63, 0.14);
                 border-radius: 8px;
                 display: grid;
-                gap: 0.45rem;
+                gap: 8px;
                 grid-template-columns: 1.05fr 1fr 1.35fr 1fr 0.9fr 0.75fr 1.45fr;
-                min-height: 38px;
-                padding: 0.42rem 0.52rem;
+                min-height: 34px;
+                padding: 7px 9px;
             }
 
             .argos-field-event-row.header {
                 background: rgba(248, 250, 252, 0.9);
                 color: rgba(49, 51, 63, 0.68);
-                font-size: 0.68rem;
+                font-size: var(--argos-font-meta);
                 font-weight: 600;
                 text-transform: uppercase;
             }
@@ -1054,7 +1751,7 @@ def apply_compact_dashboard_styles() -> None:
             .argos-status-band {
                 display: grid;
                 grid-template-columns: 1fr;
-                gap: 0.34rem;
+                gap: 6px;
                 margin: 0;
             }
 
@@ -1067,24 +1764,24 @@ def apply_compact_dashboard_styles() -> None:
             }
 
             .argos-status-item {
-                min-height: 50px;
-                padding: 0.42rem 0.55rem;
+                min-height: 46px;
+                padding: 8px 10px;
                 display: flex;
                 flex-direction: column;
                 justify-content: center;
-                gap: 0.1rem;
+                gap: 2px;
             }
 
             .argos-label {
                 color: rgba(49, 51, 63, 0.68);
-                font-size: 0.72rem;
-                line-height: 1.15;
+                font-size: var(--argos-font-meta);
+                line-height: var(--argos-line-meta);
             }
 
             .argos-status-item strong {
                 color: rgb(38, 39, 48);
-                font-size: 0.88rem;
-                line-height: 1.25;
+                font-size: 13.5px;
+                line-height: 1.18;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
@@ -1092,7 +1789,8 @@ def apply_compact_dashboard_styles() -> None:
 
             .argos-status-item small {
                 color: rgba(49, 51, 63, 0.58);
-                font-size: 0.65rem;
+                font-size: var(--argos-font-chip);
+                line-height: 1.15;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
@@ -1102,11 +1800,11 @@ def apply_compact_dashboard_styles() -> None:
                 align-items: center;
                 border-radius: 999px;
                 display: inline-flex;
-                font-size: 0.9rem;
+                font-size: var(--argos-font-chip);
                 font-weight: 700;
-                gap: 0.35rem;
+                gap: 5px;
                 line-height: 1;
-                padding: 0.36rem 0.58rem;
+                padding: 5px 8px;
                 width: fit-content;
             }
 
@@ -1128,16 +1826,17 @@ def apply_compact_dashboard_styles() -> None:
             .argos-count-strip {
                 display: flex;
                 flex-wrap: wrap;
-                gap: 0.5rem;
-                margin: -0.2rem 0 0.3rem;
+                gap: 6px;
+                margin: -3px 0 5px;
             }
 
             .argos-count-strip span {
                 border: 1px solid rgba(49, 51, 63, 0.14);
                 border-radius: 999px;
                 color: rgba(49, 51, 63, 0.72);
-                font-size: 0.82rem;
-                padding: 0.24rem 0.52rem;
+                font-size: var(--argos-font-chip);
+                line-height: 1.1;
+                padding: 5px 8px;
             }
 
             .argos-weather-table {
@@ -1145,7 +1844,7 @@ def apply_compact_dashboard_styles() -> None:
                 border-collapse: separate;
                 border-radius: 7px;
                 border-spacing: 0;
-                margin-top: 0.35rem;
+                margin-top: 6px;
                 overflow: hidden;
                 table-layout: fixed;
                 width: 100%;
@@ -1154,7 +1853,7 @@ def apply_compact_dashboard_styles() -> None:
             .argos-weather-table td {
                 border-bottom: 1px solid rgba(49, 51, 63, 0.12);
                 border-right: 1px solid rgba(49, 51, 63, 0.12);
-                padding: 0.34rem 0.52rem;
+                padding: 6px 9px;
                 vertical-align: top;
             }
 
@@ -1169,9 +1868,9 @@ def apply_compact_dashboard_styles() -> None:
             .argos-weather-table span {
                 color: rgba(49, 51, 63, 0.68);
                 display: block;
-                font-size: 0.68rem;
-                line-height: 1.15;
-                margin-bottom: 0.12rem;
+                font-size: var(--argos-font-meta);
+                line-height: var(--argos-line-meta);
+                margin-bottom: 2px;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
@@ -1180,15 +1879,15 @@ def apply_compact_dashboard_styles() -> None:
             .argos-weather-table strong {
                 color: rgb(38, 39, 48);
                 display: block;
-                font-size: 1rem;
+                font-size: 16px;
                 font-weight: 650;
-                line-height: 1.15;
+                line-height: 1.12;
                 overflow-wrap: anywhere;
             }
 
             @media (max-width: 900px) {
                 .block-container {
-                    padding: 0.8rem 0.8rem 1.5rem;
+                    padding: 8px 8px 16px;
                 }
 
                 .argos-status-band {
@@ -1200,39 +1899,40 @@ def apply_compact_dashboard_styles() -> None:
                 }
 
                 .argos-weather-table td {
-                    padding: 0.32rem 0.42rem;
+                    padding: 6px 8px;
                 }
 
                 .argos-weather-table strong {
-                    font-size: 0.92rem;
+                    font-size: 14.5px;
                 }
             }
 
             .argos-satellite-header {
                 align-items: center;
                 display: flex;
-                gap: 0.8rem;
+                gap: 10px;
                 justify-content: space-between;
-                margin: 0.25rem 0 0.35rem;
+                margin: 4px 0 6px;
             }
 
             .argos-satellite-header h2 {
-                font-size: 1.55rem;
-                line-height: 1.2;
+                font-size: var(--argos-font-page-title);
+                line-height: var(--argos-line-title);
                 margin: 0;
             }
 
             .argos-satellite-header span {
                 color: rgba(49, 51, 63, 0.62);
-                font-size: 0.86rem;
+                font-size: var(--argos-font-meta);
+                line-height: var(--argos-line-meta);
                 white-space: nowrap;
             }
 
             .argos-satellite-meta {
                 color: rgba(49, 51, 63, 0.68);
-                font-size: 0.86rem;
-                line-height: 1.35;
-                margin: -0.1rem 0 0.25rem;
+                font-size: var(--argos-font-body);
+                line-height: var(--argos-line-body);
+                margin: -2px 0 5px;
             }
 
             .argos-satellite-meta b {
@@ -1241,12 +1941,12 @@ def apply_compact_dashboard_styles() -> None:
             }
 
             .argos-satellite-controls {
-                margin-top: 0.1rem;
+                margin-top: 2px;
             }
 
             .argos-satellite-controls [data-testid="stMultiSelect"] div[data-baseweb="select"],
             .argos-satellite-controls [data-testid="stSelectbox"] div[data-baseweb="select"] {
-                min-height: 44px;
+                min-height: 34px;
             }
         </style>
         """,
@@ -1387,13 +2087,15 @@ def build_recent_weather_figure(frame: pd.DataFrame, *, wind_frequency: str = "1
     add_recent_wind_arrows(figure, frame, frequency=wind_frequency)
     figure.update_layout(
         height=HOME_DUAL_AXIS_CHART_HEIGHT,
-        margin={"t": 26, "r": 44, "b": 28, "l": 42},
+        margin={"t": 56, "r": 44, "b": 28, "l": 42},
         legend={
             "orientation": "h",
             "yanchor": "bottom",
-            "y": 1.01,
+            "y": 1.14,
             "xanchor": "center",
             "x": 0.5,
+            "font": {"size": 10},
+            "bgcolor": "rgba(255,255,255,0.88)",
         },
         plot_bgcolor="#ffffff",
         xaxis={
@@ -1575,12 +2277,12 @@ def add_weather_day_markers(figure: go.Figure, frame: pd.DataFrame) -> None:
         if times.min() <= label_at <= times.max():
             figure.add_annotation(
                 x=label_at,
-                y=1.08,
+                y=1.035,
                 xref="x",
                 yref="paper",
                 text=format_weather_day_label(day_start),
                 showarrow=False,
-                font={"size": 12, "color": "rgba(49, 51, 63, 0.72)"},
+                font={"size": 10, "color": "rgba(49, 51, 63, 0.68)"},
             )
 
 
@@ -1646,22 +2348,420 @@ def format_weather_card_value(value: Any, *, key: str, unit: str) -> str:
 
 
 def render_observations(base_url: str) -> None:
-    period_tabs = st.tabs([label for label, _duration in OBSERVATION_PERIODS])
-    now = datetime.now(UTC)
-    for tab, (label, duration) in zip(period_tabs, OBSERVATION_PERIODS, strict=True):
-        with tab:
-            start, end = observation_period_range(now, duration)
-            records = cached_observations(base_url, format_utc_iso(start), format_utc_iso(end))
-            period_df = dataframe_from_records(records, "observed_at_utc")
-            period_df = filter_observations_by_source(period_df, ["DIRECT", "BACKFILLED"])
-            render_observation_period(
-                period_df,
-                list(LABELS),
-                f"Últimos {format_period_duration(duration)}",
-                key_prefix=f"observations_{label.lower()}",
-                show_recent_meteogram=observation_period_uses_recent_meteogram(label),
-                meteogram_wind_frequency=observation_period_meteogram_wind_frequency(label),
+    selected_period = st.session_state.get("observations_period", "24 h")
+    if selected_period not in OBSERVATION_PERIOD_OPTIONS:
+        selected_period = "24 h"
+        st.session_state["observations_period"] = selected_period
+
+    header_left, header_right = st.columns([2.2, 3.2], vertical_alignment="center")
+    with header_left:
+        st.html(
+            """
+            <div class="argos-observations-header">
+                <strong>Observaciones</strong>
+                <span>Meteorología de la finca</span>
+            </div>
+            """
+        )
+    with header_right:
+        source_col, period_col, refresh_col = st.columns([0.95, 2.25, 0.8], vertical_alignment="center")
+        with source_col:
+            st.selectbox(
+                "Fuente",
+                ["Ecowitt"],
+                key="observations_source",
+                label_visibility="collapsed",
             )
+        with period_col:
+            selected_period = st.segmented_control(
+                "Periodo",
+                options=list(OBSERVATION_PERIOD_OPTIONS),
+                default=selected_period,
+                key="observations_period",
+                label_visibility="collapsed",
+            )
+        with refresh_col:
+            if st.button("Actualizar", icon=":material/refresh:", key="refresh_observations", width="stretch"):
+                st.cache_data.clear()
+                st.rerun()
+
+    duration = OBSERVATION_PERIOD_OPTIONS[str(selected_period)]
+    now = datetime.now(UTC)
+    start, end = observation_period_range(now, duration)
+    records = cached_observations(base_url, format_utc_iso(start), format_utc_iso(end))
+    observations_df = dataframe_from_records(records, "observed_at_utc")
+    observations_df = filter_observations_by_source(observations_df, ["DIRECT", "BACKFILLED"])
+    render_observation_monitoring_view(
+        observations_df,
+        start=start,
+        end=end,
+        key_prefix=f"observations_{element_key('period', str(selected_period))}",
+    )
+
+
+def render_observation_monitoring_view(
+    observations_df: pd.DataFrame,
+    *,
+    start: datetime,
+    end: datetime,
+    key_prefix: str,
+) -> None:
+    if observations_df.empty:
+        st.info("No hay observaciones en el periodo seleccionado.")
+        return
+
+    latest = latest_observation_row(observations_df)
+    st.html(observation_kpi_row_html(latest))
+
+    xaxis_range = observation_local_xaxis_range(start, end)
+    chart_specs = [
+        ("Temperatura y humedad", build_observation_temperature_humidity_figure),
+        ("Viento", build_observation_wind_figure),
+        ("Radiación solar + UV", build_observation_radiation_uv_figure),
+        ("Lluvia + presión", build_observation_rain_pressure_figure),
+    ]
+    first_row = st.columns(2, gap="small", vertical_alignment="top")
+    second_row = st.columns(2, gap="small", vertical_alignment="top")
+    for column, (title, builder) in zip([*first_row, *second_row], chart_specs, strict=True):
+        with column:
+            render_observation_chart_card(
+                title,
+                builder(observations_df, xaxis_range=xaxis_range),
+                key=element_key(key_prefix, title),
+            )
+
+    st.html(observation_quality_bar_html(observations_df, start=start, end=end))
+    with st.expander("Detalle / Estado de instrumentación", expanded=False, icon=":material/info:"):
+        render_source_count_strip(observation_source_counts(observations_df))
+        instrument_columns = [
+            column
+            for column in [
+                "observed_at_utc",
+                "source",
+                "battery_voltage",
+                "ws90_capacitor_voltage",
+                "wind_direction_deg",
+                "wind_direction_avg10m_deg",
+            ]
+            if column in observations_df
+        ]
+        if instrument_columns:
+            st.dataframe(observations_df[instrument_columns].tail(200), hide_index=True)
+        else:
+            st.caption("No hay columnas instrumentales adicionales disponibles para este periodo.")
+        st.dataframe(observations_df.tail(500), hide_index=True)
+        add_csv_download(
+            observations_df,
+            "Descargar observaciones CSV",
+            "argos_observations.csv",
+            key=element_key(key_prefix, "download"),
+        )
+
+
+def render_observation_chart_card(title: str, figure: go.Figure | None, *, key: str) -> None:
+    with st.container(border=True, gap="small"):
+        st.html(section_header_html(title))
+        if figure is None:
+            st.caption("Sin datos suficientes para esta gráfica.")
+            return
+        st.plotly_chart(figure, width="stretch", key=key)
+
+
+def latest_observation_row(frame: pd.DataFrame) -> pd.Series:
+    if "observed_at_utc" in frame:
+        ordered = frame.sort_values("observed_at_utc")
+        return ordered.iloc[-1]
+    return frame.iloc[-1]
+
+
+def observation_kpi_row_html(latest: pd.Series) -> str:
+    wind_direction = latest.get("wind_direction_deg", latest.get("wind_direction_avg10m_deg"))
+    wind_label = f"Viento {wind_compass_label(wind_direction)}".strip()
+    wind_value = f"{format_number(latest.get('wind_speed_ms'), 'm/s')} {wind_direction_arrow_from_value(wind_direction)}".strip()
+    return f"""
+    <div class="argos-observations-kpis">
+        {observation_kpi_html("Temperatura", format_number(latest.get("outdoor_temperature_c"), "°C"), "thermostat")}
+        {observation_kpi_html("Humedad", format_number(latest.get("outdoor_humidity_pct"), "%"), "humidity_percentage")}
+        {observation_kpi_html("Presión", format_number(latest.get("relative_pressure_hpa", latest.get("absolute_pressure_hpa")), "hPa"), "speed")}
+        {observation_kpi_html(wind_label, wind_value, "air")}
+        {observation_kpi_html("Racha", format_number(latest.get("wind_gust_ms"), "m/s"), "airwave")}
+        {observation_kpi_html("Lluvia 24 h", format_number(latest.get("rain_last_24h_mm"), "mm"), "rainy", secondary=f"Actual {format_number(latest.get('rain_rate_mm_h'), 'mm/h')}")}
+        {observation_kpi_html("Radiación", format_number(latest.get("solar_radiation_wm2"), "W/m²"), "wb_sunny", secondary=f"UV {format_number(latest.get('uv_index'), '')}")}
+    </div>
+    """
+
+
+def observation_kpi_html(label: str, value: str, icon: str, *, secondary: str | None = None) -> str:
+    secondary_html = f"<small>{escape(secondary)}</small>" if secondary else ""
+    return f"""
+    <div class="argos-observation-kpi">
+        <div>
+            <b>{escape(value)}</b>
+            <p>{escape(label)}</p>
+            {secondary_html}
+        </div>
+    </div>
+    """
+
+
+def wind_direction_arrow_from_value(value: Any) -> str:
+    if value is None:
+        return ""
+    try:
+        return wind_direction_arrow(float(value))
+    except (TypeError, ValueError):
+        return ""
+
+
+def wind_compass_label(value: Any) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, int | float):
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return ""
+    normalized = value % 360
+    compass_points = ("N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW")
+    return compass_points[int((normalized + 11.25) // 22.5) % len(compass_points)]
+
+
+def observation_local_xaxis_range(start: datetime, end: datetime) -> list[datetime]:
+    timezone = ZoneInfo(get_settings().local_timezone)
+    return [
+        start.astimezone(timezone).replace(tzinfo=None),
+        end.astimezone(timezone).replace(tzinfo=None),
+    ]
+
+
+def build_observation_temperature_humidity_figure(frame: pd.DataFrame, *, xaxis_range: list[datetime]) -> go.Figure | None:
+    return build_observation_compact_figure(
+        frame,
+        [
+            ObservationSeries("outdoor_temperature_c", "Temperatura", "deg C", "#dc2626"),
+            ObservationSeries("outdoor_humidity_pct", "Humedad relativa", "% HR", "#2563eb", secondary_y=True),
+        ],
+        primary_title="Temperatura, deg C",
+        secondary_title="Humedad, %",
+        xaxis_range=xaxis_range,
+    )
+
+
+def build_observation_wind_figure(frame: pd.DataFrame, *, xaxis_range: list[datetime]) -> go.Figure | None:
+    figure = build_observation_compact_figure(
+        frame,
+        [
+            ObservationSeries("wind_speed_ms", "Velocidad", "m/s", "#2563eb"),
+            ObservationSeries("wind_gust_ms", "Racha", "m/s", "#dc2626"),
+        ],
+        primary_title="Viento, m/s",
+        xaxis_range=xaxis_range,
+    )
+    if figure is None:
+        return None
+    direction_column = "wind_direction_deg" if "wind_direction_deg" in frame else "wind_direction_avg10m_deg"
+    if direction_column in frame and "observed_at_utc" in frame:
+        direction_frame = frame[["observed_at_utc", direction_column]].copy()
+        direction_frame[direction_column] = pd.to_numeric(direction_frame[direction_column], errors="coerce")
+        direction_frame = direction_frame.dropna()
+        if not direction_frame.empty:
+            sampled = direction_frame.iloc[:: max(1, len(direction_frame) // 20)]
+            figure.add_trace(
+                go.Scatter(
+                    x=local_time_values(sampled["observed_at_utc"]),
+                    y=[0 for _ in range(len(sampled))],
+                    mode="text",
+                    text=[wind_direction_arrow(value) for value in sampled[direction_column]],
+                    textfont={"size": 14, "color": "#111827"},
+                    name="Dirección",
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
+    return figure
+
+
+def build_observation_radiation_uv_figure(frame: pd.DataFrame, *, xaxis_range: list[datetime]) -> go.Figure | None:
+    return build_observation_compact_figure(
+        frame,
+        [
+            ObservationSeries("solar_radiation_wm2", "Radiación solar", "W/m2", "#f59e0b"),
+            ObservationSeries("uv_index", "UV", "UV", "#7c3aed", secondary_y=True),
+        ],
+        primary_title="Radiación, W/m2",
+        secondary_title="UV",
+        xaxis_range=xaxis_range,
+    )
+
+
+def build_observation_rain_pressure_figure(frame: pd.DataFrame, *, xaxis_range: list[datetime]) -> go.Figure | None:
+    plot_frame = with_local_observed_time(frame)
+    figure = make_subplots(specs=[[{"secondary_y": True}]])
+    has_trace = False
+    if "rain_rate_mm_h" in plot_frame:
+        rain_frame = numeric_observation_frame(plot_frame, "rain_rate_mm_h")
+        if not rain_frame.empty:
+            figure.add_trace(
+                go.Bar(
+                    x=rain_frame["observed_at_utc"],
+                    y=rain_frame["rain_rate_mm_h"],
+                    name="Lluvia",
+                    marker={"color": "#2563eb"},
+                    opacity=0.72,
+                ),
+                secondary_y=False,
+            )
+            has_trace = True
+    pressure_column = "relative_pressure_hpa" if "relative_pressure_hpa" in plot_frame else "absolute_pressure_hpa"
+    if pressure_column in plot_frame:
+        pressure_frame = numeric_observation_frame(plot_frame, pressure_column)
+        if not pressure_frame.empty:
+            figure.add_trace(
+                go.Scatter(
+                    x=pressure_frame["observed_at_utc"],
+                    y=pressure_frame[pressure_column],
+                    mode="lines",
+                    name="Presión",
+                    line={"color": "#0f766e", "width": 2},
+                ),
+                secondary_y=True,
+            )
+            has_trace = True
+    if not has_trace:
+        return None
+    apply_observation_compact_layout(
+        figure,
+        primary_title="Lluvia, mm/h",
+        secondary_title="Presión, hPa",
+        xaxis_range=xaxis_range,
+        show_secondary=True,
+    )
+    return figure
+
+
+def build_observation_compact_figure(
+    frame: pd.DataFrame,
+    series: list[ObservationSeries],
+    *,
+    primary_title: str,
+    xaxis_range: list[datetime],
+    secondary_title: str | None = None,
+) -> go.Figure | None:
+    plot_frame = with_local_observed_time(frame)
+    figure = make_subplots(specs=[[{"secondary_y": secondary_title is not None}]])
+    has_trace = False
+    for item in series:
+        if item.column not in plot_frame:
+            continue
+        series_frame = numeric_observation_frame(plot_frame, item.column)
+        if series_frame.empty:
+            continue
+        figure.add_trace(
+            go.Scatter(
+                x=series_frame["observed_at_utc"],
+                y=series_frame[item.column],
+                mode="lines",
+                name=item.label,
+                line={"color": item.color, "width": 2},
+            ),
+            secondary_y=item.secondary_y,
+        )
+        has_trace = True
+    if not has_trace:
+        return None
+    apply_observation_compact_layout(
+        figure,
+        primary_title=primary_title,
+        secondary_title=secondary_title,
+        xaxis_range=xaxis_range,
+        show_secondary=secondary_title is not None,
+    )
+    return figure
+
+
+def numeric_observation_frame(frame: pd.DataFrame, column: str) -> pd.DataFrame:
+    series_frame = frame[["observed_at_utc", column]].copy()
+    series_frame[column] = pd.to_numeric(series_frame[column], errors="coerce")
+    return series_frame.dropna()
+
+
+def apply_observation_compact_layout(
+    figure: go.Figure,
+    *,
+    primary_title: str,
+    xaxis_range: list[datetime],
+    secondary_title: str | None = None,
+    show_secondary: bool = False,
+) -> None:
+    figure.update_layout(
+        height=235,
+        margin={"t": 12, "r": 44 if show_secondary else 18, "b": 28, "l": 42},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "left",
+            "x": 0,
+            "font": {"size": 10},
+            "bgcolor": "rgba(255,255,255,0.86)",
+        },
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        xaxis={"range": xaxis_range, "title": local_time_axis_title()},
+        yaxis={"title": primary_title, "rangemode": "tozero", "gridcolor": "rgba(148, 163, 184, 0.24)"},
+    )
+    figure.update_xaxes(tickfont={"size": 10}, title_font={"size": 10})
+    figure.update_yaxes(tickfont={"size": 10}, title_font={"size": 10})
+    if show_secondary:
+        figure.update_yaxes(
+            title_text=secondary_title,
+            showgrid=False,
+            tickfont={"size": 10},
+            title_font={"size": 10},
+            secondary_y=True,
+        )
+
+
+def observation_quality_bar_html(frame: pd.DataFrame, *, start: datetime, end: datetime) -> str:
+    sample_count = len(frame)
+    latest = latest_observation_row(frame)
+    latest_sample = format_compact_local_datetime(latest.get("observed_at_utc"))
+    coverage, gaps = observation_period_quality(frame, start=start, end=end)
+    coverage_html = shell_pill_html("Cobertura", f"{coverage:.1f}%") if coverage is not None else ""
+    gaps_html = shell_pill_html("Huecos", str(gaps)) if gaps is not None else ""
+    return f"""
+    <div class="argos-observations-quality">
+        <div>
+            {shell_pill_html("Fuente", "Ecowitt")}
+            {shell_pill_html("Última muestra", latest_sample)}
+            {coverage_html}
+            {shell_pill_html("Muestras", str(sample_count))}
+            {gaps_html}
+        </div>
+        <span>Detalle ›</span>
+    </div>
+    """
+
+
+def observation_period_quality(
+    frame: pd.DataFrame,
+    *,
+    start: datetime,
+    end: datetime,
+) -> tuple[float | None, int | None]:
+    if frame.empty or "observed_at_utc" not in frame:
+        return None, None
+    timestamps = pd.to_datetime(frame["observed_at_utc"], format="ISO8601", errors="coerce", utc=True).dropna().sort_values()
+    if len(timestamps) < 2:
+        return None, None
+    deltas = timestamps.diff().dropna()
+    median_delta = deltas.median()
+    if pd.isna(median_delta) or median_delta <= pd.Timedelta(0):
+        return None, None
+    expected = max(1, int(math.floor((end - start) / median_delta)) + 1)
+    coverage = min(100.0, len(timestamps.drop_duplicates()) / expected * 100)
+    gaps = int((deltas > median_delta * 1.5).sum())
+    return coverage, gaps
 
 
 def render_observation_period(
@@ -2097,19 +3197,19 @@ def render_analysis_distributions(base_url: str, variables: list[dict[str, Any]]
         submit = st.form_submit_button("Analizar distribución", type="primary")
     if submit:
         st.session_state["analysis_dist_payload"] = {**filters, "variable_id": variable_id, "aggregation": aggregation, "bins": bins, "density": density}
-        st.session_state["analysis_dist_compare_variable"] = compare_variable
+        st.session_state["analysis_dist_compare_selected"] = compare_variable if compare_enabled else None
     if "analysis_dist_payload" not in st.session_state:
         st.caption("Seleccione una variable y pulse Analizar distribución.")
         return
     try:
         result = cached_analytics_distribution(base_url, st.session_state["analysis_dist_payload"])
         compare_result = None
-        if st.session_state.get("analysis_dist_compare_variable"):
-            compare_result = cached_analytics_distribution(base_url, {**st.session_state["analysis_dist_payload"], "variable_id": st.session_state["analysis_dist_compare_variable"]})
+        if st.session_state.get("analysis_dist_compare_selected"):
+            compare_result = cached_analytics_distribution(base_url, {**st.session_state["analysis_dist_payload"], "variable_id": st.session_state["analysis_dist_compare_selected"]})
     except ArgosApiError as exc:
         st.error(str(exc))
         return
-    render_distribution_result(result, compare_result)
+    render_distribution_result(result, compare_result, density=bool(st.session_state["analysis_dist_payload"].get("density")))
 
 
 def render_analysis_trends(base_url: str, variables: list[dict[str, Any]], filters: dict[str, Any]) -> None:
@@ -2289,32 +3389,237 @@ def render_correlation_result(result: dict[str, Any], *, show_regression: bool) 
 
 def render_correlation_matrix_result(result: dict[str, Any]) -> None:
     labels = [analytics_result_label(variable) for variable in result.get("variables", [])]
+    variable_ids = [variable["variable_id"] for variable in result.get("variables", [])]
     matrix = result.get("matrix", [])
     if not labels or not matrix:
         st.warning("Sin datos suficientes para la matriz.")
         return
-    figure = go.Figure(
-        data=go.Heatmap(
-            z=matrix,
-            x=labels,
-            y=labels,
-            zmin=-1,
-            zmax=1,
-            colorscale="RdBu",
-            reversescale=True,
-            text=[[format_number(value, "") for value in row] for row in matrix],
-            texttemplate="%{text}",
-        )
+    points = pd.DataFrame.from_records(
+        [
+            {"timestamp_local": point.get("timestamp_local"), **point.get("values", {})}
+            for point in result.get("points", [])
+        ]
     )
-    figure.update_layout(height=520)
-    st.plotly_chart(figure, width="stretch")
+    pair_grid_rendered = not points.empty and bool(variable_ids)
+    if pair_grid_rendered:
+        figure = build_correlation_pair_grid(points, variable_ids, labels, matrix)
+    else:
+        figure = go.Figure(
+            data=go.Heatmap(
+                z=matrix,
+                x=labels,
+                y=labels,
+                zmin=-1,
+                zmax=1,
+                colorscale="RdBu",
+                reversescale=True,
+                text=[[format_number(value, "") for value in row] for row in matrix],
+                texttemplate="%{text}",
+            )
+        )
+        figure.update_layout(height=520)
+    st.plotly_chart(figure, width="content" if pair_grid_rendered else "stretch")
     pair_counts = pd.DataFrame(result.get("pair_counts", []), index=labels, columns=labels)
     with st.expander("Pares válidos por combinación"):
         st.dataframe(pair_counts)
     render_analysis_warnings(result.get("warnings", []))
 
 
-def render_distribution_result(result: dict[str, Any], compare_result: dict[str, Any] | None) -> None:
+def build_correlation_pair_grid(
+    points: pd.DataFrame,
+    variable_ids: list[str],
+    labels: list[str],
+    matrix: list[list[float | None]],
+) -> go.Figure:
+    size = len(variable_ids)
+    figure = make_subplots(
+        rows=size,
+        cols=size,
+        horizontal_spacing=0.004,
+        vertical_spacing=0.004,
+    )
+    for row_index, y_variable in enumerate(variable_ids, start=1):
+        for column_index, x_variable in enumerate(variable_ids, start=1):
+            x_values = pd.to_numeric(points[x_variable], errors="coerce") if x_variable in points else pd.Series(dtype="float64")
+            y_values = pd.to_numeric(points[y_variable], errors="coerce") if y_variable in points else pd.Series(dtype="float64")
+            if row_index == column_index:
+                figure.add_trace(
+                    go.Histogram(
+                        x=x_values.dropna(),
+                        marker={"color": "#22d3ee", "line": {"color": "#111827", "width": 1}},
+                        opacity=0.9,
+                        showlegend=False,
+                        nbinsx=12,
+                        hovertemplate=f"{labels[row_index - 1]}<br>%{{x:.2f}}<br>n=%{{y}}<extra></extra>",
+                    ),
+                    row=row_index,
+                    col=column_index,
+                )
+                add_pair_grid_annotation(
+                    figure,
+                    row_index,
+                    column_index,
+                    size,
+                    f"<b>{shorten_chart_label(labels[row_index - 1])}</b>",
+                    font_size=10,
+                    x=0.05,
+                    y=0.92,
+                    xanchor="left",
+                )
+            elif row_index > column_index:
+                pair_frame = pd.DataFrame({"x": x_values, "y": y_values}).dropna()
+                figure.add_trace(
+                    go.Scattergl(
+                        x=pair_frame["x"],
+                        y=pair_frame["y"],
+                        mode="markers",
+                        marker={"color": "#111827", "size": 5, "opacity": 0.78},
+                        showlegend=False,
+                        hovertemplate=f"{labels[column_index - 1]}=%{{x:.2f}}<br>{labels[row_index - 1]}=%{{y:.2f}}<extra></extra>",
+                    ),
+                    row=row_index,
+                    col=column_index,
+                )
+                smooth_x, smooth_y = smoothed_pair_line(pair_frame)
+                if len(smooth_x) >= 2:
+                    figure.add_trace(
+                        go.Scatter(
+                            x=smooth_x,
+                            y=smooth_y,
+                            mode="lines",
+                            line={"color": "#ef4444", "width": 2},
+                            showlegend=False,
+                            hoverinfo="skip",
+                        ),
+                        row=row_index,
+                        col=column_index,
+                    )
+            else:
+                figure.add_trace(
+                    go.Scatter(
+                        x=[0],
+                        y=[0],
+                        mode="markers",
+                        marker={"opacity": 0},
+                        showlegend=False,
+                        hoverinfo="skip",
+                    ),
+                    row=row_index,
+                    col=column_index,
+                )
+                value = matrix[row_index - 1][column_index - 1]
+                add_pair_grid_annotation(
+                    figure,
+                    row_index,
+                    column_index,
+                    size,
+                    format_number(value, ""),
+                    font_size=22,
+                )
+    add_pair_grid_cell_borders(figure, size)
+    for row_index in range(1, size + 1):
+        for column_index in range(1, size + 1):
+            axis = figure.get_subplot(row_index, column_index)
+            if axis.xaxis is not None:
+                axis.xaxis.update(
+                    showgrid=False,
+                    zeroline=False,
+                    showline=True,
+                    linecolor="#111827",
+                    linewidth=1,
+                    mirror=True,
+                    title_text=shorten_chart_label(labels[column_index - 1]) if row_index == size else "",
+                    tickfont={"size": 9},
+                    title_font={"size": 10},
+                    showticklabels=row_index in {1, size},
+                )
+            if axis.yaxis is not None:
+                axis.yaxis.update(
+                    showgrid=False,
+                    zeroline=False,
+                    showline=True,
+                    linecolor="#111827",
+                    linewidth=1,
+                    mirror=True,
+                    title_text=shorten_chart_label(labels[row_index - 1]) if column_index == 1 else "",
+                    tickfont={"size": 9},
+                    title_font={"size": 10},
+                    showticklabels=column_index in {1, size},
+                    side="right" if column_index == size else "left",
+                )
+    figure.update_layout(
+        width=max(560, min(1180, 180 * size)),
+        height=max(560, min(1180, 180 * size)),
+        bargap=0.04,
+        margin={"l": 86, "r": 28, "t": 24, "b": 82},
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+    )
+    return figure
+
+
+def add_pair_grid_cell_borders(figure: go.Figure, grid_size: int) -> None:
+    for row in range(1, grid_size + 1):
+        for column in range(1, grid_size + 1):
+            axis = figure.get_subplot(row, column)
+            if axis.xaxis is None or axis.yaxis is None:
+                continue
+            x_domain = axis.xaxis.domain
+            y_domain = axis.yaxis.domain
+            figure.add_shape(
+                type="rect",
+                xref="paper",
+                yref="paper",
+                x0=x_domain[0],
+                x1=x_domain[1],
+                y0=y_domain[0],
+                y1=y_domain[1],
+                fillcolor="rgba(255,255,255,0)",
+                line={"color": "#111827", "width": 1},
+                layer="below",
+            )
+
+
+def add_pair_grid_annotation(
+    figure: go.Figure,
+    row: int,
+    column: int,
+    grid_size: int,
+    text: str,
+    *,
+    font_size: int,
+    x: float = 0.5,
+    y: float = 0.5,
+    xanchor: str = "center",
+) -> None:
+    axis_index = (row - 1) * grid_size + column
+    axis_suffix = "" if axis_index == 1 else str(axis_index)
+    figure.add_annotation(
+        x=x,
+        y=y,
+        xref=f"x{axis_suffix} domain",
+        yref=f"y{axis_suffix} domain",
+        text=text,
+        showarrow=False,
+        font={"size": font_size, "color": "#111827"},
+        xanchor=xanchor,
+    )
+
+
+def smoothed_pair_line(pair_frame: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    if len(pair_frame) < 3 or pair_frame["x"].nunique() < 2:
+        return pd.Series(dtype="float64"), pd.Series(dtype="float64")
+    ordered = pair_frame.sort_values("x")
+    window = max(3, min(9, math.ceil(len(ordered) / 5)))
+    smooth_y = ordered["y"].rolling(window=window, center=True, min_periods=1).mean()
+    return ordered["x"], smooth_y
+
+
+def shorten_chart_label(label: str, max_length: int = 28) -> str:
+    return label if len(label) <= max_length else f"{label[: max_length - 1]}..."
+
+
+def render_distribution_result(result: dict[str, Any], compare_result: dict[str, Any] | None, *, density: bool = False) -> None:
     values = pd.DataFrame.from_records(result.get("values", [])).dropna(subset=["value"])
     if values.empty:
         st.warning("Sin valores para la distribución.")
@@ -2327,12 +3632,24 @@ def render_distribution_result(result: dict[str, Any], compare_result: dict[str,
         compare_values["Serie"] = analytics_result_label(compare_result["variable"])
         frames.append(compare_values)
     plot_frame = pd.concat(frames, ignore_index=True)
-    hist = px.histogram(plot_frame, x="value", color="Serie", barmode="overlay", opacity=0.62, labels={"value": analytics_result_label(result["variable"])})
-    hist.update_layout(height=330)
-    st.plotly_chart(hist, width="stretch")
+    hist = px.histogram(
+        plot_frame,
+        x="value",
+        color="Serie",
+        barmode="overlay",
+        opacity=0.62,
+        histnorm="probability density" if density else None,
+        labels={"value": analytics_result_label(result["variable"])},
+    )
+    hist.update_yaxes(title_text="Densidad" if density else "count")
+    hist.update_layout(height=360)
     box = px.box(plot_frame, x="Serie", y="value", color="Serie", labels={"value": analytics_result_label(result["variable"])})
-    box.update_layout(height=260, showlegend=False)
-    st.plotly_chart(box, width="stretch")
+    box.update_layout(height=360, showlegend=False)
+    hist_column, box_column = st.columns([0.62, 0.38])
+    with hist_column:
+        st.plotly_chart(hist, width="stretch")
+    with box_column:
+        st.plotly_chart(box, width="stretch")
     render_distribution_summary(result, compare_result)
     add_csv_download(plot_frame, "Descargar CSV", "argos_analisis_distribucion.csv", key="analysis_dist_csv")
     render_analysis_warnings(result.get("warnings", []))
@@ -3591,25 +4908,377 @@ def render_valves(
     valve_opening_duration_s: float,
     valve_closing_duration_s: float,
 ) -> None:
-    keys = render_valve_control(
-        client,
-        valve_id=8,
-        name="EV8",
-        valve_opening_duration_s=valve_opening_duration_s,
-        valve_closing_duration_s=valve_closing_duration_s,
+    top_action_left, top_action_right = st.columns([4.4, 1.6], vertical_alignment="center")
+    with top_action_left:
+        st.html(section_header_html("Irrigación", "control y monitoreo en tiempo real"))
+    with top_action_right:
+        close_col, refresh_col = st.columns([1, 1], vertical_alignment="center")
+        with close_col:
+            if st.button("Cerrar todo", icon=":material/close:", type="primary", key="close_all_valves", width="stretch"):
+                run_close_all_valves(client)
+        with refresh_col:
+            if st.button("Actualizar", icon=":material/refresh:", key="refresh_irrigation", width="stretch"):
+                st.cache_data.clear()
+                st.rerun()
+        st.caption(f"Última actualización: {datetime.now():%H:%M:%S}")
+    render_close_all_valves_result(st.session_state.get("close_all_valves_result"))
+
+    first_left, first_right = st.columns([2.85, 1.15], vertical_alignment="top")
+    with first_left:
+        valve_keys = render_irrigation_valve_grid(
+            client,
+            valve_opening_duration_s=valve_opening_duration_s,
+            valve_closing_duration_s=valve_closing_duration_s,
+        )
+    with first_right:
+        render_live_flowmeter_status(client, show_admin_actions=False)
+
+    chart_start_iso, chart_end_iso = flowmeter_chart_window(start_iso, end_iso)
+    flowmeter_rows = cached_flowmeter_minutes(client.base_url, chart_start_iso, chart_end_iso)
+    flowmeter_frame = dataframe_from_records(flowmeter_rows, "window_start_utc")
+
+    charts_col, summary_col = st.columns([2.15, 0.94], vertical_alignment="top")
+    with charts_col:
+        render_irrigation_water_card(flowmeter_frame, start_iso=chart_start_iso, end_iso=chart_end_iso)
+    with summary_col:
+        render_irrigation_summary_card(flowmeter_frame, valve_keys)
+
+    render_recent_irrigation_events(valve_keys)
+
+    with st.expander("Respuesta técnica", expanded=False):
+        selected_valve = st.selectbox(
+            "Electroválvula",
+            options=VALVE_CONTROLS,
+            format_func=valve_control_label,
+            key="selected_valve_control",
+            help="Selector auxiliar para inspeccionar la última respuesta cruda del nodo.",
+        )
+        render_raw_valve_response(valve_keys[selected_valve.valve_id])
+        render_flowmeter_admin_actions(client)
+
+
+def render_irrigation_valve_grid(
+    client: ArgosNodeClient,
+    *,
+    valve_opening_duration_s: float,
+    valve_closing_duration_s: float,
+) -> dict[int, dict[str, str]]:
+    st.html(section_header_html("Electroválvulas", "estado, confirmación y actuación individual"))
+    keys_by_valve: dict[int, dict[str, str]] = {}
+    with st.container(horizontal=True, gap="small"):
+        for valve in VALVE_CONTROLS:
+            keys_by_valve[valve.valve_id] = render_valve_control_card(
+                client,
+                valve=valve,
+                valve_opening_duration_s=valve_opening_duration_s,
+                valve_closing_duration_s=valve_closing_duration_s,
+            )
+    st.caption("Estado de posición estimado por ARGOS cuando no existe señal independiente de fin de carrera.")
+    return keys_by_valve
+
+
+def render_valve_control_card(
+    client: ArgosNodeClient,
+    *,
+    valve: ValveControl,
+    valve_opening_duration_s: float,
+    valve_closing_duration_s: float,
+) -> dict[str, str]:
+    valve_id = valve.valve_id
+    keys = valve_session_keys(valve_id)
+    initialize_valve_session(keys)
+    update_timed_valve_state(keys)
+
+    phase = "not_operational" if not valve.enabled_for_control else st.session_state[keys["phase"]]
+    if valve.enabled_for_control and phase in {"unknown", "closed", "open"}:
+        refresh_valve_from_backend(client, valve_id=valve_id, keys=keys)
+        phase = st.session_state[keys["phase"]]
+
+    with st.container(border=True, gap="small"):
+        availability = valve_availability_label(valve)
+        state_label = valve_card_state_label(phase)
+        card_class = "argos-valve-card-inner is-disabled" if not valve.enabled_for_control else "argos-valve-card-inner"
+        st.html(
+            f"""
+            <div class="{card_class}">
+                <div class="argos-valve-card-header">
+                    <div>
+                        <h3>{escape(valve.functional_name)} ({escape(valve.technical_id)})</h3>
+                        <small>Relay {valve.relay_id}</small>
+                    </div>
+                    {status_badge_html(availability, valve_card_status_tone(phase))}
+                </div>
+                <div class="argos-valve-state">
+                    <span>Estado actual</span>
+                    <strong>{escape(state_label)}</strong>
+                </div>
+            </div>
+            """
+        )
+        action_columns = st.columns([1, 1.22], gap="small", vertical_alignment="center")
+        with action_columns[0]:
+            open_disabled = (not valve.enabled_for_control) or phase_is_busy(phase) or phase == "open"
+            if st.button(
+                "Abrir",
+                key=f"valve_{valve_id}_open",
+                disabled=open_disabled,
+                width="stretch",
+            ):
+                start_valve_command(keys, "sending_open_command", "dashboard_open_click")
+
+        with action_columns[1]:
+            close_disabled = (not valve.enabled_for_control) or phase_is_busy(phase) or phase == "closed"
+            if st.button(
+                "Cerrar",
+                key=f"valve_{valve_id}_close",
+                type="primary",
+                disabled=close_disabled,
+                width="stretch",
+            ):
+                start_valve_command(keys, "sending_close_command", "dashboard_close_click")
+
+        if valve.enabled_for_control and phase not in {"open", "closed"}:
+            render_valve_status_line(keys, phase)
+        render_valve_progress(keys, phase, valve_opening_duration_s, valve_closing_duration_s)
+        if valve.enabled_for_control:
+            render_valve_message(st.session_state[keys["message"]], st.session_state[keys["error"]])
+
+    if (
+        valve.enabled_for_control
+        and phase in {"sending_open_command", "sending_close_command"}
+        and not st.session_state[keys["command_in_flight"]]
+    ):
+        run_valve_command(
+            client,
+            valve_id=valve_id,
+            keys=keys,
+            command="open" if phase == "sending_open_command" else "close",
+            movement_duration_s=valve_opening_duration_s if phase == "sending_open_command" else valve_closing_duration_s,
+        )
+
+    if valve.enabled_for_control and st.session_state[keys["phase"]] in {"opening", "closing"}:
+        monotonic_time.sleep(1)
+        st.rerun()
+
+    return keys
+
+
+def render_recent_irrigation_events(keys_by_valve: dict[int, dict[str, str]]) -> None:
+    rows: list[str] = []
+    for valve in VALVE_CONTROLS:
+        keys = keys_by_valve[valve.valve_id]
+        timing = st.session_state.get(keys["timing"], {})
+        response_at = timing.get("response_received_at") if isinstance(timing, dict) else None
+        if not valve.enabled_for_control:
+            message = "Pendiente de puesta en servicio"
+        elif st.session_state.get(keys["error"]):
+            message = "Error de comunicación"
+        else:
+            message = st.session_state.get(keys["message"]) or "Sin evento de sesión"
+        rows.append(
+            '<div class="argos-session-log-row">'
+            f"<span>{escape(valve_control_label(valve))}</span>"
+            f"<span>{escape(format_compact_local_datetime(response_at) if response_at else '-')}</span>"
+            f"<span>{escape(str(message))}</span>"
+            "</div>"
+        )
+    st.html(
+        f"""
+        {section_header_html("Eventos recientes", "operación local de riego")}
+        <div class="argos-session-log">
+            <div class="argos-session-log-row header">
+                <span>Dispositivo</span>
+                <span>Fecha y hora</span>
+                <span>Detalle</span>
+            </div>
+            {''.join(rows)}
+        </div>
+        """
     )
-    render_flowmeter_chart(client.base_url, start_iso=start_iso, end_iso=end_iso)
-    render_raw_valve_response(keys)
+
+
+def render_flowmeter_chart_card(
+    title: str,
+    frame: pd.DataFrame,
+    *,
+    start_iso: str,
+    end_iso: str,
+) -> None:
+    with st.container(border=True, gap="small"):
+        st.html(section_header_html(title))
+        if frame.empty:
+            st.caption("Sin agregados minutales para el rango seleccionado.")
+            return
+        chart_frame = flowmeter_chart_frame(frame)
+        if chart_frame.empty:
+            st.caption("No hay valores de caudal para graficar.")
+            return
+        st.plotly_chart(build_flowmeter_figure(chart_frame, start_iso=start_iso, end_iso=end_iso), width="stretch")
+
+
+def render_irrigation_water_card(frame: pd.DataFrame, *, start_iso: str, end_iso: str) -> None:
+    with st.container(border=True, gap="small"):
+        st.html(section_header_html("Agua y caudal", "eje temporal compartido"))
+        if frame.empty:
+            st.caption("Sin agregados minutales para el rango seleccionado.")
+            return
+        figure = build_irrigation_water_figure(frame, start_iso=start_iso, end_iso=end_iso)
+        if figure is None:
+            st.caption("No hay valores de caudal o acumulado para graficar.")
+            return
+        st.plotly_chart(figure, width="stretch")
+
+
+def render_accumulated_water_card(frame: pd.DataFrame, *, start_iso: str, end_iso: str) -> None:
+    with st.container(border=True, gap="small"):
+        st.html(section_header_html("Acumulado de agua"))
+        if frame.empty:
+            st.caption("Sin acumulados para el rango seleccionado.")
+            return
+        figure = build_accumulated_water_figure(frame, start_iso=start_iso, end_iso=end_iso)
+        if figure is None:
+            st.caption("No hay valores acumulados para graficar.")
+            return
+        st.plotly_chart(figure, width="stretch")
+
+
+def render_irrigation_summary_card(frame: pd.DataFrame, keys_by_valve: dict[int, dict[str, str]]) -> None:
+    operational_valves = tuple(valve for valve in VALVE_CONTROLS if valve.irrigation and valve.enabled_for_control)
+    operational_keys = tuple(keys_by_valve[valve.valve_id] for valve in operational_valves)
+    open_count = sum(1 for keys in operational_keys if st.session_state.get(keys["phase"]) == "open")
+    active_count = sum(
+        1
+        for keys in operational_keys
+        if st.session_state.get(keys["phase"]) in {"open", "opening", "sending_open_command"}
+    )
+    error_count = sum(1 for keys in operational_keys if st.session_state.get(keys["phase"]) == "error")
+    unknown_count = sum(1 for keys in operational_keys if st.session_state.get(keys["phase"]) == "unknown")
+    st.html(
+        irrigation_summary_html(
+            open_count,
+            active_count,
+            error_count,
+            unknown_count,
+            operational_count=len(operational_valves),
+        )
+    )
+
+
+def irrigation_summary_html(
+    open_count: int,
+    active_count: int,
+    error_count: int,
+    unknown_count: int,
+    *,
+    operational_count: int | None = None,
+) -> str:
+    operational_total = len(tuple(valve for valve in VALVE_CONTROLS if valve.irrigation and valve.enabled_for_control))
+    total = operational_total if operational_count is None else operational_count
+    return f"""
+    {section_header_html("Resumen operativo")}
+    <div class="argos-summary-grid">
+        {compact_metric_html("Electroválvulas abiertas", f"{open_count} / {total}")}
+        {compact_metric_html("Sectores activos", format_integer(active_count))}
+        {compact_metric_html("Alertas activas", format_integer(error_count))}
+        {compact_metric_html("Sin respuesta", format_integer(unknown_count))}
+    </div>
+    """
+
+
+def flowmeter_chart_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    chart_columns = [
+        "window_start_utc",
+        "avg_flow_l_min",
+        "max_flow_l_min",
+        "session_active_end",
+        "relay1_state_end",
+    ]
+    return frame[[column for column in chart_columns if column in frame]].dropna(
+        subset=["avg_flow_l_min", "max_flow_l_min"],
+        how="all",
+    )
+
+
+def valve_control_options() -> dict[str, int]:
+    return {valve_control_label(valve): valve.valve_id for valve in VALVE_CONTROLS}
+
+
+def valve_name_for_id(valve_id: int) -> str:
+    valve = valve_control_for_id(valve_id)
+    if valve is not None:
+        return valve.functional_name
+    return f"EV{valve_id}"
+
+
+def valve_control_for_id(valve_id: int) -> ValveControl | None:
+    for valve in VALVE_CONTROLS:
+        if valve.valve_id == valve_id:
+            return valve
+    return None
+
+
+def valve_control_label(valve: ValveControl) -> str:
+    return f"{valve.functional_name} · {valve.technical_id}"
+
+
+def valve_technical_detail(valve: ValveControl) -> str:
+    return f"{valve.technical_id} · relay {valve.relay_id}"
+
+
+def close_all_configured_valves(client: ArgosNodeClient) -> CloseAllValvesResult:
+    results: list[CloseAllValveResult] = []
+    for valve in VALVE_CONTROLS:
+        if not valve.irrigation or not valve.enabled_for_control:
+            continue
+        try:
+            response = client.close_valve(valve.valve_id)
+        except ArgosNodeError as exc:
+            results.append(CloseAllValveResult(valve=valve, error=str(exc)))
+            continue
+        results.append(CloseAllValveResult(valve=valve, response=response))
+    return CloseAllValvesResult(results=tuple(results))
+
+
+def run_close_all_valves(client: ArgosNodeClient) -> None:
+    result = close_all_configured_valves(client)
+    for item in result.results:
+        keys = valve_session_keys(item.valve.valve_id)
+        initialize_valve_session(keys)
+        if item.ok:
+            st.session_state[keys["phase"]] = "closed"
+            st.session_state[keys["last_confirmed_phase"]] = "closed"
+            st.session_state[keys["raw_response"]] = item.response
+            st.session_state[keys["message"]] = "Valve is estimated closed after global close command."
+            st.session_state[keys["error"]] = None
+        else:
+            st.session_state[keys["phase"]] = "error"
+            st.session_state[keys["error"]] = f"Global close failed: {item.error}"
+    st.session_state["close_all_valves_result"] = result
+
+
+def render_close_all_valves_result(result: CloseAllValvesResult | None) -> None:
+    if result is None:
+        return
+    if result.ok:
+        closed = ", ".join(valve_control_label(item.valve) for item in result.succeeded)
+        st.success(f"Cierre global completado: {closed}.")
+        return
+    failed = "; ".join(f"{valve_control_label(item.valve)}: {item.error}" for item in result.failed)
+    succeeded = ", ".join(valve_control_label(item.valve) for item in result.succeeded)
+    if succeeded:
+        st.warning(f"Cierre parcial. Cerradas: {succeeded}. Fallos: {failed}.")
+    else:
+        st.error(f"No se pudo cerrar ninguna electroválvula. Fallos: {failed}.")
 
 
 def render_valve_control(
     client: ArgosNodeClient,
     *,
-    valve_id: int,
-    name: str,
+    valve: ValveControl,
     valve_opening_duration_s: float,
     valve_closing_duration_s: float,
 ) -> dict[str, str]:
+    valve_id = valve.valve_id
     keys = valve_session_keys(valve_id)
     initialize_valve_session(keys)
     update_timed_valve_state(keys)
@@ -3622,7 +5291,8 @@ def render_valve_control(
     valve_column, live_column = st.columns(2, vertical_alignment="top")
     with valve_column:
         with st.container(border=True, gap="small"):
-            st.subheader(name)
+            st.subheader(valve.functional_name)
+            st.caption(valve_technical_detail(valve))
             with st.container(horizontal=True, vertical_alignment="center", gap="small"):
                 render_compact_metric("State", valve_phase_label(phase))
                 render_valve_primary_action(valve_id, keys, phase)
@@ -3649,7 +5319,7 @@ def render_valve_control(
 
 
 @st.fragment(run_every=1)
-def render_live_flowmeter_status(client: ArgosNodeClient) -> None:
+def render_live_flowmeter_status(client: ArgosNodeClient, *, show_admin_actions: bool = True) -> None:
     with st.container(border=True, gap="small"):
         st.subheader("Caudalímetro")
         try:
@@ -3662,28 +5332,29 @@ def render_live_flowmeter_status(client: ArgosNodeClient) -> None:
             st.caption(str(exc))
             return
 
-        st.html(
-            f"""
-            <div class="argos-flowmeter-current">
-                <p class="argos-flowmeter-section-title">Estado actual</p>
-                <div class="argos-realtime-flowmeter-grid">
-                    {compact_metric_html("Caudal actual", format_number(parsed.flow_l_min, "L/min"))}
-                    {compact_metric_html("Sesión actual", format_number(parsed.session_l, "L"))}
-                    {compact_metric_html("Electroválvula", format_binary_ev_state(parsed.relay1_state))}
-                </div>
-            </div>
-            <div class="argos-flowmeter-history">
-                <p class="argos-flowmeter-section-title">Histórico y acumulados</p>
-                <div class="argos-realtime-flowmeter-grid">
-                    {compact_metric_html("Última sesión", format_number(parsed.last_session_l, "L"))}
-                    {compact_metric_html("Año hidrológico", format_number(parsed.hydrological_year_l, "L"))}
-                    {compact_metric_html("Total histórico", format_number(parsed.total_l, "L"))}
-                </div>
-            </div>
-            """
-        )
+        st.html(flowmeter_status_html(parsed))
         st.caption(f"Muestreo cada segundo desde {client.base_url}/status.")
-        render_flowmeter_admin_actions(client)
+        if show_admin_actions:
+            render_flowmeter_admin_actions(client)
+
+
+def flowmeter_status_html(parsed: Any) -> str:
+    return f"""
+    <div class="argos-flowmeter-panel">
+        <p class="argos-flowmeter-section-title">Lectura instantánea</p>
+        <div class="argos-realtime-flowmeter-grid">
+            {compact_metric_html("Caudal actual", format_number(parsed.flow_l_min, "L/min"))}
+            {compact_metric_html("Sesión actual", format_number(parsed.session_l, "L"))}
+        </div>
+    </div>
+    <div class="argos-flowmeter-panel argos-flowmeter-secondary">
+        <p class="argos-flowmeter-section-title">Cierres de periodo</p>
+        <div class="argos-realtime-flowmeter-grid">
+            {compact_metric_html("Última sesión", format_number(parsed.last_session_l, "L"))}
+            {compact_metric_html("Año hidrológico", format_number(parsed.hydrological_year_l, "L"))}
+        </div>
+    </div>
+    """
 
 
 def render_flowmeter_admin_actions(client: ArgosNodeClient) -> None:
@@ -3761,6 +5432,11 @@ def run_flowmeter_admin_action(action: Any, success_message: str) -> None:
 
 
 def render_raw_valve_response(keys: dict[str, str]) -> None:
+    error = st.session_state.get(keys["error"])
+    if error:
+        with st.expander("Diagnóstico técnico de electroválvula"):
+            st.code(str(error))
+
     if not st.session_state[keys["raw_response"]]:
         with st.container(border=True, gap="small"):
             st.subheader("Raw valve response")
@@ -3802,7 +5478,7 @@ def render_flowmeter_chart(node_url: str, *, start_iso: str, end_iso: str) -> No
         if chart_frame.empty:
             st.caption("No hay valores de caudal para graficar.")
             return
-        chart_column, metrics_column = st.columns([4, 1], vertical_alignment="top")
+        chart_column, metrics_column = st.columns([5, 1], vertical_alignment="top")
         with chart_column:
             st.plotly_chart(build_flowmeter_figure(chart_frame, start_iso=chart_start_iso, end_iso=chart_end_iso), width="stretch")
         with metrics_column:
@@ -3879,17 +5555,13 @@ def build_flowmeter_figure(frame: pd.DataFrame, *, start_iso: str | None = None,
                 )
             )
     xaxis: dict[str, Any] = {"title": local_time_axis_title()}
-    start = parse_datetime(start_iso)
-    end = parse_datetime(end_iso)
-    if start is not None and end is not None:
-        xaxis["range"] = [
-            start.astimezone(ZoneInfo(get_settings().local_timezone)).replace(tzinfo=None),
-            end.astimezone(ZoneInfo(get_settings().local_timezone)).replace(tzinfo=None),
-        ]
+    xaxis_range = flowmeter_visible_xaxis_range(frame, start_iso=start_iso, end_iso=end_iso)
+    if xaxis_range is not None:
+        xaxis["range"] = xaxis_range
     figure.update_layout(
-        height=150,
+        height=240,
         margin={"t": 0, "r": 48, "b": 18, "l": 34},
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.01, "xanchor": "left", "x": 0},
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.01, "xanchor": "left", "x": 0, "font": {"size": 10}},
         xaxis=xaxis,
         yaxis={"title": "L/min", "rangemode": "tozero", "gridcolor": "rgba(148, 163, 184, 0.28)"},
         yaxis2={
@@ -3903,7 +5575,252 @@ def build_flowmeter_figure(frame: pd.DataFrame, *, start_iso: str | None = None,
             "showgrid": False,
         },
     )
+    figure.update_xaxes(tickfont={"size": 10}, title_font={"size": 10})
+    figure.update_yaxes(tickfont={"size": 10}, title_font={"size": 10})
     return figure
+
+
+def build_irrigation_water_figure(frame: pd.DataFrame, *, start_iso: str | None = None, end_iso: str | None = None) -> go.Figure | None:
+    if frame.empty or "window_start_utc" not in frame:
+        return None
+
+    sorted_frame = frame.sort_values("window_start_utc").copy()
+    has_flow = {"avg_flow_l_min", "max_flow_l_min"}.intersection(sorted_frame.columns)
+    accumulated_columns = [
+        column for column in ("total_l_end", "session_l_end", "hydrological_year_l_end") if column in sorted_frame
+    ]
+    if not has_flow and not accumulated_columns:
+        return None
+
+    figure = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        row_heights=[0.52, 0.48],
+        specs=[[{"secondary_y": True}], [{}]],
+    )
+
+    flow_frame = flowmeter_chart_frame(sorted_frame) if has_flow else pd.DataFrame()
+    if not flow_frame.empty:
+        x_values = local_time_values(flow_frame["window_start_utc"])
+        avg_x, avg_y = flowmeter_trace_values(flow_frame["window_start_utc"], x_values, flow_frame["avg_flow_l_min"])
+        max_x, max_y = flowmeter_trace_values(flow_frame["window_start_utc"], x_values, flow_frame["max_flow_l_min"])
+        figure.add_trace(
+            go.Scatter(
+                x=avg_x,
+                y=avg_y,
+                mode="lines+markers",
+                name="Caudal medio",
+                legendgroup="flow",
+                line={"color": "#2563eb", "width": 2},
+                marker={"size": 4},
+            ),
+            row=1,
+            col=1,
+            secondary_y=False,
+        )
+        figure.add_trace(
+            go.Scatter(
+                x=max_x,
+                y=max_y,
+                mode="lines+markers",
+                name="Caudal máximo",
+                legendgroup="flow",
+                line={"color": "#0f766e", "width": 2},
+                marker={"size": 4},
+            ),
+            row=1,
+            col=1,
+            secondary_y=False,
+        )
+        ev_column = "session_active_end" if "session_active_end" in flow_frame else "relay1_state_end"
+        if ev_column in flow_frame:
+            relay_frame = flow_frame.dropna(subset=[ev_column]).copy()
+            if not relay_frame.empty:
+                relay_x = local_time_values(relay_frame["window_start_utc"])
+                relay_trace_x, relay_trace_y = flowmeter_trace_values(
+                    relay_frame["window_start_utc"],
+                    relay_x,
+                    relay_frame[ev_column].astype(int),
+                )
+                figure.add_trace(
+                    go.Scatter(
+                        x=relay_trace_x,
+                        y=relay_trace_y,
+                        mode="lines",
+                        name="EV",
+                        legendgroup="flow",
+                        line={"color": "#ef4444", "shape": "hv", "width": 2},
+                    ),
+                    row=1,
+                    col=1,
+                    secondary_y=True,
+                )
+
+    accumulated_frame = sorted_frame[["window_start_utc", *accumulated_columns]].dropna(subset=accumulated_columns, how="all")
+    if not accumulated_frame.empty:
+        series = [
+            ("total_l_end", "Total histórico", "#15803d"),
+            ("session_l_end", "Sesión actual", "#2563eb"),
+            ("hydrological_year_l_end", "Año hidrológico", "#0f766e"),
+        ]
+        for column, label, color in series:
+            if column not in accumulated_frame:
+                continue
+            trace_frame = accumulated_frame.dropna(subset=[column])
+            if trace_frame.empty:
+                continue
+            figure.add_trace(
+                go.Scatter(
+                    x=local_time_values(trace_frame["window_start_utc"]),
+                    y=trace_frame[column],
+                    mode="lines+markers",
+                    name=label,
+                    legendgroup="accumulated",
+                    line={"color": color, "width": 2},
+                    marker={"size": 4},
+                ),
+                row=2,
+                col=1,
+            )
+
+    xaxis_range = flowmeter_visible_xaxis_range(sorted_frame, start_iso=start_iso, end_iso=end_iso)
+    figure.update_layout(
+        height=360,
+        margin={"t": 44, "r": 48, "b": 24, "l": 42},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.04,
+            "xanchor": "left",
+            "x": 0,
+            "font": {"size": 10},
+            "bgcolor": "rgba(255,255,255,0.88)",
+        },
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+    )
+    figure.update_xaxes(
+        title_text="",
+        tickfont={"size": 10},
+        title_font={"size": 10},
+        gridcolor="rgba(148, 163, 184, 0.24)",
+        range=xaxis_range,
+        row=1,
+        col=1,
+    )
+    figure.update_xaxes(
+        title_text=local_time_axis_title(),
+        tickfont={"size": 10},
+        title_font={"size": 10},
+        gridcolor="rgba(148, 163, 184, 0.24)",
+        range=xaxis_range,
+        row=2,
+        col=1,
+    )
+    figure.update_yaxes(
+        title_text="Caudal, L/min",
+        rangemode="tozero",
+        tickfont={"size": 10},
+        title_font={"size": 10},
+        gridcolor="rgba(148, 163, 184, 0.28)",
+        row=1,
+        col=1,
+        secondary_y=False,
+    )
+    figure.update_yaxes(
+        title_text="EV",
+        range=[-0.05, 1.05],
+        tickmode="array",
+        tickvals=[0, 1],
+        ticktext=["0", "1"],
+        showgrid=False,
+        tickfont={"size": 10},
+        title_font={"size": 10},
+        row=1,
+        col=1,
+        secondary_y=True,
+    )
+    figure.update_yaxes(
+        title_text="Riego acumulado, L",
+        rangemode="tozero",
+        tickfont={"size": 10},
+        title_font={"size": 10},
+        gridcolor="rgba(148, 163, 184, 0.28)",
+        row=2,
+        col=1,
+    )
+    return figure
+
+
+def build_accumulated_water_figure(frame: pd.DataFrame, *, start_iso: str | None = None, end_iso: str | None = None) -> go.Figure | None:
+    columns = [column for column in ("total_l_end", "session_l_end", "hydrological_year_l_end") if column in frame]
+    if not columns or "window_start_utc" not in frame:
+        return None
+    chart_frame = frame[["window_start_utc", *columns]].dropna(subset=columns, how="all").sort_values("window_start_utc")
+    if chart_frame.empty:
+        return None
+    figure = go.Figure()
+    series = [
+        ("total_l_end", "Total histórico", "#15803d"),
+        ("session_l_end", "Sesión actual", "#2563eb"),
+        ("hydrological_year_l_end", "Año hidrológico", "#0f766e"),
+    ]
+    for column, label, color in series:
+        if column not in chart_frame:
+            continue
+        trace_frame = chart_frame.dropna(subset=[column])
+        if trace_frame.empty:
+            continue
+        trace_x = local_time_values(trace_frame["window_start_utc"])
+        figure.add_trace(
+            go.Scatter(
+                x=trace_x,
+                y=trace_frame[column],
+                mode="lines+markers",
+                name=label,
+                line={"color": color, "width": 2},
+                marker={"size": 4},
+            )
+        )
+    if not figure.data:
+        return None
+    xaxis: dict[str, Any] = {"title": local_time_axis_title()}
+    xaxis_range = flowmeter_visible_xaxis_range(chart_frame, start_iso=start_iso, end_iso=end_iso)
+    if xaxis_range is not None:
+        xaxis["range"] = xaxis_range
+    figure.update_layout(
+        height=220,
+        margin={"t": 0, "r": 16, "b": 18, "l": 42},
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.01, "xanchor": "left", "x": 0, "font": {"size": 10}},
+        xaxis=xaxis,
+        yaxis={"title": "L", "rangemode": "tozero", "gridcolor": "rgba(148, 163, 184, 0.28)"},
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+    )
+    figure.update_xaxes(tickfont={"size": 10}, title_font={"size": 10})
+    figure.update_yaxes(tickfont={"size": 10}, title_font={"size": 10})
+    return figure
+
+
+def flowmeter_visible_xaxis_range(frame: pd.DataFrame, *, start_iso: str | None = None, end_iso: str | None = None) -> list[datetime] | None:
+    start = parse_datetime(start_iso)
+    end = parse_datetime(end_iso)
+    if start is None or end is None or frame.empty or "window_start_utc" not in frame:
+        return None
+
+    timestamps = pd.to_datetime(frame["window_start_utc"], utc=True, errors="coerce").dropna()
+    if timestamps.empty:
+        return None
+
+    data_start = timestamps.min().to_pydatetime() - timedelta(minutes=1)
+    visible_start = max(start, data_start)
+    timezone = ZoneInfo(get_settings().local_timezone)
+    return [
+        visible_start.astimezone(timezone).replace(tzinfo=None),
+        end.astimezone(timezone).replace(tzinfo=None),
+    ]
 
 
 def flowmeter_chart_window(start_iso: str, end_iso: str) -> tuple[str, str]:
@@ -4137,7 +6054,7 @@ def start_estimated_movement(keys: dict[str, str], *, command: str, movement_dur
 
 def render_valve_message(message: str | None, error: str | None) -> None:
     if error:
-        st.error(error)
+        st.caption("Detalle técnico disponible en Respuesta técnica.")
     elif message:
         st.success(message)
 
@@ -4285,7 +6202,9 @@ def format_compact_date(value: str) -> str:
 
 
 def parse_datetime(value: Any) -> datetime | None:
-    if isinstance(value, datetime):
+    if isinstance(value, pd.Timestamp):
+        parsed = value.to_pydatetime()
+    elif isinstance(value, datetime):
         parsed = value
     elif value:
         text = str(value)

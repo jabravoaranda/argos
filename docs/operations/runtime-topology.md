@@ -3,9 +3,9 @@
 Estado: Vigente
 Tipo: Diagrama operativo
 Fuente de verdad: codigo y procesos observados
-Ultima actualizacion: 2026-08-02
+Ultima actualizacion: 2026-08-15
 Responsable logico: Mantenimiento de software
-Revision: 1
+Revision: 2
 
 Solo se dibujan componentes confirmados por codigo, configuracion o ejecucion observada.
 
@@ -26,15 +26,15 @@ flowchart LR
     aemet["AEMET OpenData"]
     copernicus["Copernicus CDSE"]
     node["argos-node<br/>http://192.168.1.42"]
-    valve["Valvula 8"]
+    valves["Electroválvulas<br/>General EV8<br/>Sector I EV6<br/>Sector II EV7"]
     flowmeter["Caudalimetro"]
 
     ecowitt -->|"POST /api/v1/ecowitt/upload/{token}"| fastapi
     fastapi <-->|"SQL reads/writes"| sqlite
     fastapi <-->|"file metadata/assets"| data
     streamlit -->|"HTTP API"| fastapi
-    streamlit -->|"GET /status, GET/POST /valves/8"| node
-    node --> valve
+    streamlit -->|"GET /status, GET /valves, POST /valves/<id>"| node
+    node --> valves
     flowmeter --> node
     worker_flow -->|"poll /status cada 5s si ARGOS_NODE_URL"| node
     worker_flow --> sqlite
@@ -50,6 +50,6 @@ flowchart LR
 
 ## Notas
 
-- La operacion de valvula del dashboard habla directamente con `argos-node`; no pasa por FastAPI.
+- La operacion de electroválvulas del dashboard habla directamente con `argos-node`; no pasa por FastAPI.
 - La tarea Windows de backup no se dibuja como activa porque su registro no esta confirmado.
-- La alimentacion fisica del controlador y la conexion electrica de la valvula son Pendiente de validacion operativa.
+- La alimentacion fisica del controlador y la conexion electrica de las electroválvulas son Pendiente de validacion operativa.

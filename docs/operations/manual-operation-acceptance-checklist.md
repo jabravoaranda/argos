@@ -3,9 +3,9 @@
 Estado: Vigente
 Tipo: Checklist operativo
 Fuente de verdad: `docs/00-estado-del-proyecto.md`
-Ultima actualizacion: 2026-08-02
+Ultima actualizacion: 2026-08-15
 Responsable logico: Operador ARGOS
-Revision: 1
+Revision: 2
 
 ## Datos de prueba
 
@@ -35,12 +35,15 @@ Revision: 1
 ## Control
 
 - [ ] `argos-node` accesible en `/status`.
-- [ ] Estado de valvula 8 conocido antes de operar.
-- [ ] Apertura desde boton `Open valve`.
+- [ ] `/valves` lista General EV8, Sector I EV6 y Sector II EV7.
+- [ ] Estado de la electroválvula seleccionada conocido antes de operar.
+- [ ] Apertura individual desde boton `Open valve`.
 - [ ] Confirmacion de apertura en UI.
 - [ ] Confirmacion fisica de apertura o caudal.
-- [ ] Cierre desde boton `Close valve`.
+- [ ] Cierre individual desde boton `Close valve`.
 - [ ] Confirmacion de cierre en UI.
+- [ ] Cierre global desde boton `Cerrar todo`.
+- [ ] Confirmacion en UI de cierre global sin fallo parcial.
 - [ ] Confirmacion fisica de cierre y ausencia de caudal.
 - [ ] Reinicio de ARGOS y repeticion del ciclo.
 

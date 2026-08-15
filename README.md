@@ -56,6 +56,12 @@ uv sync
 Copy-Item .env.example .env
 ```
 
+For development environments that run UI validation, install the Playwright browsers after syncing the development dependencies:
+
+```powershell
+python -m playwright install chromium firefox
+```
+
 Edit `.env` and set a real ingestion token:
 
 ```dotenv
@@ -155,6 +161,12 @@ See [docs/operations.md](docs/operations.md) for operational checks, [docs/field
 uv run pytest
 uv run ruff check .
 uv run mypy src
+```
+
+ARGOS also includes a reusable Playwright capture helper for visual UI checks against an already running dashboard:
+
+```powershell
+uv run python scripts/ui_capture.py --browser firefox --page Válvulas --width 1920 --height 1080 --output artifacts/ui/valvulas-1920x1080-firefox.png
 ```
 
 ## Dashboard

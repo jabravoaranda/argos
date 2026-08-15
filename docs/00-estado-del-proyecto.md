@@ -3,9 +3,9 @@
 Estado: Vigente
 Tipo: Fuente de verdad de estado
 Fuente de verdad: Este documento
-Ultima actualizacion: 2026-08-02
+Ultima actualizacion: 2026-08-15
 Responsable logico: Mantenimiento de software
-Revision: 2
+Revision: 3
 
 ## Regla de mantenimiento
 
@@ -13,7 +13,7 @@ Actualizar este documento cuando cambie una capacidad operativa, una decision co
 
 ## 1. Identidad y alcance
 
-ARGOS es el sistema local de observacion y control agricola para la finca `tomillar`. Integra datos meteorologicos, AEMET, Sentinel-2, diario de campo, analitica, estado hidraulico y control manual de una valvula maestra a traves de `argos-node`.
+ARGOS es el sistema local de observacion y control agricola para la finca `tomillar`. Integra datos meteorologicos, AEMET, Sentinel-2, diario de campo, analitica, estado hidraulico y control manual de electroválvulas de riego a traves de `argos-node`.
 
 Proposito actual: conservar datos trazables, consultar el estado operativo y permitir operacion manual supervisada del riego desde el dashboard.
 
@@ -26,7 +26,7 @@ Principios consolidados:
 - La estacion fisica se identifica por el slug `tomillar`; el gateway es hardware reemplazable.
 - Las capacidades automaticas no se declaran operativas sin validacion observable.
 
-ARGOS se considera operativo en modo manual supervisado cuando permite arrancar el sistema, comprobar su estado y abrir/cerrar la valvula maestra desde el boton existente, manteniendo registro y recuperacion basica de los datos.
+ARGOS se considera operativo en modo manual supervisado cuando permite arrancar el sistema, comprobar su estado y abrir/cerrar electroválvulas configuradas desde el dashboard, manteniendo registro, cierre global y recuperacion basica de los datos.
 
 No se declara todavia:
 
@@ -49,8 +49,8 @@ No se declara todavia:
 | API FastAPI | Si | Si | Si | Si | Si | Proceso en `127.0.0.1:8080`; endpoints principales responden 200. |
 | Dashboard Streamlit | Si | Si | Si | Si | Si | Proceso en `127.0.0.1:8501`; dashboard responde 200. |
 | `argos-node` | Si | Integracion ARGOS si | Si | Si | Parcial | `http://192.168.1.42/status` responde 200; firmware/proceso interno externo a este repo. |
-| Electrovalvula | Si | Control dashboard si | Si | Parcial | Parcial | `GET /valves/8` respondio `closed`; confirmacion fisica de campo: Pendiente de validacion operativa. |
-| Boton manual apertura/cierre | Si | Si | Si | Software si | Parcial | Botones `Open valve`/`Close valve` en vista `Valvulas`; prueba fisica: Pendiente de validacion operativa. |
+| Electrovalvulas | Si | Control dashboard si | Si | Parcial | Parcial | Configuracion actual: General EV8 rele 8, Sector I EV6 rele 6, Sector II EV7 rele 7; confirmacion fisica de campo: Pendiente de validacion operativa. |
+| Boton manual apertura/cierre | Si | Si | Si | Software si | Parcial | Botones `Open valve`/`Close valve` y `Cerrar todo` en vista `Valvulas`; prueba fisica: Pendiente de validacion operativa. |
 | Caudalimetro | Si | Si | Si | Si | Parcial | Worker registra minutos; 218 agregados observados. Cero sesiones cerradas observadas. |
 | Diario de campo | Si | Si | Si | Tests/API | Si | CRUD y export CSV via API/dashboard con token admin para escritura. |
 | Analitica | Si | Si | Si | Tests/API | Si | Variables, series, correlaciones, distribuciones y tendencias sobre datos persistidos. |
@@ -81,8 +81,9 @@ No se declara todavia:
 - Consulta AEMET por API/dashboard y sync/backfill manual/admin.
 - Consulta satelital por API/dashboard y update/backfill manual/admin.
 - Dashboard Streamlit con vistas de estado, observaciones, AEMET, satelite, diario, analitica, valvulas y calidad.
-- Apertura/cierre manual de valvula 8 desde la vista `Valvulas`.
-- Lectura de `argos-node` `/status` y `/valves/8`.
+- Apertura/cierre manual de electroválvulas configuradas desde la vista `Valvulas`: General EV8, Sector I EV6, Sector II EV7.
+- Cierre global `Cerrar todo` para todas las electroválvulas configuradas.
+- Lectura de `argos-node` `/status` y `/valves/<id>`.
 - Persistencia de caudalimetro por minuto cuando `ARGOS_NODE_URL` esta configurado.
 - Backup/restore SQLite mediante scripts.
 - Auditorias de duplicados, `source_artifacts`, staging, cursores e inventario de archivos.
@@ -117,13 +118,13 @@ No se declara todavia:
 - Identificador canonico de gateway y aliases LAN/Cloud/MAC/model.
 - Si Ecowitt Cloud puede enriquecer observaciones `DIRECT` existentes.
 - Registro real de tareas Windows para backup y arranque automatico.
-- Criterios de aceptacion fisica de valvula y caudalimetro en campo.
+- Criterios de aceptacion fisica de electroválvulas y caudalimetro en campo.
 
 ## 8. Proximos pasos
 
 | Prioridad | Accion | Responsable logico | Criterio de cierre |
 |---:|---|---|---|
-| 1 | Ejecutar checklist de operacion manual en campo | Operador ARGOS | Apertura/cierre de valvula 8 confirmados fisicamente y documentados. |
+| 1 | Ejecutar checklist de operacion manual en campo | Operador ARGOS | Apertura/cierre de electroválvulas configuradas y `Cerrar todo` confirmados fisicamente y documentados. |
 | 2 | Verificar cierre seguro y ausencia de caudal tras cierre | Operador ARGOS | Checklist firmado con caudal observado o limitacion registrada. |
 | 3 | Registrar o descartar tarea Windows de backup | Operador ARGOS | `schtasks /Query` confirma tarea o decision documentada de backup manual. |
 | 4 | Definir politica de archivos `legacy` | Arquitectura de datos | Decision escrita: conservar, archivar externo o eliminar con aprobacion. |

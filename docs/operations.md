@@ -3,9 +3,9 @@
 Estado: Vigente
 Tipo: Portada operativa
 Fuente de verdad: `docs/00-estado-del-proyecto.md`
-Ultima actualizacion: 2026-08-02
+Ultima actualizacion: 2026-08-15
 Responsable logico: Operador ARGOS
-Revision: 1
+Revision: 2
 
 ## Proposito
 
@@ -26,7 +26,7 @@ Esta portada dirige al operador a los manuales especializados. No debe mezclar e
 |---|---|
 | Arrancar, parar o reiniciar | [startup-and-shutdown.md](operations/startup-and-shutdown.md) |
 | Saber si ARGOS funciona en menos de dos minutos | [health-checks.md](operations/health-checks.md) |
-| Abrir/cerrar valvula manualmente | [manual-irrigation-operation.md](operations/manual-irrigation-operation.md) |
+| Abrir/cerrar electroválvulas manualmente | [manual-irrigation-operation.md](operations/manual-irrigation-operation.md) |
 | Aceptar operacion manual en campo | [manual-operation-acceptance-checklist.md](operations/manual-operation-acceptance-checklist.md) |
 | Consultar variables de entorno | [configuration-reference.md](operations/configuration-reference.md) |
 | Entender procesos y flujos activos | [runtime-topology.md](operations/runtime-topology.md) |
@@ -51,7 +51,7 @@ Endpoints principales:
 - `GET http://127.0.0.1:8080/api/v1/weather/aemet/sync/latest?station=6127X`
 - `GET http://127.0.0.1:8080/api/v1/satellite/status`
 - `GET http://192.168.1.42/status`
-- `GET http://192.168.1.42/valves/8`
+- `GET http://192.168.1.42/valves`
 
 ## Contenido reubicado
 

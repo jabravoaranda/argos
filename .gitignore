@@ -55,6 +55,7 @@ cover/
 # Runtime data
 data/
 logs/
+artifacts/ui/
 
 # Local exported bundles
 *.rar

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import timezone
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from argos.dashboard.app import (
     DEFAULT_VARIABLES,
@@ -11,7 +13,11 @@ from argos.dashboard.app import (
     LABELS,
     WIND_BARB_LANE_Y,
     aggregate_wind_vectors,
+    build_observation_radiation_uv_figure,
+    build_observation_rain_pressure_figure,
     build_observation_group_figures,
+    build_observation_temperature_humidity_figure,
+    build_observation_wind_figure,
     build_recent_weather_figure,
     default_ecowitt_gateway_identifier,
     element_key,
@@ -20,7 +26,10 @@ from argos.dashboard.app import (
     local_time_values,
     mask_identifier,
     meteorological_direction_from_uv,
+    observation_kpi_row_html,
+    observation_local_xaxis_range,
     observation_period_meteogram_wind_frequency,
+    observation_period_quality,
     observation_period_uses_recent_meteogram,
     observation_period_range,
     weather_metric_table_html,
@@ -123,10 +132,11 @@ def test_recent_weather_figure_includes_temperature_and_humidity(monkeypatch) ->
     assert figure.layout.yaxis.title.text == "deg C"
     assert figure.layout.yaxis2.title.text == "% HR"
     assert figure.layout.height == HOME_DUAL_AXIS_CHART_HEIGHT
-    assert figure.layout.margin.t == 26
+    assert figure.layout.margin.t == 56
     assert figure.layout.legend.orientation == "h"
     assert figure.layout.legend.x == 0.5
     assert figure.layout.legend.xanchor == "center"
+    assert figure.layout.legend.y == 1.14
     assert figure.layout.plot_bgcolor == "#ffffff"
     assert figure.layout.xaxis.showgrid is True
     assert figure.layout.xaxis3.title.text == "Tiempo local (Europe/Madrid)"
@@ -153,6 +163,7 @@ def test_recent_weather_figure_adds_wetterzentrale_style_day_markers() -> None:
     figure = build_recent_weather_figure(frame)
 
     assert any(annotation.text == "Fri Jul 31" for annotation in figure.layout.annotations)
+    assert all(annotation.y <= 1.04 for annotation in figure.layout.annotations)
     assert len(figure.layout.shapes) == 1
 
 
@@ -228,6 +239,101 @@ def test_observation_period_uses_recent_meteogram_for_day_and_week_only() -> Non
     assert observation_period_uses_recent_meteogram("Year") is False
     assert observation_period_meteogram_wind_frequency("Day") == "1h"
     assert observation_period_meteogram_wind_frequency("Week") == "3h"
+
+
+def test_observation_kpi_row_keeps_instrument_state_out_of_primary_cards() -> None:
+    html = observation_kpi_row_html(
+        pd.Series(
+            {
+                "outdoor_temperature_c": 31.4,
+                "outdoor_humidity_pct": 42.0,
+                "relative_pressure_hpa": 1012.3,
+                "wind_speed_ms": 1.8,
+                "wind_direction_deg": 225.0,
+                "wind_gust_ms": 4.6,
+                "rain_last_24h_mm": 2.4,
+                "rain_rate_mm_h": 0.2,
+                "solar_radiation_wm2": 827.0,
+                "uv_index": 7.0,
+                "battery_voltage": 3.06,
+                "ws90_capacitor_voltage": 5.0,
+            }
+        )
+    )
+
+    for label in ["Temperatura", "Humedad", "Presión", "Viento SW", "Racha", "Lluvia 24 h", "Radiación", "UV"]:
+        assert label in html
+    assert "Batería" not in html
+    assert "Capacitor" not in html
+    assert "WS90" not in html
+
+
+def test_observation_monitoring_figures_share_range_and_compact_axes(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "argos.dashboard.app.get_settings",
+        lambda: SimpleNamespace(local_timezone="Europe/Madrid"),
+    )
+    start = pd.Timestamp("2026-08-15T15:00:00Z").to_pydatetime()
+    end = pd.Timestamp("2026-08-15T16:00:00Z").to_pydatetime()
+    xaxis_range = observation_local_xaxis_range(start, end)
+    frame = pd.DataFrame(
+        {
+            "observed_at_utc": pd.to_datetime(
+                ["2026-08-15T15:00:00Z", "2026-08-15T15:30:00Z", "2026-08-15T16:00:00Z"],
+            ),
+            "outdoor_temperature_c": [31.0, 31.5, 32.0],
+            "outdoor_humidity_pct": [42.0, 41.0, 40.0],
+            "wind_speed_ms": [1.2, 1.4, 1.3],
+            "wind_gust_ms": [3.4, 3.8, 3.2],
+            "wind_direction_deg": [180.0, 225.0, 270.0],
+            "solar_radiation_wm2": [700.0, 760.0, 720.0],
+            "uv_index": [6.0, 7.0, 6.0],
+            "rain_rate_mm_h": [0.0, 0.2, 0.0],
+            "relative_pressure_hpa": [1012.0, 1011.8, 1011.6],
+        }
+    )
+
+    figures = [
+        build_observation_temperature_humidity_figure(frame, xaxis_range=xaxis_range),
+        build_observation_wind_figure(frame, xaxis_range=xaxis_range),
+        build_observation_radiation_uv_figure(frame, xaxis_range=xaxis_range),
+        build_observation_rain_pressure_figure(frame, xaxis_range=xaxis_range),
+    ]
+
+    assert all(figure is not None for figure in figures)
+    for figure in figures:
+        assert figure.layout.height == 235
+        assert list(figure.layout.xaxis.range) == xaxis_range
+    assert figures[0].layout.yaxis.title.text == "Temperatura, deg C"
+    assert figures[0].layout.yaxis2.title.text == "Humedad, %"
+    assert figures[1].layout.yaxis.title.text == "Viento, m/s"
+    assert figures[2].layout.yaxis.title.text == "Radiación, W/m2"
+    assert figures[2].layout.yaxis2.title.text == "UV"
+    assert figures[3].layout.yaxis.title.text == "Lluvia, mm/h"
+    assert figures[3].layout.yaxis2.title.text == "Presión, hPa"
+    assert [trace.name for trace in figures[3].data] == ["Lluvia", "Presión"]
+
+
+def test_observation_period_quality_calculates_coverage_and_gaps() -> None:
+    start = pd.Timestamp("2026-08-15T15:00:00Z").to_pydatetime().replace(tzinfo=timezone.utc)
+    end = pd.Timestamp("2026-08-15T15:05:00Z").to_pydatetime().replace(tzinfo=timezone.utc)
+    frame = pd.DataFrame(
+        {
+            "observed_at_utc": pd.to_datetime(
+                [
+                    "2026-08-15T15:00:00Z",
+                    "2026-08-15T15:01:00Z",
+                    "2026-08-15T15:02:00Z",
+                    "2026-08-15T15:05:00Z",
+                ],
+            ),
+        }
+    )
+
+    coverage, gaps = observation_period_quality(frame, start=start, end=end)
+
+    assert coverage == pytest.approx(66.666, abs=0.01)
+    assert gaps == 1
 
 
 def test_observation_groups_use_secondary_axis_for_humidity() -> None:

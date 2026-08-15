@@ -3,9 +3,9 @@
 Estado: Vigente
 Tipo: Manual operativo
 Fuente de verdad: `docs/00-estado-del-proyecto.md`
-Ultima actualizacion: 2026-08-02
+Ultima actualizacion: 2026-08-15
 Responsable logico: Operador ARGOS
-Revision: 1
+Revision: 2
 
 ## Objetivo
 
@@ -24,7 +24,7 @@ Invoke-RestMethod http://127.0.0.1:8080/api/v1/weather/gateway/status
 Invoke-RestMethod http://127.0.0.1:8080/api/v1/weather/aemet/sync/latest?station=6127X
 Invoke-RestMethod http://127.0.0.1:8080/api/v1/satellite/status
 Invoke-RestMethod http://192.168.1.42/status
-Invoke-RestMethod http://192.168.1.42/valves/8
+Invoke-RestMethod http://192.168.1.42/valves
 uv run argos data audit-source-artifacts
 ```
 
@@ -42,6 +42,7 @@ uv run argos data audit-source-artifacts
 | Ultima ingesta | `ingestion_runs` sin fallos recientes bloqueantes | Warnings conocidos | Runs fallidos repetidos |
 | Cursores | `uv run argos data show-sync-cursors` ejecuta | Cursores antiguos | Comando falla |
 | `argos-node` | `/status` responde | Respuesta incompleta de caudalimetro | Timeout o HTTP error |
+| Electroválvulas | `/valves` lista General EV8, Sector I EV6 y Sector II EV7 | Alguna aparece en estado inesperado | No responde o falta una electroválvula configurada |
 | Caudalimetro | Minutos recientes si worker activo | Sin sesiones cerradas observadas | Caudal inesperado con valvula cerrada |
 | Ultimo backup | Backup reciente verificado | Backup solo local | Sin backup valido |
 | Espacio en disco | Espacio suficiente para DB + `data` + backup | Menos de 2x DB libre | Sin espacio para escribir DB/WAL |
@@ -75,7 +76,7 @@ Get-PSDrive -PSProvider FileSystem
 - `/health`: 200.
 - Dashboard: 200.
 - `argos-node /status`: 200.
-- `GET /valves/8`: `closed`.
+- Electroválvula observada entonces: `GET /valves/8` respondio `closed`; configuracion actual ampliada a General EV8, Sector I EV6 y Sector II EV7.
 - SQLite integrity: `ok`.
 - Ecowitt: 4.560 observaciones; ultima `2026-08-02 18:20:00 UTC`.
 - AEMET: 5.986 observaciones; ultima fecha `2026-07-30`.
