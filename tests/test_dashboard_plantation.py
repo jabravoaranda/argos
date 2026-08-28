@@ -11,10 +11,9 @@ def test_plantation_cell_label_distinguishes_plants_empty_and_infrastructure() -
     empty_cell = {"plant": None, "cell_type": "empty", "position_code": "17"}
     infrastructure_cell = {"plant": None, "cell_type": "infrastructure", "visible_code": "1B", "feature_label": "Bidón"}
 
-    assert "18#" in plantation_cell_label(plant_cell)
-    assert "Ciruelo" in plantation_cell_label(plant_cell)
+    assert plantation_cell_label(plant_cell) == "18#"
     assert plantation_cell_label(empty_cell) == "17\n-"
-    assert "Bidón" in plantation_cell_label(infrastructure_cell)
+    assert plantation_cell_label(infrastructure_cell) == "1B"
 
 
 def test_selected_plant_from_matrix_returns_selected_tree() -> None:

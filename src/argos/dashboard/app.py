@@ -4114,11 +4114,11 @@ def render_plantation_matrix(matrix: dict[str, Any], *, visible_plant_ids: set[i
 def plantation_cell_label(cell: dict[str, Any]) -> str:
     plant = cell.get("plant")
     if plant:
-        species = plant.get("species_label") or plant.get("species")
+        public_code = plant.get("public_code") or cell.get("position_code", "")
         marker = cell.get("displacement_marker") or ""
-        return f"{plant['public_code']}{marker}\n{species}"
+        return str(public_code) if marker in str(public_code) else f"{public_code}{marker}"
     if cell.get("cell_type") == "infrastructure":
-        return f"{cell.get('visible_code') or cell.get('position_code')}\n{cell.get('feature_label') or 'Infra'}"
+        return str(cell.get("visible_code") or cell.get("position_code") or "")
     return f"{cell.get('position_code', '')}\n-"
 
 
