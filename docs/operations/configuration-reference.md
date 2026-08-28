@@ -67,6 +67,11 @@ No copiar secretos reales en documentacion, issues ni commits.
 | `ARGOS_NODE_URL` | argos-node | No | `None` | No | `http://192.168.1.42` | URL controlador. |
 | `ARGOS_NODE_TIMEOUT_SECONDS` | argos-node | No | `5` | No | `5` | Timeout controlador. |
 | `ARGOS_NODE_POLL_INTERVAL_SECONDS` | argos-node | No | `5.0` | No | `5.0` | Poll caudalimetro. |
+| `ARGOS_IRRIGATION_MAIN_EV` | Riego | No | `8` | No | `8` | EV principal que debe abrirse antes de cualquier sector. |
+| `ARGOS_IRRIGATION_SECTOR_I_EV` | Riego | Si para operar sectores | `None` | No | `7` | EV fisica que acciona el Sector I. |
+| `ARGOS_IRRIGATION_SECTOR_II_EV` | Riego | Si para operar sectores | `None` | No | `6` | EV fisica que acciona el Sector II. |
+| `ARGOS_IRRIGATION_SECTOR_III_EV` | Riego | Si para operar sectores | `None` | No | `6` | EV fisica que acciona el Sector III. |
+| `ARGOS_IRRIGATION_SECTOR_IV_EV` | Riego | Si para operar sectores | `None` | No | `6` | EV fisica que acciona el Sector IV. |
 | `ARGOS_FLOWMETER_HYDROLOGICAL_YEAR_RESET_MONTH` | Caudalimetro | No | `10` | No | `10` | Mes reset anual. |
 | `ARGOS_FLOWMETER_HYDROLOGICAL_YEAR_RESET_DAY` | Caudalimetro | No | `1` | No | `1` | Dia reset anual. |
 | `ARGOS_DAILY_SYNC_ENABLED` | Scheduling | No | `true` | No | `true` | Worker diario interno. |
@@ -74,12 +79,14 @@ No copiar secretos reales en documentacion, issues ni commits.
 | `ECOWITT_CLOUD_SYNC_LOOKBACK_HOURS` | Scheduling | No | `24` | No | `24` | Lookback sync Cloud. |
 | `ARGOS_BACKUP_DIR` | Backups | No | no definido en settings | No | `D:\ARGOS Backups\sqlite` | Usado por scripts de backup, no por `Settings`. |
 
-## Electroválvulas configuradas en dashboard
+## Sectores de riego configurados
 
-La nomenclatura funcional no se configura por variable de entorno. La fuente unica actual es `VALVE_CONTROLS` en `src/argos/dashboard/app.py`:
+La operacion normal del dashboard trabaja con una EV principal y sectores logicos I, II, III y IV. La resolucion sector -> EV se carga desde `.env` mediante `argos.config.irrigation`; no debe duplicarse en UI, servicios ni endpoints. Abrir un sector desde ARGOS abre primero la EV principal; la EV principal tambien puede abrirse de forma independiente sin abrir sectores.
 
-| Nombre funcional | Identificador tecnico | ID valvula argos-node | Rele fisico |
-|---|---|---:|---:|
-| General | EV8 | 8 | 8 |
-| Sector I | EV6 | 6 | 6 |
-| Sector II | EV7 | 7 | 7 |
+| Control logico | Variable de entorno | EV actual de instalacion |
+|---|---|---:|
+| Principal | `ARGOS_IRRIGATION_MAIN_EV` | 8 |
+| Sector I | `ARGOS_IRRIGATION_SECTOR_I_EV` | 7 |
+| Sector II | `ARGOS_IRRIGATION_SECTOR_II_EV` | 6 |
+| Sector III | `ARGOS_IRRIGATION_SECTOR_III_EV` | 6 |
+| Sector IV | `ARGOS_IRRIGATION_SECTOR_IV_EV` | 6 |

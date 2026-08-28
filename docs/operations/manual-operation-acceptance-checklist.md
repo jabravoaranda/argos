@@ -35,7 +35,8 @@ Revision: 2
 ## Control
 
 - [ ] `argos-node` accesible en `/status`.
-- [ ] `/valves` lista General EV8, Sector I EV6 y Sector II EV7.
+- [ ] Sectores I, II, III y IV tienen EV fisica configurada en `.env`.
+- [ ] `/valves` lista las EV fisicas configuradas para esos sectores.
 - [ ] Estado de la electroválvula seleccionada conocido antes de operar.
 - [ ] Apertura individual desde boton `Open valve`.
 - [ ] Confirmacion de apertura en UI.

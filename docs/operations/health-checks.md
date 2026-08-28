@@ -42,7 +42,7 @@ uv run argos data audit-source-artifacts
 | Ultima ingesta | `ingestion_runs` sin fallos recientes bloqueantes | Warnings conocidos | Runs fallidos repetidos |
 | Cursores | `uv run argos data show-sync-cursors` ejecuta | Cursores antiguos | Comando falla |
 | `argos-node` | `/status` responde | Respuesta incompleta de caudalimetro | Timeout o HTTP error |
-| Electroválvulas | `/valves` lista General EV8, Sector I EV6 y Sector II EV7 | Alguna aparece en estado inesperado | No responde o falta una electroválvula configurada |
+| Sectores de riego | Sectores I-IV tienen EV configurada y `/valves` responde para esas EV | Alguna EV aparece en estado inesperado | No responde o falta configuracion Sector -> EV |
 | Caudalimetro | Minutos recientes si worker activo | Sin sesiones cerradas observadas | Caudal inesperado con valvula cerrada |
 | Ultimo backup | Backup reciente verificado | Backup solo local | Sin backup valido |
 | Espacio en disco | Espacio suficiente para DB + `data` + backup | Menos de 2x DB libre | Sin espacio para escribir DB/WAL |
@@ -76,7 +76,7 @@ Get-PSDrive -PSProvider FileSystem
 - `/health`: 200.
 - Dashboard: 200.
 - `argos-node /status`: 200.
-- Electroválvula observada entonces: `GET /valves/8` respondio `closed`; configuracion actual ampliada a General EV8, Sector I EV6 y Sector II EV7.
+- Electroválvula observada entonces: `GET /valves/8` respondio `closed`; registro historico previo al desacoplamiento Sector -> EV.
 - SQLite integrity: `ok`.
 - Ecowitt: 4.560 observaciones; ultima `2026-08-02 18:20:00 UTC`.
 - AEMET: 5.986 observaciones; ultima fecha `2026-07-30`.

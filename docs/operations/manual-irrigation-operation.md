@@ -67,26 +67,31 @@ Condiciones minimas:
 - API responde `status: ok`.
 - Dashboard carga.
 - `argos-node` responde.
-- `GET /valves` devuelve las electroválvulas configuradas: `General · EV8`, `Sector I · EV6`, `Sector II · EV7`.
-- La electroválvula que se vaya a abrir devuelve `state: closed` antes de abrir.
+- `GET /valves` devuelve las EV fisicas del controlador.
+- La EV principal esta configurada como `ARGOS_IRRIGATION_MAIN_EV=8`.
+- Cada sector de riego I, II, III y IV tiene EV asociada en `.env`.
+- Abrir un sector desde ARGOS abre primero la EV principal y despues la EV del sector.
+- La EV fisica asociada al sector que se vaya a abrir devuelve `state: closed` antes de abrir.
 - No hay error visible en la vista `Valvulas`.
 - Si el caudalimetro muestra caudal antes de abrir, detener la operacion y revisar en campo.
 
-Nomenclatura operativa:
+Configuracion operativa actual:
 
-| Nombre funcional | Identificador tecnico | Rele fisico |
+| Control logico | Variable de entorno | EV actual |
 |---|---|---:|
-| General | EV8 | 8 |
-| Sector I | EV6 | 6 |
-| Sector II | EV7 | 7 |
+| Principal | `ARGOS_IRRIGATION_MAIN_EV` | 8 |
+| Sector I | `ARGOS_IRRIGATION_SECTOR_I_EV` | 7 |
+| Sector II | `ARGOS_IRRIGATION_SECTOR_II_EV` | 6 |
+| Sector III | `ARGOS_IRRIGATION_SECTOR_III_EV` | 6 |
+| Sector IV | `ARGOS_IRRIGATION_SECTOR_IV_EV` | 6 |
 
 ## 5. Apertura
 
 1. Abrir `http://127.0.0.1:8501`.
 2. Ir a la vista `Valvulas`.
-3. Seleccionar la electroválvula por nombre funcional, por ejemplo `General · EV8`.
+3. Seleccionar la EV principal o el sector de riego por nombre funcional, por ejemplo `Sector I`.
 4. Confirmar que la tarjeta muestra estado `Closed` o equivalente.
-5. Pulsar `Open valve`.
+5. Pulsar `Open valve`. En sectores, ARGOS abrira primero la EV principal.
 6. El dashboard pasa por `Sending open command...` y despues `Opening...`.
 7. ARGOS estima la finalizacion con el parametro de duracion de apertura configurado en la barra lateral.
 8. Confirmar aceptacion con ausencia de error y respuesta cruda de `argos-node` si se muestra.
@@ -105,11 +110,11 @@ Latencias verificadas: no hay latencia fisica de campo confirmada. El dashboard 
 
 ## 7. Cierre global
 
-`Cerrar todo` es la orden segura para cerrar todas las electroválvulas de riego configuradas, sin depender de la selección actual del desplegable.
+`Cerrar todo` es la orden segura para cerrar todos los sectores de riego configurados, sin depender de la selección actual del desplegable.
 
 Comportamiento esperado:
 
-- envia cierre a `General · EV8`, `Sector I · EV6` y `Sector II · EV7`;
+- envia cierre a los sectores I, II, III y IV usando la EV configurada para cada sector;
 - no actua sobre relés o salidas genéricas que no estén configuradas como electroválvulas de riego;
 - intenta cerrar el resto aunque una electroválvula falle;
 - si una falla, el dashboard muestra cierre parcial con el nombre funcional y el identificador técnico de la afectada;

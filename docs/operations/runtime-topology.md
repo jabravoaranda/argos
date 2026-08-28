@@ -26,14 +26,14 @@ flowchart LR
     aemet["AEMET OpenData"]
     copernicus["Copernicus CDSE"]
     node["argos-node<br/>http://192.168.1.42"]
-    valves["Electroválvulas<br/>General EV8<br/>Sector I EV6<br/>Sector II EV7"]
+    valves["Electroválvulas<br/>EV físicas configuradas por sector"]
     flowmeter["Caudalimetro"]
 
     ecowitt -->|"POST /api/v1/ecowitt/upload/{token}"| fastapi
     fastapi <-->|"SQL reads/writes"| sqlite
     fastapi <-->|"file metadata/assets"| data
     streamlit -->|"HTTP API"| fastapi
-    streamlit -->|"GET /status, GET /valves, POST /valves/<id>"| node
+    streamlit -->|"Sector -> EV en settings; GET /status, GET /valves, POST /valves/<id>"| node
     node --> valves
     flowmeter --> node
     worker_flow -->|"poll /status cada 5s si ARGOS_NODE_URL"| node

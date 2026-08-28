@@ -49,7 +49,7 @@ No se declara todavia:
 | API FastAPI | Si | Si | Si | Si | Si | Proceso en `127.0.0.1:8080`; endpoints principales responden 200. |
 | Dashboard Streamlit | Si | Si | Si | Si | Si | Proceso en `127.0.0.1:8501`; dashboard responde 200. |
 | `argos-node` | Si | Integracion ARGOS si | Si | Si | Parcial | `http://192.168.1.42/status` responde 200; firmware/proceso interno externo a este repo. |
-| Electrovalvulas | Si | Control dashboard si | Si | Parcial | Parcial | Configuracion actual: General EV8 rele 8, Sector I EV6 rele 6, Sector II EV7 rele 7; confirmacion fisica de campo: Pendiente de validacion operativa. |
+| Electrovalvulas | Si | Control dashboard si | Si | Parcial | Parcial | La operacion normal usa sectores I-IV; la EV fisica se resuelve desde `.env`. Confirmacion fisica de campo: Pendiente de validacion operativa. |
 | Boton manual apertura/cierre | Si | Si | Si | Software si | Parcial | Botones `Open valve`/`Close valve` y `Cerrar todo` en vista `Valvulas`; prueba fisica: Pendiente de validacion operativa. |
 | Caudalimetro | Si | Si | Si | Si | Parcial | Worker registra minutos; 218 agregados observados. Cero sesiones cerradas observadas. |
 | Diario de campo | Si | Si | Si | Tests/API | Si | CRUD y export CSV via API/dashboard con token admin para escritura. |
@@ -81,7 +81,7 @@ No se declara todavia:
 - Consulta AEMET por API/dashboard y sync/backfill manual/admin.
 - Consulta satelital por API/dashboard y update/backfill manual/admin.
 - Dashboard Streamlit con vistas de estado, observaciones, AEMET, satelite, diario, analitica, valvulas y calidad.
-- Apertura/cierre manual de electroválvulas configuradas desde la vista `Valvulas`: General EV8, Sector I EV6, Sector II EV7.
+- Apertura/cierre manual de sectores de riego configurados desde la vista `Valvulas`; la EV fisica asociada a cada sector se define en `.env`.
 - Cierre global `Cerrar todo` para todas las electroválvulas configuradas.
 - Lectura de `argos-node` `/status` y `/valves/<id>`.
 - Persistencia de caudalimetro por minuto cuando `ARGOS_NODE_URL` esta configurado.
