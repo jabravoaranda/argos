@@ -94,7 +94,7 @@ No se declara todavia:
 
 - No hay riego autonomo ni programacion automatica de riego.
 - No hay analitica predictiva, QR, NFC ni estimacion individual automatica por árbol.
-- La plantilla de plantación está transcrita en `docs/reference/plantation_matrix_12x12.csv`; el símbolo `M` de `2B#` queda pendiente de confirmación porque no aparece en la leyenda.
+- La plantilla de plantación está transcrita en `docs/reference/plantation_matrix_12x12.csv`; el símbolo `M` de `2B#` corresponde a Mango.
 - No hay cierre automatico documentado ante caudal anomalo, perdida de red o timeout operativo.
 - La posicion de valvula es estimada por ARGOS; no hay sensor independiente de final de carrera confirmado.
 - Confirmacion fisica de apertura/cierre en campo: Pendiente de validacion operativa.
@@ -124,7 +124,7 @@ No se declara todavia:
 - Si Ecowitt Cloud puede enriquecer observaciones `DIRECT` existentes.
 - Registro real de tareas Windows para backup y arranque automatico.
 - Criterios de aceptacion fisica de electroválvulas y caudalimetro en campo.
-- Confirmacion agronomica de especie para `2B#` y datos incompletos de variedad, patrón, fechas, líneas de riego y coordenadas GPS.
+- Datos incompletos de variedad, patrón, fechas, líneas de riego y coordenadas GPS.
 
 ## 8. Proximos pasos
 

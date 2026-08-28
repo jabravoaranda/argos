@@ -63,6 +63,5 @@ La vista `Plantación` del dashboard muestra la matriz, filtros por estado, espe
 
 Pendiente:
 
-- Confirmar la especie real del símbolo `M` observado en `2B#`.
 - Completar variedad, patrón, fecha de plantación, líneas de riego y coordenadas GPS si existen.
 - Añadir fotografías/archivos asociados cuando exista un modelo documental común para artefactos no satelitales.

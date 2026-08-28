@@ -29,12 +29,12 @@ PLANT_SPECIES_LABELS = {
     "olive": "Olivo",
     "persimmon": "Caqui",
     "loquat": "Níspero",
+    "mango": "Mango",
     "peach": "Melocotonero",
     "plum": "Ciruelo",
     "female_pistachio": "Pistacho hembra",
     "male_pistachio": "Pistacho macho",
     "walnut": "Nogal",
-    "unknown": "Especie sin confirmar",
 }
 
 PLANT_MATRIX_SYMBOLS = {
@@ -47,7 +47,7 @@ PLANT_MATRIX_SYMBOLS = {
     "PH": "female_pistachio",
     "PM": "male_pistachio",
     "NG": "walnut",
-    "M": "unknown",
+    "M": "mango",
 }
 
 INFRASTRUCTURE_SYMBOLS = {

@@ -72,7 +72,7 @@ def test_import_matrix_csv_is_idempotent_and_preserves_empty_cells() -> None:
         assert second.plants_updated == first.plants_created
         assert session.scalar(select(PlantMatrixCell).where(PlantMatrixCell.matrix_position_code == "17")).cell_type == "empty"
         assert session.scalar(select(PlantMatrixCell).where(PlantMatrixCell.visible_code == "1B")).cell_type == "infrastructure"
-        assert session.scalar(select(PlantUnit).where(PlantUnit.public_code == "2B#")).species == "unknown"
+        assert session.scalar(select(PlantUnit).where(PlantUnit.public_code == "2B#")).species == "mango"
 
 
 def test_matrix_layout_returns_all_144_cells_and_attached_plants() -> None:

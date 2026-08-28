@@ -21,4 +21,4 @@ El diario de campo se mantiene como fuente de actuaciones cualitativas y se ampl
 - Las celdas vacías existen como posición espacial, pero no crean árboles ficticios.
 - Los elementos `Bidón` y `Rampa` no se cargan como plantas.
 - Los riegos sectoriales pueden mostrarse como asociados por sector, no como medición individual por árbol.
-- La plantilla original queda transcrita en `docs/reference/plantation_matrix_12x12.csv`; el símbolo `M` de `2B#` queda como especie sin confirmar porque no aparece en la leyenda.
+- La plantilla original queda transcrita en `docs/reference/plantation_matrix_12x12.csv`; el símbolo `M` de `2B#` corresponde a Mango.
