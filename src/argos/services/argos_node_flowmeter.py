@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from threading import Event
 from typing import Any
 
+from argos.config.irrigation import IrrigationSectorId, active_sectors_for_ev_ids
 from sqlalchemy.orm import Session, sessionmaker
 
 from argos.dashboard.argos_node_client import ArgosNodeClient, ArgosNodeError
@@ -36,6 +37,7 @@ class ParsedFlowmeterStatus:
     last_session_l: float
     di1_state: bool | None
     relay1_state: bool | None
+    open_ev_ids: tuple[int, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +53,7 @@ class FlowmeterSample:
     last_session_l: float
     di1_state: bool | None
     relay1_state: bool | None
+    open_ev_ids: tuple[int, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +77,8 @@ class FlowmeterMinuteAggregate:
     last_session_l_start: float
     last_session_l_end: float
     volume_l: float
+    sector_volume_l: dict[IrrigationSectorId, float]
+    unassigned_volume_l: float
     avg_flow_l_min: float
     max_flow_l_min: float
     samples_count: int
@@ -94,6 +99,12 @@ class FlowmeterMinuteCapture:
     volume_l: float
 
 
+@dataclass(frozen=True, slots=True)
+class ActiveFlowmeterSession:
+    started_at_utc: datetime
+    pulse_count_start: int
+
+
 class FlowmeterMinuteAggregator:
     def __init__(self, *, node_url: str) -> None:
         self.node_url = node_url.rstrip("/")
@@ -112,6 +123,7 @@ class FlowmeterMinuteAggregator:
             last_session_l=sample.last_session_l,
             di1_state=sample.di1_state,
             relay1_state=sample.relay1_state,
+            open_ev_ids=sample.open_ev_ids,
         )
         window_start = _minute_start(sample.captured_at_utc)
         if self._current is None:
@@ -157,6 +169,9 @@ class _WindowAccumulator:
     relay1_state_end: bool | None = None
     relay1_known_samples_count: int = 0
     relay1_open_samples_count: int = 0
+    previous_sample: FlowmeterSample | None = None
+    sector_volume_l: dict[IrrigationSectorId, float] | None = None
+    unassigned_volume_l: float = 0.0
 
     def add(self, sample: FlowmeterSample) -> None:
         if self.pulse_count_start is None:
@@ -182,6 +197,24 @@ class _WindowAccumulator:
             self.relay1_known_samples_count += 1
             if sample.relay1_state:
                 self.relay1_open_samples_count += 1
+        if self.previous_sample is not None:
+            self._attribute_increment(previous_sample=self.previous_sample, sample=sample)
+        self.previous_sample = sample
+
+    def _attribute_increment(self, *, previous_sample: FlowmeterSample, sample: FlowmeterSample) -> None:
+        pulse_delta = sample.pulse_count - previous_sample.pulse_count
+        if pulse_delta <= 0:
+            return
+        volume_l = pulse_delta / PULSES_PER_LITER
+        active_sectors = active_sectors_for_ev_ids(sample.open_ev_ids)
+        if not active_sectors:
+            self.unassigned_volume_l += volume_l
+            return
+        sector_share_l = volume_l / len(active_sectors)
+        if self.sector_volume_l is None:
+            self.sector_volume_l = {}
+        for sector_id in active_sectors:
+            self.sector_volume_l[sector_id] = self.sector_volume_l.get(sector_id, 0.0) + sector_share_l
 
     def to_aggregate(self) -> FlowmeterMinuteAggregate:
         if (
@@ -229,6 +262,8 @@ class _WindowAccumulator:
             last_session_l_start=self.last_session_l_start,
             last_session_l_end=self.last_session_l_end,
             volume_l=volume_l,
+            sector_volume_l=dict(self.sector_volume_l or {}),
+            unassigned_volume_l=self.unassigned_volume_l,
             avg_flow_l_min=volume_l / window_duration_minutes,
             max_flow_l_min=self.max_flow_l_min,
             samples_count=self.samples_count,
@@ -257,6 +292,7 @@ def parse_flowmeter_status(status: Mapping[str, Any]) -> ParsedFlowmeterStatus:
         last_session_l=_required_float(flowmeter.get("last_session_l"), "flowmeter.last_session_l"),
         di1_state=_digital_input_state(digital, input_id=8),
         relay1_state=relay1_state if relay1_state is not None else _required_bool(flowmeter.get("session_active"), "flowmeter.session_active"),
+        open_ev_ids=open_ev_ids_from_status(status),
     )
 
 
@@ -279,6 +315,7 @@ def sample_from_status(
         last_session_l=parsed.last_session_l,
         di1_state=parsed.di1_state,
         relay1_state=parsed.relay1_state if parsed.relay1_state is not None else parse_relay_open_state(valve_state),
+        open_ev_ids=parsed.open_ev_ids,
     )
 
 
@@ -299,6 +336,35 @@ def parse_relay_open_state(state: Mapping[str, Any] | None) -> bool | None:
         if normalized in {"closed", "close", "false", "0", "off"}:
             return False
     return None
+
+
+def open_ev_ids_from_status(status: Mapping[str, Any]) -> tuple[int, ...]:
+    open_ev_ids: set[int] = set()
+    valves = status.get("valves")
+    if isinstance(valves, list):
+        for valve in valves:
+            if not isinstance(valve, Mapping):
+                continue
+            valve_id = valve.get("id")
+            if isinstance(valve_id, bool) or not isinstance(valve_id, int):
+                continue
+            if parse_relay_open_state(valve):
+                open_ev_ids.add(valve_id)
+
+    outputs = status.get("outputs")
+    if isinstance(outputs, Mapping):
+        relays = outputs.get("relays")
+        if isinstance(relays, list):
+            for relay in relays:
+                if not isinstance(relay, Mapping):
+                    continue
+                relay_id = relay.get("id")
+                if isinstance(relay_id, bool) or not isinstance(relay_id, int):
+                    continue
+                state = relay.get("state")
+                if isinstance(state, bool) and state:
+                    open_ev_ids.add(relay_id)
+    return tuple(sorted(open_ev_ids))
 
 
 def persist_flowmeter_minute(
@@ -328,6 +394,7 @@ def persist_flowmeter_minute(
         last_session_l_start=aggregate.last_session_l_start,
         last_session_l_end=aggregate.last_session_l_end,
         volume_l=aggregate.volume_l,
+        unassigned_volume_l=aggregate.unassigned_volume_l,
         avg_flow_l_min=aggregate.avg_flow_l_min,
         max_flow_l_min=aggregate.max_flow_l_min,
         samples_count=aggregate.samples_count,
@@ -336,6 +403,10 @@ def persist_flowmeter_minute(
         relay1_open_samples_count=aggregate.relay1_open_samples_count,
         relay1_open_fraction=aggregate.relay1_open_fraction,
         ingestion_run_id=ingestion_run_id,
+    )
+    repository.replace_flowmeter_minute_sector_attributions(
+        minute=minute,
+        sector_volume_l={sector_id: volume_l for sector_id, volume_l in aggregate.sector_volume_l.items()},
     )
     session.commit()
     return _capture_from_minute(minute, created=created)
@@ -346,12 +417,21 @@ def persist_flowmeter_session_close(
     session: Session,
     node_url: str,
     sample: FlowmeterSample,
+    active_session: ActiveFlowmeterSession | None = None,
 ) -> int:
     repository = ArgosNodeRepository(session)
+    started_at_utc = active_session.started_at_utc if active_session is not None else None
+    pulse_count_start = active_session.pulse_count_start if active_session is not None else None
+    duration_s = (sample.captured_at_utc - started_at_utc).total_seconds() if started_at_utc is not None else None
     flowmeter_session = repository.create_flowmeter_session(
         node_url=node_url.rstrip("/"),
+        started_at_utc=started_at_utc,
         closed_at_utc=sample.captured_at_utc,
+        duration_s=duration_s,
+        volume_l=sample.last_session_l,
         last_session_l=sample.last_session_l,
+        pulse_count_start=pulse_count_start,
+        pulse_count_end=sample.pulse_count,
         pulse_count=sample.pulse_count,
         total_l=sample.total_l,
         hydrological_year_l=sample.hydrological_year_l,
@@ -410,6 +490,7 @@ def run_flowmeter_minute_capture(
     aggregator = FlowmeterMinuteAggregator(node_url=client.base_url)
     completed_windows = 0
     previous_session_active: bool | None = None
+    active_session: ActiveFlowmeterSession | None = None
     with session_factory() as trace_session:
         run_trace = start_ingestion_run(
             trace_session,
@@ -432,9 +513,20 @@ def run_flowmeter_minute_capture(
                 logger.warning("argos-node flowmeter poll failed; will retry: %s", exc)
                 _wait_for_next_poll(stop_event=stop_event, sleep=sleep, poll_interval_seconds=poll_interval_seconds)
                 continue
+            if sample.session_active and previous_session_active is not True:
+                active_session = ActiveFlowmeterSession(
+                    started_at_utc=sample.captured_at_utc,
+                    pulse_count_start=sample.pulse_count,
+                )
             if previous_session_active is True and sample.session_active is False:
                 with session_factory() as session:
-                    persist_flowmeter_session_close(session=session, node_url=client.base_url, sample=sample)
+                    persist_flowmeter_session_close(
+                        session=session,
+                        node_url=client.base_url,
+                        sample=sample,
+                        active_session=active_session,
+                    )
+                active_session = None
             previous_session_active = sample.session_active
             if hydrological_year_reset_month is not None and hydrological_year_reset_day is not None:
                 with session_factory() as session:

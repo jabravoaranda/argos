@@ -12,6 +12,11 @@ class FakeSettings:
     app_env = "development"
     argos_node_url = "http://192.168.1.40"
     argos_node_poll_interval_seconds = 5.0
+    argos_irrigation_main_ev = 8
+    argos_irrigation_sector_i_ev = 7
+    argos_irrigation_sector_ii_ev = 6
+    argos_irrigation_sector_iii_ev = 6
+    argos_irrigation_sector_iv_ev = 6
 
 
 class FakeThread:

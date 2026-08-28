@@ -13,6 +13,7 @@ from argos.api.field_events import router as field_events_router
 from argos.api.health import router as health_router
 from argos.api.satellite import router as satellite_router
 from argos.api.weather import router as weather_router
+from argos.config.irrigation import get_main_irrigation_ev, irrigation_sector_mappings
 from argos.config.settings import get_settings
 from argos.dashboard.argos_node_client import ArgosNodeClient
 from argos.database.session import get_sessionmaker
@@ -27,6 +28,8 @@ async def lifespan(app: FastAPI) -> Iterator[None]:
     settings = app.state.settings
     workers: list[tuple[Thread, Event, float]] = []
     if settings.argos_node_url:
+        get_main_irrigation_ev(settings)
+        irrigation_sector_mappings(settings)
         stop_event = Event()
         worker = Thread(
             target=_run_flowmeter_worker,

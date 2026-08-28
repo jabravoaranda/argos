@@ -5,6 +5,7 @@ from urllib.error import HTTPError
 
 import pytest
 
+from argos.config.settings import get_settings
 from argos.dashboard.argos_node_client import ArgosNodeClient, ArgosNodeError
 
 
@@ -101,6 +102,56 @@ def test_argos_node_client_posts_generic_valve_actions(monkeypatch: pytest.Monke
         "http://10.194.83.1/valves/2/open",
         "http://10.194.83.1/valves/2/close",
     ]
+
+
+def test_argos_node_client_posts_sector_actions_to_configured_ev(monkeypatch: pytest.MonkeyPatch) -> None:
+    requests: list[Any] = []
+
+    def fake_urlopen(request: Any, timeout: int) -> FakeResponse:
+        requests.append(request)
+        return FakeResponse(b"{}")
+
+    monkeypatch.setenv("ARGOS_IRRIGATION_SECTOR_I_EV", "7")
+    monkeypatch.setenv("ARGOS_IRRIGATION_SECTOR_II_EV", "6")
+    monkeypatch.setenv("ARGOS_IRRIGATION_SECTOR_III_EV", "6")
+    monkeypatch.setenv("ARGOS_IRRIGATION_SECTOR_IV_EV", "6")
+    get_settings.cache_clear()
+    monkeypatch.setattr("argos.dashboard.argos_node_client.urlopen", fake_urlopen)
+
+    client = ArgosNodeClient(base_url="http://10.194.83.1")
+
+    assert client.open_irrigation_sector("I") == {}
+    assert client.close_irrigation_sector("II") == {}
+    assert [request.full_url for request in requests] == [
+        "http://10.194.83.1/valves/8/open",
+        "http://10.194.83.1/valves/7/open",
+        "http://10.194.83.1/valves/6/close",
+    ]
+    get_settings.cache_clear()
+
+
+def test_argos_node_client_does_not_open_main_ev_twice_when_sector_uses_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    requests: list[Any] = []
+
+    def fake_urlopen(request: Any, timeout: int) -> FakeResponse:
+        requests.append(request)
+        return FakeResponse(b"{}")
+
+    monkeypatch.setenv("ARGOS_IRRIGATION_MAIN_EV", "8")
+    monkeypatch.setenv("ARGOS_IRRIGATION_SECTOR_I_EV", "8")
+    monkeypatch.setenv("ARGOS_IRRIGATION_SECTOR_II_EV", "6")
+    monkeypatch.setenv("ARGOS_IRRIGATION_SECTOR_III_EV", "6")
+    monkeypatch.setenv("ARGOS_IRRIGATION_SECTOR_IV_EV", "6")
+    get_settings.cache_clear()
+    monkeypatch.setattr("argos.dashboard.argos_node_client.urlopen", fake_urlopen)
+
+    client = ArgosNodeClient(base_url="http://10.194.83.1")
+
+    assert client.open_irrigation_sector("I") == {}
+    assert [request.full_url for request in requests] == [
+        "http://10.194.83.1/valves/8/open",
+    ]
+    get_settings.cache_clear()
 
 
 def test_argos_node_client_posts_flowmeter_resets(monkeypatch: pytest.MonkeyPatch) -> None:

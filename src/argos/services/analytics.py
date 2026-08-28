@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from argos.config.settings import Settings, get_settings
 from argos.domain.analytics import ANALYTICS_VARIABLES, ANALYTICS_VARIABLE_BY_ID, AnalyticsVariable
 from argos.models.aemet import WeatherDailyObservation
-from argos.models.argos_node import ArgosNodeFlowmeterMinute
+from argos.models.argos_node import ArgosIrrigationSectorMinuteAttribution, ArgosNodeFlowmeterMinute
 from argos.models.ecowitt import WeatherObservation
 from argos.models.field_event import FieldEvent
 from argos.models.satellite import SatelliteMetric, SatelliteObservation, SatelliteZone
@@ -400,6 +400,14 @@ class AnalyticsService:
         return frame_from_rows(self.session.execute(statement).all(), ["timestamp", "value", "quality", "zone_slug"])
 
     def _controller_frame(self, variable: AnalyticsVariable, request: AnalyticsSeriesRequest) -> pd.DataFrame:
+        sector_id = controller_sector_id(variable.variable_id)
+        if sector_id is not None:
+            statement = select(
+                ArgosIrrigationSectorMinuteAttribution.window_start_utc,
+                ArgosIrrigationSectorMinuteAttribution.volume_l,
+            ).where(ArgosIrrigationSectorMinuteAttribution.sector_id == sector_id)
+            statement = filter_datetime(statement, ArgosIrrigationSectorMinuteAttribution.window_start_utc, request.start, request.end)
+            return frame_from_rows(self.session.execute(statement).all(), ["timestamp", "value"])
         column = variable.database_mapping.split(".")[-1]
         statement = select(ArgosNodeFlowmeterMinute.window_start_utc, getattr(ArgosNodeFlowmeterMinute, column))
         statement = filter_datetime(statement, ArgosNodeFlowmeterMinute.window_start_utc, request.start, request.end)
@@ -429,6 +437,16 @@ def variable_or_raise(variable_id: str) -> AnalyticsVariable:
         return ANALYTICS_VARIABLE_BY_ID[variable_id]
     except KeyError as exc:
         raise AnalyticsError(f"Unknown analytics variable {variable_id!r}.") from exc
+
+
+def controller_sector_id(variable_id: str) -> str | None:
+    sector_by_variable_id = {
+        "controller.sector_i_water_volume": "I",
+        "controller.sector_ii_water_volume": "II",
+        "controller.sector_iii_water_volume": "III",
+        "controller.sector_iv_water_volume": "IV",
+    }
+    return sector_by_variable_id.get(variable_id)
 
 
 def variable_read(variable: AnalyticsVariable) -> AnalyticsVariableRead:

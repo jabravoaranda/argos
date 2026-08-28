@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     argos_node_url: str | None = None
     argos_node_timeout_seconds: int = 5
     argos_node_poll_interval_seconds: float = 5.0
+    argos_irrigation_main_ev: int = 8
+    argos_irrigation_sector_i_ev: int | None = None
+    argos_irrigation_sector_ii_ev: int | None = None
+    argos_irrigation_sector_iii_ev: int | None = None
+    argos_irrigation_sector_iv_ev: int | None = None
     argos_flowmeter_hydrological_year_reset_month: int = 10
     argos_flowmeter_hydrological_year_reset_day: int = 1
     argos_daily_sync_enabled: bool = True

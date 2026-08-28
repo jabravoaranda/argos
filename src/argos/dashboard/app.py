@@ -20,6 +20,13 @@ import streamlit as st
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
+from argos.config.irrigation import (
+    ArgosIrrigationConfigError,
+    IrrigationSectorId,
+    IrrigationSectorValveMapping,
+    get_main_irrigation_ev,
+    irrigation_sector_mappings,
+)
 from argos.config.settings import get_settings
 from argos.dashboard.api_client import ArgosApiClient, ArgosApiError
 from argos.dashboard.argos_node_client import ArgosNodeClient, ArgosNodeError
@@ -33,7 +40,7 @@ from argos.domain.field_events import FIELD_EVENT_TYPE_LABELS, FIELD_ZONE_LABELS
 from argos.integrations.ecowitt_cloud import format_cloud_mac
 from argos.integrations.aemet.client import AemetClient, AemetConfigError
 from argos.integrations.ecowitt_cloud import EcowittCloudClient, EcowittCloudConfigError
-from argos.models import ArgosNodeFlowmeterMinute
+from argos.models import ArgosIrrigationSectorMinuteAttribution, ArgosNodeFlowmeterMinute
 from argos.repositories.weather import WeatherRepository
 from argos.services.aemet_import import AemetImportRangeError, AemetImportService
 from argos.services.argos_node_flowmeter import ArgosNodeStatusError, parse_flowmeter_status
@@ -70,8 +77,13 @@ class ValveControl:
     functional_name: str
     valve_id: int
     relay_id: int
+    sector_id: IrrigationSectorId | None = None
     irrigation: bool = True
     enabled_for_control: bool = True
+
+    @property
+    def control_key(self) -> str:
+        return f"sector_{self.sector_id}" if self.sector_id is not None else f"valve_{self.valve_id}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,14 +114,10 @@ class CloseAllValvesResult:
         return tuple(result for result in self.results if not result.ok)
 
 
-VALVE_CONTROLS: tuple[ValveControl, ...] = (
-    ValveControl(technical_id="EV8", functional_name="General", valve_id=8, relay_id=8),
-    ValveControl(technical_id="EV6", functional_name="Sector I", valve_id=6, relay_id=6),
-    ValveControl(technical_id="EV7", functional_name="Sector II", valve_id=7, relay_id=7),
-    ValveControl(technical_id="EV4", functional_name="Sector III", valve_id=4, relay_id=4, enabled_for_control=False),
-    ValveControl(technical_id="EV5", functional_name="Sector IV", valve_id=5, relay_id=5, enabled_for_control=False),
-)
 FLOWMETER_CHART_WINDOW_HOURS = 1
+FLOWMETER_HISTORY_REFRESH_SECONDS = 30
+FLOWMETER_LIVE_REFRESH_SECONDS = 5
+FLOWMETER_CAPTURE_STALE_AFTER_MINUTES = 2
 DEFAULT_AEMET_STATION = "6127X"
 AEMET_BACKFILL_DEFAULT_START = date(1900, 1, 1)
 
@@ -252,8 +260,39 @@ MAIN_PAGE_ICONS = {
     "Actualizar datos": ":material/download:",
     "AEMET": ":material/cloud:",
     "Satélite": ":material/satellite_alt:",
-    "Válvulas": ":material/valve:",
+    "Válvulas": ":material/water_drop:",
     "Calidad": ":material/fact_check:",
+}
+
+
+def irrigation_valve_controls() -> tuple[ValveControl, ...]:
+    main_ev = get_main_irrigation_ev()
+    return (
+        ValveControl(technical_id=f"EV{main_ev}", functional_name="Principal", valve_id=main_ev, relay_id=main_ev),
+        *tuple(_valve_control_from_sector_mapping(mapping) for mapping in irrigation_sector_mappings()),
+    )
+
+
+def _valve_control_from_sector_mapping(mapping: IrrigationSectorValveMapping) -> ValveControl:
+    return ValveControl(
+        technical_id=mapping.technical_id,
+        functional_name=mapping.sector_name,
+        valve_id=mapping.ev_id,
+        relay_id=mapping.ev_id,
+        sector_id=mapping.sector_id,
+    )
+
+PAGE_HEADER_MARKS = {
+    "Inicio": "IN",
+    "Observaciones": "WX",
+    "Resúmenes": "RS",
+    "Análisis": "AN",
+    "Diario de campo": "DC",
+    "Actualizar datos": "UP",
+    "AEMET": "AE",
+    "Satélite": "SAT",
+    "Válvulas": "H2O",
+    "Calidad": "QA",
 }
 
 PAGE_ARCHETYPES = {
@@ -726,6 +765,7 @@ def cached_flowmeter_minutes(node_url: str, start: str, end: str) -> list[dict[s
             "last_session_l_start": row.last_session_l_start,
             "last_session_l_end": row.last_session_l_end,
             "volume_l": row.volume_l,
+            "unassigned_volume_l": row.unassigned_volume_l,
             "avg_flow_l_min": row.avg_flow_l_min,
             "max_flow_l_min": row.max_flow_l_min,
             "samples_count": row.samples_count,
@@ -736,6 +776,37 @@ def cached_flowmeter_minutes(node_url: str, start: str, end: str) -> list[dict[s
         }
         for row in rows
     ]
+
+
+@st.cache_data(ttl=15)
+def cached_irrigation_sector_totals(node_url: str, start: str, end: str) -> dict[str, float]:
+    start_dt = parse_datetime(start)
+    end_dt = parse_datetime(end)
+    if start_dt is None or end_dt is None:
+        return {}
+    normalized_node_url = normalize_http_base_url(node_url)
+    statement = (
+        select(ArgosIrrigationSectorMinuteAttribution)
+        .where(
+            ArgosIrrigationSectorMinuteAttribution.node_url == normalized_node_url,
+            ArgosIrrigationSectorMinuteAttribution.window_start_utc >= start_dt,
+            ArgosIrrigationSectorMinuteAttribution.window_start_utc <= end_dt,
+        )
+        .order_by(ArgosIrrigationSectorMinuteAttribution.window_start_utc)
+    )
+    try:
+        with get_sessionmaker()() as session:
+            rows = session.scalars(statement).all()
+    except OperationalError as exc:
+        if "argos_irrigation_sector_minute_attributions" not in str(exc):
+            raise
+        logger.warning("irrigation sector attribution table is not available yet; run alembic upgrade head")
+        return {}
+
+    totals: dict[str, float] = {}
+    for row in rows:
+        totals[row.sector_id] = totals.get(row.sector_id, 0.0) + row.volume_l
+    return totals
 
 
 def dataframe_from_records(records: list[dict[str, Any]], date_column: str) -> pd.DataFrame:
@@ -768,7 +839,7 @@ def render_global_shell_header(
         f"""
         <div class="argos-top-shell">
             <div class="argos-top-brand">
-                <span class="argos-top-icon">{MAIN_PAGE_ICONS.get(page, ":material/dashboard:")}</span>
+                <span class="argos-top-icon">{escape(PAGE_HEADER_MARKS.get(page, "AR"))}</span>
                 <div>
                     <h1>{escape(page)}</h1>
                     <p>{escape(PAGE_DESCRIPTIONS.get(page, PAGE_ARCHETYPES.get(page, "")))}</p>
@@ -779,7 +850,7 @@ def render_global_shell_header(
                 {shell_pill_html("Arquetipo", PAGE_ARCHETYPES.get(page, "-"))}
                 {shell_pill_html("Meteo", temperature)}
                 {shell_pill_html("Último dato", latest_time)}
-                {shell_pill_html("Nodo", str(gateway))}
+                {shell_pill_html("Gateway", str(gateway))}
                 {shell_pill_html("Actualizado", updated_at)}
             </div>
         </div>
@@ -822,20 +893,20 @@ def phase_is_busy(phase: str) -> bool:
 
 
 def valve_availability_label(valve: ValveControl) -> str:
-    return "Operativa" if valve.enabled_for_control else "No operativa"
+    return "Operativa" if valve.enabled_for_control else "Pendiente"
 
 
 def valve_card_state_label(phase: str) -> str:
     labels = {
-        "open": "Abierta estimada",
-        "closed": "Cerrada estimada",
+        "open": "Estimada abierta",
+        "closed": "Estimada cerrada",
         "sending_open_command": "Enviando abrir",
         "opening": "Abriendo",
         "sending_close_command": "Enviando cerrar",
         "closing": "Cerrando",
-        "error": "Error de comunicación",
+        "error": "Error comunicación",
         "unknown": "Desconocida",
-        "not_operational": "Pendiente servicio",
+        "not_operational": "Pendiente",
     }
     return labels.get(phase, phase)
 
@@ -1285,24 +1356,74 @@ def apply_compact_dashboard_styles() -> None:
                 line-height: var(--argos-line-meta);
             }
 
-            .argos-valve-card-header {
-                align-items: start;
+            .st-key-argos_irrigation_page {
+                margin-top: -6px;
+            }
+
+            .st-key-argos_irrigation_page div[data-testid="stVerticalBlock"] {
+                gap: 0.45rem;
+            }
+
+            .argos-irrigation-header {
+                align-items: baseline;
                 display: flex;
-                justify-content: space-between;
-                gap: 8px;
-                margin-bottom: 4px;
+                gap: 10px;
+                min-height: 32px;
+            }
+
+            .argos-irrigation-header h1 {
+                color: rgb(38, 39, 48);
+                font-size: var(--argos-font-page-title);
+                font-weight: 750;
+                line-height: 1.05;
+                margin: 0;
+            }
+
+            .argos-irrigation-header span {
+                color: rgba(49, 51, 63, 0.58);
+                font-size: 11.5px;
+                line-height: var(--argos-line-meta);
+            }
+
+            .st-key-argos_irrigation_page .stButton button {
+                min-height: 31px;
+                padding: 3px 8px;
+                white-space: nowrap;
+            }
+
+            .st-key-argos_irrigation_page .stButton button p,
+            .st-key-argos_irrigation_page .stButton button span {
+                font-size: var(--argos-font-button) !important;
+                line-height: 1 !important;
+                white-space: nowrap;
+            }
+
+            .st-key-argos_valve_card_8,
+            .st-key-argos_valve_card_6,
+            .st-key-argos_valve_card_7,
+            .st-key-argos_valve_card_4,
+            .st-key-argos_valve_card_5 {
+                min-height: 118px;
+                padding: 10px 11px !important;
+            }
+
+            .st-key-argos_valve_card_4,
+            .st-key-argos_valve_card_5 {
+                background: rgba(248, 250, 252, 0.58);
+                border-color: rgba(148, 163, 184, 0.22) !important;
+                opacity: 0.58;
             }
 
             .argos-valve-card-inner {
-                min-height: 114px;
-            }
-
-            .argos-valve-card-inner.is-disabled {
-                opacity: 0.68;
+                display: grid;
+                gap: 13px;
+                min-height: 47px;
             }
 
             .argos-valve-card-inner h3 {
-                font-size: var(--argos-font-card-title) !important;
+                color: rgb(38, 39, 48);
+                font-size: 13.5px !important;
+                font-weight: 650;
                 line-height: var(--argos-line-title) !important;
                 margin: 0 !important;
                 overflow: hidden;
@@ -1310,47 +1431,27 @@ def apply_compact_dashboard_styles() -> None:
                 white-space: nowrap;
             }
 
-            .argos-valve-card-inner small {
-                color: rgba(49, 51, 63, 0.58);
-                display: block;
-                font-size: var(--argos-font-meta);
-                line-height: var(--argos-line-meta);
-                margin-top: 2px;
-            }
-
-            .argos-valve-card-body {
-                display: grid;
-                gap: 6px;
-                grid-template-columns: minmax(0, 1fr);
-            }
-
-            .argos-valve-state {
-                display: grid;
-                gap: 2px;
-            }
-
-            .argos-valve-state span {
-                color: rgba(49, 51, 63, 0.58);
-                font-size: var(--argos-font-meta);
-                line-height: var(--argos-line-meta);
-            }
-
-            .argos-valve-state strong {
+            .argos-valve-card-inner strong {
                 color: rgb(38, 39, 48);
-                font-size: 13px;
-                line-height: var(--argos-line-title);
+                display: block;
+                font-size: 16px;
+                font-weight: 550;
+                line-height: 1.12;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
 
-            .argos-valve-actions {
-                display: grid;
-                gap: 8px;
-                grid-template-columns: 1fr 1fr;
+            .argos-valve-empty {
+                min-height: 118px;
             }
 
-            .argos-irrigation-grid {
-                display: grid;
-                gap: 10px;
-                grid-template-columns: minmax(0, 2fr) minmax(20rem, 0.78fr);
+            .st-key-argos_valve_actions_8 div[data-testid="stHorizontalBlock"],
+            .st-key-argos_valve_actions_6 div[data-testid="stHorizontalBlock"],
+            .st-key-argos_valve_actions_7 div[data-testid="stHorizontalBlock"],
+            .st-key-argos_valve_actions_4 div[data-testid="stHorizontalBlock"],
+            .st-key-argos_valve_actions_5 div[data-testid="stHorizontalBlock"] {
+                gap: 7px;
             }
 
             .argos-session-log {
@@ -1365,7 +1466,7 @@ def apply_compact_dashboard_styles() -> None:
                 align-items: center;
                 display: grid;
                 gap: 8px;
-                grid-template-columns: 1fr 0.9fr 1.3fr;
+                grid-template-columns: 0.9fr 0.9fr 0.9fr 2fr;
                 border-bottom: 1px solid rgba(148, 163, 184, 0.16);
                 min-height: 24px;
                 padding: 0 8px;
@@ -1388,21 +1489,6 @@ def apply_compact_dashboard_styles() -> None:
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
-            }
-
-            @media (max-width: 1100px) {
-                .argos-irrigation-grid {
-                    grid-template-columns: 1fr;
-                }
-
-                .argos-top-shell {
-                    align-items: flex-start;
-                    flex-direction: column;
-                }
-
-                .argos-top-meta {
-                    justify-content: flex-start;
-                }
             }
 
             section[data-testid="stSidebar"] div.stButton > button[data-testid="stBaseButton-primary"]:hover {
@@ -1507,26 +1593,12 @@ def apply_compact_dashboard_styles() -> None:
                 padding: 2px 0 4px;
             }
 
-            .argos-flowmeter-secondary {
-                background: rgba(248, 250, 252, 0.92);
-                border: 1px solid rgba(148, 163, 184, 0.22);
-                margin-top: 5px;
-                padding: 7px;
-            }
-
             .argos-flowmeter-section-title {
                 color: rgb(38, 39, 48);
                 font-size: var(--argos-font-card-title);
                 font-weight: 600;
                 line-height: var(--argos-line-title);
                 margin: 0;
-            }
-
-            .argos-flowmeter-secondary .argos-flowmeter-section-title {
-                color: rgba(49, 51, 63, 0.72);
-                font-size: var(--argos-font-meta);
-                font-weight: 600;
-                text-transform: uppercase;
             }
 
             .argos-realtime-flowmeter-grid .argos-compact-metric {
@@ -1557,22 +1629,6 @@ def apply_compact_dashboard_styles() -> None:
                 font-weight: 600;
             }
 
-            .argos-flowmeter-secondary .argos-compact-metric {
-                background: rgba(255, 255, 255, 0.76);
-                border-color: rgba(148, 163, 184, 0.18);
-                padding: 5px 7px;
-            }
-
-            .argos-flowmeter-secondary .argos-compact-metric span {
-                font-size: var(--argos-font-chip);
-            }
-
-            .argos-flowmeter-secondary .argos-compact-metric strong {
-                color: rgba(38, 39, 48, 0.82);
-                font-size: 14px;
-                font-weight: 500;
-            }
-
             .argos-summary-grid {
                 display: grid;
                 gap: 5px;
@@ -1596,6 +1652,12 @@ def apply_compact_dashboard_styles() -> None:
 
             div[data-testid="stPlotlyChart"] {
                 margin-top: -0.1rem;
+            }
+
+            @media (max-width: 900px) {
+                .argos-session-log-row {
+                    grid-template-columns: 0.8fr 0.85fr 0.75fr 1.6fr;
+                }
             }
 
             .argos-observations-header {
@@ -4908,66 +4970,132 @@ def render_valves(
     valve_opening_duration_s: float,
     valve_closing_duration_s: float,
 ) -> None:
-    top_action_left, top_action_right = st.columns([4.4, 1.6], vertical_alignment="center")
-    with top_action_left:
-        st.html(section_header_html("Irrigación", "control y monitoreo en tiempo real"))
-    with top_action_right:
-        close_col, refresh_col = st.columns([1, 1], vertical_alignment="center")
-        with close_col:
+    try:
+        valve_controls = irrigation_valve_controls()
+    except ArgosIrrigationConfigError as exc:
+        st.error(str(exc), icon=":material/error:")
+        return
+
+    with st.container(key="argos_irrigation_page"):
+        header_left, header_close, header_refresh = st.columns([7.4, 1.25, 1.25], vertical_alignment="center")
+        with header_left:
+            st.html(
+                """
+                <div class="argos-irrigation-header">
+                    <h1>Irrigación</h1>
+                    <span>Control y monitoreo en tiempo real</span>
+                </div>
+                """
+            )
+        with header_close:
             if st.button("Cerrar todo", icon=":material/close:", type="primary", key="close_all_valves", width="stretch"):
                 run_close_all_valves(client)
-        with refresh_col:
+        with header_refresh:
             if st.button("Actualizar", icon=":material/refresh:", key="refresh_irrigation", width="stretch"):
                 st.cache_data.clear()
                 st.rerun()
-        st.caption(f"Última actualización: {datetime.now():%H:%M:%S}")
-    render_close_all_valves_result(st.session_state.get("close_all_valves_result"))
+            st.caption(f"Actualizado {datetime.now():%H:%M:%S}")
 
-    first_left, first_right = st.columns([2.85, 1.15], vertical_alignment="top")
-    with first_left:
-        valve_keys = render_irrigation_valve_grid(
-            client,
-            valve_opening_duration_s=valve_opening_duration_s,
-            valve_closing_duration_s=valve_closing_duration_s,
+        render_close_all_valves_result(st.session_state.get("close_all_valves_result"))
+
+        primary_left, primary_right = st.columns([7.2, 2.8], vertical_alignment="top")
+        with primary_left:
+            valve_keys = render_irrigation_valve_grid(
+                client,
+                valve_controls=valve_controls,
+                valve_opening_duration_s=valve_opening_duration_s,
+                valve_closing_duration_s=valve_closing_duration_s,
+            )
+        with primary_right:
+            render_live_flowmeter_status(client, show_admin_actions=False)
+
+        render_irrigation_history_section(
+            client.base_url,
+            start_iso=start_iso,
+            end_iso=end_iso,
+            valve_keys=valve_keys,
+            valve_controls=valve_controls,
         )
-    with first_right:
-        render_live_flowmeter_status(client, show_admin_actions=False)
 
+        render_recent_irrigation_events(valve_keys, valve_controls=valve_controls)
+
+        with st.expander("Detalle técnico", expanded=False):
+            st.dataframe(
+                valve_technical_frame(valve_controls),
+                hide_index=True,
+                column_config={
+                    "Nombre": st.column_config.TextColumn("Nombre"),
+                    "EV": st.column_config.TextColumn("EV"),
+                    "Relay": st.column_config.NumberColumn("Relay", format="%d"),
+                    "Control": st.column_config.TextColumn("Control"),
+                },
+            )
+            selected_valve = st.selectbox(
+                "Electroválvula",
+                options=valve_controls,
+                format_func=valve_control_label,
+                key="selected_valve_control",
+                help="Selector auxiliar para inspeccionar la última respuesta cruda del nodo.",
+            )
+            render_raw_valve_response(valve_keys[selected_valve.control_key])
+            render_flowmeter_admin_actions(client)
+
+
+@st.fragment(run_every=FLOWMETER_HISTORY_REFRESH_SECONDS)
+def render_irrigation_history_section(
+    node_url: str,
+    *,
+    start_iso: str,
+    end_iso: str,
+    valve_keys: dict[str, dict[str, str]],
+    valve_controls: tuple[ValveControl, ...],
+) -> None:
     chart_start_iso, chart_end_iso = flowmeter_chart_window(start_iso, end_iso)
-    flowmeter_rows = cached_flowmeter_minutes(client.base_url, chart_start_iso, chart_end_iso)
+    flowmeter_rows = cached_flowmeter_minutes(node_url, chart_start_iso, chart_end_iso)
     flowmeter_frame = dataframe_from_records(flowmeter_rows, "window_start_utc")
+    sector_totals_l = cached_irrigation_sector_totals(node_url, chart_start_iso, chart_end_iso)
 
-    charts_col, summary_col = st.columns([2.15, 0.94], vertical_alignment="top")
-    with charts_col:
+    secondary_left, secondary_right = st.columns([7.2, 2.8], vertical_alignment="top")
+    with secondary_left:
         render_irrigation_water_card(flowmeter_frame, start_iso=chart_start_iso, end_iso=chart_end_iso)
-    with summary_col:
-        render_irrigation_summary_card(flowmeter_frame, valve_keys)
-
-    render_recent_irrigation_events(valve_keys)
-
-    with st.expander("Respuesta técnica", expanded=False):
-        selected_valve = st.selectbox(
-            "Electroválvula",
-            options=VALVE_CONTROLS,
-            format_func=valve_control_label,
-            key="selected_valve_control",
-            help="Selector auxiliar para inspeccionar la última respuesta cruda del nodo.",
+    with secondary_right:
+        render_irrigation_summary_card(
+            flowmeter_frame,
+            valve_keys,
+            valve_controls=valve_controls,
+            sector_totals_l=sector_totals_l,
         )
-        render_raw_valve_response(valve_keys[selected_valve.valve_id])
-        render_flowmeter_admin_actions(client)
+    warning = irrigation_history_capture_warning(flowmeter_frame, valve_keys, valve_controls=valve_controls)
+    if warning is not None:
+        st.warning(warning, icon=":material/warning:")
 
 
 def render_irrigation_valve_grid(
     client: ArgosNodeClient,
     *,
+    valve_controls: tuple[ValveControl, ...],
     valve_opening_duration_s: float,
     valve_closing_duration_s: float,
-) -> dict[int, dict[str, str]]:
-    st.html(section_header_html("Electroválvulas", "estado, confirmación y actuación individual"))
-    keys_by_valve: dict[int, dict[str, str]] = {}
-    with st.container(horizontal=True, gap="small"):
-        for valve in VALVE_CONTROLS:
-            keys_by_valve[valve.valve_id] = render_valve_control_card(
+) -> dict[str, dict[str, str]]:
+    st.html(section_header_html("Electroválvulas"))
+    keys_by_valve: dict[str, dict[str, str]] = {}
+    rows = (valve_controls[:3], valve_controls[3:])
+    for row_index, row_valves in enumerate(rows):
+        columns = st.columns(3, gap="small", vertical_alignment="top")
+        for column, valve in zip(columns, row_valves):
+            with column:
+                keys_by_valve[valve.control_key] = render_valve_control_card(
+                    client,
+                    valve=valve,
+                    valve_opening_duration_s=valve_opening_duration_s,
+                    valve_closing_duration_s=valve_closing_duration_s,
+                )
+        if row_index == 1 and len(row_valves) < 3:
+            with columns[-1]:
+                st.html('<div class="argos-valve-empty" aria-hidden="true"></div>')
+    for valve in valve_controls:
+        if valve.control_key not in keys_by_valve:
+            keys_by_valve[valve.control_key] = render_valve_control_card(
                 client,
                 valve=valve,
                 valve_opening_duration_s=valve_opening_duration_s,
@@ -4984,53 +5112,39 @@ def render_valve_control_card(
     valve_opening_duration_s: float,
     valve_closing_duration_s: float,
 ) -> dict[str, str]:
-    valve_id = valve.valve_id
-    keys = valve_session_keys(valve_id)
+    keys = valve_session_keys(valve.control_key)
     initialize_valve_session(keys)
     update_timed_valve_state(keys)
 
     phase = "not_operational" if not valve.enabled_for_control else st.session_state[keys["phase"]]
     if valve.enabled_for_control and phase in {"unknown", "closed", "open"}:
-        refresh_valve_from_backend(client, valve_id=valve_id, keys=keys)
+        refresh_valve_from_backend(client, valve=valve, keys=keys)
         phase = st.session_state[keys["phase"]]
 
-    with st.container(border=True, gap="small"):
-        availability = valve_availability_label(valve)
+    with st.container(border=True, gap="small", key=f"argos_valve_card_{valve.control_key}"):
         state_label = valve_card_state_label(phase)
-        card_class = "argos-valve-card-inner is-disabled" if not valve.enabled_for_control else "argos-valve-card-inner"
         st.html(
             f"""
-            <div class="{card_class}">
-                <div class="argos-valve-card-header">
-                    <div>
-                        <h3>{escape(valve.functional_name)} ({escape(valve.technical_id)})</h3>
-                        <small>Relay {valve.relay_id}</small>
-                    </div>
-                    {status_badge_html(availability, valve_card_status_tone(phase))}
-                </div>
-                <div class="argos-valve-state">
-                    <span>Estado actual</span>
-                    <strong>{escape(state_label)}</strong>
-                </div>
+            <div class="argos-valve-card-inner">
+                <h3>{escape(valve.functional_name)}</h3>
+                <strong>{escape(state_label)}</strong>
             </div>
             """
         )
-        action_columns = st.columns([1, 1.22], gap="small", vertical_alignment="center")
-        with action_columns[0]:
+        with st.container(horizontal=True, gap="small", key=f"argos_valve_actions_{valve.control_key}"):
             open_disabled = (not valve.enabled_for_control) or phase_is_busy(phase) or phase == "open"
             if st.button(
                 "Abrir",
-                key=f"valve_{valve_id}_open",
+                key=f"{valve.control_key}_open",
                 disabled=open_disabled,
                 width="stretch",
             ):
                 start_valve_command(keys, "sending_open_command", "dashboard_open_click")
 
-        with action_columns[1]:
             close_disabled = (not valve.enabled_for_control) or phase_is_busy(phase) or phase == "closed"
             if st.button(
                 "Cerrar",
-                key=f"valve_{valve_id}_close",
+                key=f"{valve.control_key}_close",
                 type="primary",
                 disabled=close_disabled,
                 width="stretch",
@@ -5050,7 +5164,7 @@ def render_valve_control_card(
     ):
         run_valve_command(
             client,
-            valve_id=valve_id,
+            valve=valve,
             keys=keys,
             command="open" if phase == "sending_open_command" else "close",
             movement_duration_s=valve_opening_duration_s if phase == "sending_open_command" else valve_closing_duration_s,
@@ -5063,32 +5177,41 @@ def render_valve_control_card(
     return keys
 
 
-def render_recent_irrigation_events(keys_by_valve: dict[int, dict[str, str]]) -> None:
+def render_recent_irrigation_events(
+    keys_by_valve: dict[str, dict[str, str]],
+    *,
+    valve_controls: tuple[ValveControl, ...],
+) -> None:
     rows: list[str] = []
-    for valve in VALVE_CONTROLS:
-        keys = keys_by_valve[valve.valve_id]
+    for valve in valve_controls:
+        keys = keys_by_valve[valve.control_key]
         timing = st.session_state.get(keys["timing"], {})
         response_at = timing.get("response_received_at") if isinstance(timing, dict) else None
         if not valve.enabled_for_control:
+            event = "Puesta en servicio"
             message = "Pendiente de puesta en servicio"
         elif st.session_state.get(keys["error"]):
+            event = "Error"
             message = "Error de comunicación"
         else:
+            event = "Sesión"
             message = st.session_state.get(keys["message"]) or "Sin evento de sesión"
         rows.append(
             '<div class="argos-session-log-row">'
-            f"<span>{escape(valve_control_label(valve))}</span>"
             f"<span>{escape(format_compact_local_datetime(response_at) if response_at else '-')}</span>"
+            f"<span>{escape(valve.functional_name)}</span>"
+            f"<span>{escape(event)}</span>"
             f"<span>{escape(str(message))}</span>"
             "</div>"
         )
     st.html(
         f"""
-        {section_header_html("Eventos recientes", "operación local de riego")}
+        {section_header_html("Eventos recientes")}
         <div class="argos-session-log">
             <div class="argos-session-log-row header">
-                <span>Dispositivo</span>
-                <span>Fecha y hora</span>
+                <span>Fecha/hora</span>
+                <span>Elemento</span>
+                <span>Evento</span>
                 <span>Detalle</span>
             </div>
             {''.join(rows)}
@@ -5142,9 +5265,15 @@ def render_accumulated_water_card(frame: pd.DataFrame, *, start_iso: str, end_is
         st.plotly_chart(figure, width="stretch")
 
 
-def render_irrigation_summary_card(frame: pd.DataFrame, keys_by_valve: dict[int, dict[str, str]]) -> None:
-    operational_valves = tuple(valve for valve in VALVE_CONTROLS if valve.irrigation and valve.enabled_for_control)
-    operational_keys = tuple(keys_by_valve[valve.valve_id] for valve in operational_valves)
+def render_irrigation_summary_card(
+    frame: pd.DataFrame,
+    keys_by_valve: dict[str, dict[str, str]],
+    *,
+    valve_controls: tuple[ValveControl, ...],
+    sector_totals_l: dict[str, float] | None = None,
+) -> None:
+    operational_valves = tuple(valve for valve in valve_controls if valve.irrigation and valve.enabled_for_control)
+    operational_keys = tuple(keys_by_valve[valve.control_key] for valve in operational_valves)
     open_count = sum(1 for keys in operational_keys if st.session_state.get(keys["phase"]) == "open")
     active_count = sum(
         1
@@ -5153,6 +5282,9 @@ def render_irrigation_summary_card(frame: pd.DataFrame, keys_by_valve: dict[int,
     )
     error_count = sum(1 for keys in operational_keys if st.session_state.get(keys["phase"]) == "error")
     unknown_count = sum(1 for keys in operational_keys if st.session_state.get(keys["phase"]) == "unknown")
+    latest = frame.sort_values("window_start_utc").iloc[-1] if not frame.empty and "window_start_utc" in frame else None
+    current_flow = format_number(latest.get("avg_flow_l_min") if latest is not None else None, "L/min")
+    session_l = format_number(latest.get("session_l_end") if latest is not None else None, "L")
     st.html(
         irrigation_summary_html(
             open_count,
@@ -5160,8 +5292,58 @@ def render_irrigation_summary_card(frame: pd.DataFrame, keys_by_valve: dict[int,
             error_count,
             unknown_count,
             operational_count=len(operational_valves),
+            current_flow=current_flow,
+            session_l=session_l,
+            sector_totals_l=sector_totals_l,
         )
     )
+
+
+def irrigation_history_capture_warning(
+    frame: pd.DataFrame,
+    keys_by_valve: dict[str, dict[str, str]],
+    *,
+    valve_controls: tuple[ValveControl, ...] | None = None,
+    now_utc: datetime | None = None,
+) -> str | None:
+    valve_controls = valve_controls or irrigation_valve_controls()
+    active_phases = {"open", "opening", "sending_open_command"}
+    active_valves = tuple(
+        valve
+        for valve in valve_controls
+        if valve.irrigation
+        and valve.enabled_for_control
+        and valve.control_key in keys_by_valve
+        and st.session_state.get(keys_by_valve[valve.control_key]["phase"]) in active_phases
+    )
+    if not active_valves:
+        return None
+
+    if frame.empty or "window_start_utc" not in frame:
+        return (
+            "Hay riego activo, pero ARGOS no tiene agregados minutales recientes del caudalimetro. "
+            "Compruebe que el capturador esta arrancado; si no lo esta, la sesion podra guardar el volumen final, "
+            "pero la grafica historica quedara incompleta."
+        )
+
+    timestamps = pd.to_datetime(frame["window_start_utc"], utc=True, errors="coerce").dropna()
+    if timestamps.empty:
+        return (
+            "Hay riego activo, pero ARGOS no puede validar la fecha de los agregados del caudalimetro. "
+            "Revise el capturador; si no esta registrando datos, la sesion podra guardar el volumen final, "
+            "pero la grafica historica quedara incompleta."
+        )
+
+    now = now_utc or datetime.now(UTC)
+    latest_age = now - timestamps.max().to_pydatetime()
+    if latest_age > timedelta(minutes=FLOWMETER_CAPTURE_STALE_AFTER_MINUTES):
+        return (
+            "Hay riego activo, pero el ultimo agregado minutal del caudalimetro tiene mas de "
+            f"{FLOWMETER_CAPTURE_STALE_AFTER_MINUTES} min. "
+            "Compruebe que el capturador sigue activo; la sesion puede cerrarse con volumen final, "
+            "pero la grafica historica podria quedar incompleta."
+        )
+    return None
 
 
 def irrigation_summary_html(
@@ -5171,18 +5353,44 @@ def irrigation_summary_html(
     unknown_count: int,
     *,
     operational_count: int | None = None,
+    current_flow: str | None = None,
+    session_l: str | None = None,
+    sector_totals_l: dict[str, float] | None = None,
 ) -> str:
-    operational_total = len(tuple(valve for valve in VALVE_CONTROLS if valve.irrigation and valve.enabled_for_control))
+    operational_total = len(irrigation_valve_controls())
     total = operational_total if operational_count is None else operational_count
+    sector_totals_l = sector_totals_l or {}
+    sector_metrics = "".join(
+        compact_metric_html(f"Sector {sector_id}", format_number(sector_totals_l.get(sector_id), "L"))
+        for sector_id in ("I", "II", "III", "IV")
+    )
     return f"""
     {section_header_html("Resumen operativo")}
     <div class="argos-summary-grid">
         {compact_metric_html("Electroválvulas abiertas", f"{open_count} / {total}")}
-        {compact_metric_html("Sectores activos", format_integer(active_count))}
-        {compact_metric_html("Alertas activas", format_integer(error_count))}
+        {compact_metric_html("Actuación activa", format_integer(active_count))}
+        {compact_metric_html("Caudal actual", current_flow or "Sin dato")}
+        {compact_metric_html("Sesión actual", session_l or "Sin dato")}
+        {compact_metric_html("Incidencias", format_integer(error_count))}
         {compact_metric_html("Sin respuesta", format_integer(unknown_count))}
+        {sector_metrics}
     </div>
     """
+
+
+def valve_technical_frame(valve_controls: tuple[ValveControl, ...] | None = None) -> pd.DataFrame:
+    valve_controls = valve_controls or irrigation_valve_controls()
+    return pd.DataFrame.from_records(
+        [
+            {
+                "Nombre": valve.functional_name,
+                "EV": valve.technical_id,
+                "Relay": valve.relay_id,
+                "Control": "Habilitada" if valve.enabled_for_control else "Pendiente",
+            }
+            for valve in valve_controls
+        ]
+    )
 
 
 def flowmeter_chart_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -5200,7 +5408,7 @@ def flowmeter_chart_frame(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def valve_control_options() -> dict[str, int]:
-    return {valve_control_label(valve): valve.valve_id for valve in VALVE_CONTROLS}
+    return {valve_control_label(valve): valve.valve_id for valve in irrigation_valve_controls()}
 
 
 def valve_name_for_id(valve_id: int) -> str:
@@ -5211,7 +5419,7 @@ def valve_name_for_id(valve_id: int) -> str:
 
 
 def valve_control_for_id(valve_id: int) -> ValveControl | None:
-    for valve in VALVE_CONTROLS:
+    for valve in irrigation_valve_controls():
         if valve.valve_id == valve_id:
             return valve
     return None
@@ -5227,11 +5435,15 @@ def valve_technical_detail(valve: ValveControl) -> str:
 
 def close_all_configured_valves(client: ArgosNodeClient) -> CloseAllValvesResult:
     results: list[CloseAllValveResult] = []
-    for valve in VALVE_CONTROLS:
+    for valve in irrigation_valve_controls():
         if not valve.irrigation or not valve.enabled_for_control:
             continue
         try:
-            response = client.close_valve(valve.valve_id)
+            response = (
+                client.close_irrigation_sector(valve.sector_id)
+                if valve.sector_id is not None
+                else client.close_valve(valve.valve_id)
+            )
         except ArgosNodeError as exc:
             results.append(CloseAllValveResult(valve=valve, error=str(exc)))
             continue
@@ -5242,7 +5454,7 @@ def close_all_configured_valves(client: ArgosNodeClient) -> CloseAllValvesResult
 def run_close_all_valves(client: ArgosNodeClient) -> None:
     result = close_all_configured_valves(client)
     for item in result.results:
-        keys = valve_session_keys(item.valve.valve_id)
+        keys = valve_session_keys(item.valve.control_key)
         initialize_valve_session(keys)
         if item.ok:
             st.session_state[keys["phase"]] = "closed"
@@ -5271,54 +5483,7 @@ def render_close_all_valves_result(result: CloseAllValvesResult | None) -> None:
         st.error(f"No se pudo cerrar ninguna electroválvula. Fallos: {failed}.")
 
 
-def render_valve_control(
-    client: ArgosNodeClient,
-    *,
-    valve: ValveControl,
-    valve_opening_duration_s: float,
-    valve_closing_duration_s: float,
-) -> dict[str, str]:
-    valve_id = valve.valve_id
-    keys = valve_session_keys(valve_id)
-    initialize_valve_session(keys)
-    update_timed_valve_state(keys)
-
-    phase = st.session_state[keys["phase"]]
-    if phase in {"unknown", "closed", "open"}:
-        refresh_valve_from_backend(client, valve_id=valve_id, keys=keys)
-        phase = st.session_state[keys["phase"]]
-
-    valve_column, live_column = st.columns(2, vertical_alignment="top")
-    with valve_column:
-        with st.container(border=True, gap="small"):
-            st.subheader(valve.functional_name)
-            st.caption(valve_technical_detail(valve))
-            with st.container(horizontal=True, vertical_alignment="center", gap="small"):
-                render_compact_metric("State", valve_phase_label(phase))
-                render_valve_primary_action(valve_id, keys, phase)
-            render_valve_status_line(keys, phase)
-            render_valve_progress(keys, phase, valve_opening_duration_s, valve_closing_duration_s)
-            render_valve_message(st.session_state[keys["message"]], st.session_state[keys["error"]])
-    with live_column:
-        render_live_flowmeter_status(client)
-
-    if phase in {"sending_open_command", "sending_close_command"} and not st.session_state[keys["command_in_flight"]]:
-        run_valve_command(
-            client,
-            valve_id=valve_id,
-            keys=keys,
-            command="open" if phase == "sending_open_command" else "close",
-            movement_duration_s=valve_opening_duration_s if phase == "sending_open_command" else valve_closing_duration_s,
-        )
-
-    if st.session_state[keys["phase"]] in {"opening", "closing"}:
-        monotonic_time.sleep(1)
-        st.rerun()
-
-    return keys
-
-
-@st.fragment(run_every=1)
+@st.fragment(run_every=FLOWMETER_LIVE_REFRESH_SECONDS)
 def render_live_flowmeter_status(client: ArgosNodeClient, *, show_admin_actions: bool = True) -> None:
     with st.container(border=True, gap="small"):
         st.subheader("Caudalímetro")
@@ -5333,7 +5498,7 @@ def render_live_flowmeter_status(client: ArgosNodeClient, *, show_admin_actions:
             return
 
         st.html(flowmeter_status_html(parsed))
-        st.caption(f"Muestreo cada segundo desde {client.base_url}/status.")
+        st.caption("En línea")
         if show_admin_actions:
             render_flowmeter_admin_actions(client)
 
@@ -5345,13 +5510,9 @@ def flowmeter_status_html(parsed: Any) -> str:
         <div class="argos-realtime-flowmeter-grid">
             {compact_metric_html("Caudal actual", format_number(parsed.flow_l_min, "L/min"))}
             {compact_metric_html("Sesión actual", format_number(parsed.session_l, "L"))}
-        </div>
-    </div>
-    <div class="argos-flowmeter-panel argos-flowmeter-secondary">
-        <p class="argos-flowmeter-section-title">Cierres de periodo</p>
-        <div class="argos-realtime-flowmeter-grid">
             {compact_metric_html("Última sesión", format_number(parsed.last_session_l, "L"))}
             {compact_metric_html("Año hidrológico", format_number(parsed.hydrological_year_l, "L"))}
+            {compact_metric_html("Total histórico", format_number(parsed.total_l, "L"))}
         </div>
     </div>
     """
@@ -5586,9 +5747,7 @@ def build_irrigation_water_figure(frame: pd.DataFrame, *, start_iso: str | None 
 
     sorted_frame = frame.sort_values("window_start_utc").copy()
     has_flow = {"avg_flow_l_min", "max_flow_l_min"}.intersection(sorted_frame.columns)
-    accumulated_columns = [
-        column for column in ("total_l_end", "session_l_end", "hydrological_year_l_end") if column in sorted_frame
-    ]
+    accumulated_columns = [column for column in ("session_l_end",) if column in sorted_frame]
     if not has_flow and not accumulated_columns:
         return None
 
@@ -5660,11 +5819,7 @@ def build_irrigation_water_figure(frame: pd.DataFrame, *, start_iso: str | None 
 
     accumulated_frame = sorted_frame[["window_start_utc", *accumulated_columns]].dropna(subset=accumulated_columns, how="all")
     if not accumulated_frame.empty:
-        series = [
-            ("total_l_end", "Total histórico", "#15803d"),
-            ("session_l_end", "Sesión actual", "#2563eb"),
-            ("hydrological_year_l_end", "Año hidrológico", "#0f766e"),
-        ]
+        series = [("session_l_end", "Sesión actual", "#2563eb")]
         for column, label, color in series:
             if column not in accumulated_frame:
                 continue
@@ -5855,8 +6010,8 @@ def flowmeter_trace_values(
     return x_out, y_out
 
 
-def valve_session_keys(valve_id: int) -> dict[str, str]:
-    prefix = f"valve_{valve_id}"
+def valve_session_keys(control_key: int | str) -> dict[str, str]:
+    prefix = str(control_key)
     return {
         "phase": f"{prefix}_phase",
         "last_confirmed_phase": f"{prefix}_last_confirmed_phase",
@@ -5901,9 +6056,13 @@ def update_timed_valve_state(keys: dict[str, str]) -> None:
     )
 
 
-def refresh_valve_from_backend(client: ArgosNodeClient, *, valve_id: int, keys: dict[str, str]) -> None:
+def refresh_valve_from_backend(client: ArgosNodeClient, *, valve: ValveControl, keys: dict[str, str]) -> None:
     try:
-        state = client.get_valve(valve_id)
+        state = (
+            client.get_irrigation_sector(valve.sector_id)
+            if valve.sector_id is not None
+            else client.get_valve(valve.valve_id)
+        )
     except ArgosNodeError as exc:
         st.session_state[keys["phase"]] = "error"
         st.session_state[keys["error"]] = str(exc)
@@ -6008,7 +6167,7 @@ def start_valve_command(keys: dict[str, str], phase: str, event: str) -> None:
 def run_valve_command(
     client: ArgosNodeClient,
     *,
-    valve_id: int,
+    valve: ValveControl,
     keys: dict[str, str],
     command: str,
     movement_duration_s: float,
@@ -6019,7 +6178,14 @@ def run_valve_command(
     st.session_state[keys["timing"]]["request_started_at"] = request_started_at
     log_valve_timing("request_started", st.session_state[keys["timing"]])
     try:
-        response = client.open_valve(valve_id) if command == "open" else client.close_valve(valve_id)
+        if valve.sector_id is not None:
+            response = (
+                client.open_irrigation_sector(valve.sector_id)
+                if command == "open"
+                else client.close_irrigation_sector(valve.sector_id)
+            )
+        else:
+            response = client.open_valve(valve.valve_id) if command == "open" else client.close_valve(valve.valve_id)
         response_received_at = datetime.now(UTC).isoformat()
         request_elapsed_ms = round((monotonic_time.monotonic() - request_started_monotonic) * 1000)
         st.session_state[keys["timing"]]["response_received_at"] = response_received_at

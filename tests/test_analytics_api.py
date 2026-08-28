@@ -11,7 +11,7 @@ from argos.database.base import Base
 from argos.database.session import get_engine, get_sessionmaker, reset_database_caches
 from argos.main import create_app
 from argos.models.aemet import WeatherDailyObservation, WeatherStation
-from argos.models.argos_node import ArgosNodeFlowmeterMinute
+from argos.models.argos_node import ArgosIrrigationSectorMinuteAttribution, ArgosNodeFlowmeterMinute
 from argos.models.ecowitt import WeatherObservation
 from argos.models.field_event import FieldEvent
 from argos.models.satellite import SatelliteMetric, SatelliteObservation, SatelliteSource, SatelliteZone
@@ -26,6 +26,7 @@ def test_analytics_variables_and_unknown_variable(monkeypatch, tmp_path) -> None
 
     assert variables.status_code == 200
     assert "ecowitt.outdoor_temperature" in {item["variable_id"] for item in variables.json()}
+    assert "controller.sector_i_water_volume" in {item["variable_id"] for item in variables.json()}
     assert invalid.status_code == 422
 
 
@@ -46,6 +47,19 @@ def test_analytics_series_aggregation_correlation_matrix_distribution_and_trend(
     assert series.status_code == 200
     assert len(series.json()["series"]) == 2
     assert series.json()["series"][0]["points"][0]["value"] == 11.0
+
+    sector_series = client.post(
+        "/api/v1/analytics/series",
+        json={
+            "variable_ids": ["controller.sector_i_water_volume"],
+            "start": "2026-07-01T00:00:00Z",
+            "end": "2026-07-03T23:59:59Z",
+            "frequency": "daily",
+            "aggregation": "sum",
+        },
+    )
+    assert sector_series.status_code == 200
+    assert [point["value"] for point in sector_series.json()["series"][0]["points"]] == [0.5, 1.5, 2.5]
 
     hourly = client.post(
         "/api/v1/analytics/series",
@@ -211,20 +225,29 @@ def seed_analytics_data() -> None:
                     raw_payload_json={},
                 )
             )
+            minute = ArgosNodeFlowmeterMinute(
+                node_url="http://node",
+                window_start_utc=day,
+                window_end_utc=day + timedelta(minutes=1),
+                pulse_count_start=0,
+                pulse_count_end=27,
+                pulse_delta=27,
+                volume_l=1.0,
+                avg_flow_l_min=1 + day_index,
+                max_flow_l_min=2 + day_index,
+                samples_count=1,
+                relay1_state_end=day_index % 2 == 0,
+                relay1_open_fraction=1.0 if day_index % 2 == 0 else 0.0,
+            )
+            session.add(minute)
+            session.flush()
             session.add(
-                ArgosNodeFlowmeterMinute(
-                    node_url="http://node",
-                    window_start_utc=day,
-                    window_end_utc=day + timedelta(minutes=1),
-                    pulse_count_start=0,
-                    pulse_count_end=27,
-                    pulse_delta=27,
-                    volume_l=1.0,
-                    avg_flow_l_min=1 + day_index,
-                    max_flow_l_min=2 + day_index,
-                    samples_count=1,
-                    relay1_state_end=day_index % 2 == 0,
-                    relay1_open_fraction=1.0 if day_index % 2 == 0 else 0.0,
+                ArgosIrrigationSectorMinuteAttribution(
+                    flowmeter_minute_id=minute.id,
+                    node_url=minute.node_url,
+                    window_start_utc=minute.window_start_utc,
+                    sector_id="I",
+                    volume_l=day_index + 0.5,
                 )
             )
         session.add(FieldEvent(occurred_at=start, event_type="irrigation", title="Riego", source="manual", zone_slug="olivos_pequenos"))

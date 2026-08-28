@@ -32,6 +32,7 @@ from argos.dashboard.app import (
     observation_period_quality,
     observation_period_uses_recent_meteogram,
     observation_period_range,
+    render_global_shell_header,
     weather_metric_table_html,
     wind_components_ms,
     wind_direction_arrow,
@@ -49,6 +50,22 @@ def test_wind_direction_arrow_uses_direction_only_with_south_up() -> None:
     assert wind_direction_arrow(90) == "←"
     assert wind_direction_arrow(180) == "↑"
     assert wind_direction_arrow(270) == "→"
+
+
+def test_global_shell_header_labels_ecowitt_status_as_gateway(monkeypatch) -> None:
+    rendered: list[str] = []
+    monkeypatch.setattr("argos.dashboard.app.st.html", rendered.append)
+
+    render_global_shell_header(
+        "Inicio",
+        health={"status": "ok"},
+        latest={"observed_at_utc": "2026-08-28T08:38:14", "outdoor_temperature_c": 21.6},
+        status={"status": "online"},
+    )
+
+    html = rendered[0]
+    assert "Gateway" in html
+    assert "Nodo" not in html
 
 
 def test_wind_components_follow_meteorological_direction() -> None:

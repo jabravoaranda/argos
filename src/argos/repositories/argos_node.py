@@ -4,7 +4,12 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from argos.models.argos_node import ArgosNodeFlowmeterMinute, ArgosNodeFlowmeterResetEvent, ArgosNodeFlowmeterSession
+from argos.models.argos_node import (
+    ArgosIrrigationSectorMinuteAttribution,
+    ArgosNodeFlowmeterMinute,
+    ArgosNodeFlowmeterResetEvent,
+    ArgosNodeFlowmeterSession,
+)
 
 
 class ArgosNodeRepository:
@@ -46,6 +51,7 @@ class ArgosNodeRepository:
         last_session_l_start: float | None,
         last_session_l_end: float | None,
         volume_l: float,
+        unassigned_volume_l: float,
         avg_flow_l_min: float,
         max_flow_l_min: float,
         samples_count: int,
@@ -78,6 +84,7 @@ class ArgosNodeRepository:
                 last_session_l_start=last_session_l_start,
                 last_session_l_end=last_session_l_end,
                 volume_l=volume_l,
+                unassigned_volume_l=unassigned_volume_l,
                 avg_flow_l_min=avg_flow_l_min,
                 max_flow_l_min=max_flow_l_min,
                 samples_count=samples_count,
@@ -106,6 +113,7 @@ class ArgosNodeRepository:
             minute.last_session_l_start = last_session_l_start
             minute.last_session_l_end = last_session_l_end
             minute.volume_l = volume_l
+            minute.unassigned_volume_l = unassigned_volume_l
             minute.avg_flow_l_min = avg_flow_l_min
             minute.max_flow_l_min = max_flow_l_min
             minute.samples_count = samples_count
@@ -117,20 +125,51 @@ class ArgosNodeRepository:
         self.session.flush()
         return minute, created
 
+    def replace_flowmeter_minute_sector_attributions(
+        self,
+        *,
+        minute: ArgosNodeFlowmeterMinute,
+        sector_volume_l: dict[str, float],
+    ) -> None:
+        self.session.query(ArgosIrrigationSectorMinuteAttribution).filter(
+            ArgosIrrigationSectorMinuteAttribution.flowmeter_minute_id == minute.id
+        ).delete(synchronize_session=False)
+        for sector_id, volume_l in sector_volume_l.items():
+            self.session.add(
+                ArgosIrrigationSectorMinuteAttribution(
+                    flowmeter_minute_id=minute.id,
+                    node_url=minute.node_url,
+                    window_start_utc=minute.window_start_utc,
+                    sector_id=sector_id,
+                    volume_l=volume_l,
+                )
+            )
+        self.session.flush()
+
     def create_flowmeter_session(
         self,
         *,
         node_url: str,
+        started_at_utc: datetime | None,
         closed_at_utc: datetime,
+        duration_s: float | None,
+        volume_l: float | None,
         last_session_l: float,
+        pulse_count_start: int | None,
+        pulse_count_end: int | None,
         pulse_count: int | None,
         total_l: float | None,
         hydrological_year_l: float | None,
     ) -> ArgosNodeFlowmeterSession:
         session = ArgosNodeFlowmeterSession(
             node_url=node_url,
+            started_at_utc=started_at_utc,
             closed_at_utc=closed_at_utc,
+            duration_s=duration_s,
+            volume_l=volume_l,
             last_session_l=last_session_l,
+            pulse_count_start=pulse_count_start,
+            pulse_count_end=pulse_count_end,
             pulse_count=pulse_count,
             total_l=total_l,
             hydrological_year_l=hydrological_year_l,

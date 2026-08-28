@@ -6,6 +6,8 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from argos.config.irrigation import IrrigationSectorId, get_ev_for_sector, get_main_irrigation_ev
+
 
 class ArgosNodeError(RuntimeError):
     """Raised when the dashboard cannot reach argos-node."""
@@ -27,6 +29,19 @@ class ArgosNodeClient:
 
     def close_valve(self, valve_id: int) -> dict[str, Any] | None:
         return self._request_json("POST", f"/valves/{valve_id}/close")
+
+    def get_irrigation_sector(self, sector_id: IrrigationSectorId) -> dict[str, Any] | None:
+        return self.get_valve(get_ev_for_sector(sector_id))
+
+    def open_irrigation_sector(self, sector_id: IrrigationSectorId) -> dict[str, Any] | None:
+        sector_ev = get_ev_for_sector(sector_id)
+        main_ev = get_main_irrigation_ev()
+        if main_ev != sector_ev:
+            self.open_valve(main_ev)
+        return self.open_valve(sector_ev)
+
+    def close_irrigation_sector(self, sector_id: IrrigationSectorId) -> dict[str, Any] | None:
+        return self.close_valve(get_ev_for_sector(sector_id))
 
     def reset_flowmeter_total(self) -> dict[str, Any] | None:
         return self._request_json("POST", "/flowmeter/reset-total")

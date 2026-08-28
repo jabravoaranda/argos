@@ -160,7 +160,10 @@ def valve_button_layout_errors(page: Page) -> list[str]:
             const targets = ['Abrir', 'Cerrar'];
             for (const target of targets) {
                 const buttons = [...document.querySelectorAll('button')]
-                    .filter((button) => (button.innerText || '').trim() === target);
+                    .filter((button) => {
+                        const text = (button.innerText || '').replace(/\\s+/g, ' ').trim();
+                        return new RegExp(`(^| )${target}( |$)`).test(text) && !text.includes('todo');
+                    });
                 if (buttons.length === 0) {
                     errors.push(`No visible button text found: ${target}`);
                     continue;

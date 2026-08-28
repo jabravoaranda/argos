@@ -14,7 +14,12 @@ from argos.models.ecowitt import (
     WeeklyStatistic,
 )
 from argos.models.aemet import AemetSyncRun, WeatherDailyObservation, WeatherStation
-from argos.models.argos_node import ArgosNodeFlowmeterMinute, ArgosNodeFlowmeterResetEvent, ArgosNodeFlowmeterSession
+from argos.models.argos_node import (
+    ArgosIrrigationSectorMinuteAttribution,
+    ArgosNodeFlowmeterMinute,
+    ArgosNodeFlowmeterResetEvent,
+    ArgosNodeFlowmeterSession,
+)
 from argos.models.field_event import FieldEvent
 from argos.models.ingestion import DataSource, IngestionItem, IngestionRun, SourceArtifact, SyncCursor
 from argos.models.satellite import (
@@ -41,6 +46,7 @@ __all__ = [
     "WeatherDailyObservation",
     "WeatherStation",
     "ArgosNodeFlowmeterMinute",
+    "ArgosIrrigationSectorMinuteAttribution",
     "ArgosNodeFlowmeterResetEvent",
     "ArgosNodeFlowmeterSession",
     "FieldEvent",

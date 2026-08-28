@@ -9,14 +9,22 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from argos.database.base import Base
 from argos.dashboard.argos_node_client import ArgosNodeError
-from argos.models import ArgosNodeFlowmeterMinute, ArgosNodeFlowmeterResetEvent, ArgosNodeFlowmeterSession
+from argos.config.settings import get_settings
+from argos.models import (
+    ArgosIrrigationSectorMinuteAttribution,
+    ArgosNodeFlowmeterMinute,
+    ArgosNodeFlowmeterResetEvent,
+    ArgosNodeFlowmeterSession,
+)
 from argos.services.argos_node_flowmeter import (
+    ActiveFlowmeterSession,
     ArgosNodeStatusError,
     FlowmeterMinuteAggregator,
     FlowmeterSample,
     parse_flowmeter_status,
     parse_relay_open_state,
     maybe_reset_hydrological_year,
+    persist_flowmeter_session_close,
     persist_flowmeter_minute,
     run_flowmeter_minute_capture,
 )
@@ -27,6 +35,17 @@ def session_factory() -> sessionmaker[Session]:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine, future=True)
+
+
+@pytest.fixture(autouse=True)
+def irrigation_sector_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ARGOS_IRRIGATION_SECTOR_I_EV", "7")
+    monkeypatch.setenv("ARGOS_IRRIGATION_SECTOR_II_EV", "6")
+    monkeypatch.setenv("ARGOS_IRRIGATION_SECTOR_III_EV", "6")
+    monkeypatch.setenv("ARGOS_IRRIGATION_SECTOR_IV_EV", "6")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture()
@@ -62,6 +81,7 @@ def test_parse_flowmeter_status_reads_argos_node_fields() -> None:
     assert parsed.last_session_l == 3.25
     assert parsed.di1_state is True
     assert parsed.relay1_state is True
+    assert parsed.open_ev_ids == ()
 
 
 def test_parse_flowmeter_status_reads_di8_by_position() -> None:
@@ -152,6 +172,116 @@ def test_persist_flowmeter_minute_upserts_one_row_per_node_and_window(session: S
     assert first.minute_id == second.minute_id == minute.id
     assert minute.pulse_delta == 0
     assert minute.samples_count == 1
+
+
+def test_persist_flowmeter_minute_stores_sector_attributions(session: Session) -> None:
+    aggregator = FlowmeterMinuteAggregator(node_url="http://192.168.1.40")
+    aggregator.add_sample(_sample("2026-07-31T08:10:00Z", pulse_count=0, flow_l_min=0.0, open_ev_ids=(6,)))
+    aggregator.add_sample(_sample("2026-07-31T08:10:05Z", pulse_count=8100, flow_l_min=0.0, open_ev_ids=(6,)))
+    completed = aggregator.flush()
+    assert completed is not None
+
+    persist_flowmeter_minute(session=session, aggregate=completed)
+
+    minute = session.scalar(select(ArgosNodeFlowmeterMinute))
+    attributions = session.scalars(select(ArgosIrrigationSectorMinuteAttribution)).all()
+    assert minute is not None
+    assert minute.unassigned_volume_l == 0.0
+    assert {(row.sector_id, row.volume_l) for row in attributions} == {
+        ("II", 100.0),
+        ("III", 100.0),
+        ("IV", 100.0),
+    }
+
+
+def test_flowmeter_minute_attribution_assigns_single_active_sector() -> None:
+    aggregator = FlowmeterMinuteAggregator(node_url="http://192.168.1.40")
+    aggregator.add_sample(_sample("2026-07-31T08:10:00Z", pulse_count=0, flow_l_min=0.0, open_ev_ids=(7,)))
+    completed = aggregator.add_sample(_sample("2026-07-31T08:10:05Z", pulse_count=2700, flow_l_min=0.0, open_ev_ids=(7,)))
+
+    assert completed is None
+    completed = aggregator.flush()
+    assert completed is not None
+    assert completed.volume_l == 100.0
+    assert completed.sector_volume_l == {"I": 100.0}
+    assert completed.unassigned_volume_l == 0.0
+
+
+def test_flowmeter_minute_attribution_splits_two_active_sectors(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ARGOS_IRRIGATION_SECTOR_II_EV", "8")
+    get_settings.cache_clear()
+    aggregator = FlowmeterMinuteAggregator(node_url="http://192.168.1.40")
+    aggregator.add_sample(_sample("2026-07-31T08:10:00Z", pulse_count=0, flow_l_min=0.0, open_ev_ids=(7, 8)))
+    aggregator.add_sample(_sample("2026-07-31T08:10:05Z", pulse_count=2700, flow_l_min=0.0, open_ev_ids=(7, 8)))
+
+    completed = aggregator.flush()
+
+    assert completed is not None
+    assert completed.sector_volume_l == {"I": 50.0, "II": 50.0}
+
+
+def test_flowmeter_minute_attribution_splits_three_configured_shared_ev_sectors() -> None:
+    aggregator = FlowmeterMinuteAggregator(node_url="http://192.168.1.40")
+    aggregator.add_sample(_sample("2026-07-31T08:10:00Z", pulse_count=0, flow_l_min=0.0, open_ev_ids=(6,)))
+    aggregator.add_sample(_sample("2026-07-31T08:10:05Z", pulse_count=8100, flow_l_min=0.0, open_ev_ids=(6,)))
+
+    completed = aggregator.flush()
+
+    assert completed is not None
+    assert completed.sector_volume_l == {"II": 100.0, "III": 100.0, "IV": 100.0}
+    assert sum(completed.sector_volume_l.values()) == completed.volume_l
+
+
+def test_flowmeter_minute_attribution_splits_four_configured_sectors() -> None:
+    aggregator = FlowmeterMinuteAggregator(node_url="http://192.168.1.40")
+    aggregator.add_sample(_sample("2026-07-31T08:10:00Z", pulse_count=0, flow_l_min=0.0, open_ev_ids=(6, 7)))
+    aggregator.add_sample(_sample("2026-07-31T08:10:05Z", pulse_count=10800, flow_l_min=0.0, open_ev_ids=(6, 7)))
+
+    completed = aggregator.flush()
+
+    assert completed is not None
+    assert completed.sector_volume_l == {"I": 100.0, "II": 100.0, "III": 100.0, "IV": 100.0}
+    assert sum(completed.sector_volume_l.values()) == completed.volume_l
+
+
+def test_flowmeter_minute_attribution_handles_active_sector_changes_incrementally() -> None:
+    aggregator = FlowmeterMinuteAggregator(node_url="http://192.168.1.40")
+    aggregator.add_sample(_sample("2026-07-31T08:10:00Z", pulse_count=0, flow_l_min=0.0, open_ev_ids=(7,)))
+    aggregator.add_sample(_sample("2026-07-31T08:10:05Z", pulse_count=2700, flow_l_min=0.0, open_ev_ids=(7,)))
+    aggregator.add_sample(_sample("2026-07-31T08:10:10Z", pulse_count=5940, flow_l_min=0.0, open_ev_ids=(6, 7)))
+
+    completed = aggregator.flush()
+
+    assert completed is not None
+    assert completed.sector_volume_l == {"I": 130.0, "II": 30.0, "III": 30.0, "IV": 30.0}
+    assert sum(completed.sector_volume_l.values()) == completed.volume_l
+
+
+def test_flowmeter_minute_attribution_preserves_fractional_liters() -> None:
+    aggregator = FlowmeterMinuteAggregator(node_url="http://192.168.1.40")
+    aggregator.add_sample(_sample("2026-07-31T08:10:00Z", pulse_count=0, flow_l_min=0.0, open_ev_ids=(6,)))
+    aggregator.add_sample(_sample("2026-07-31T08:10:05Z", pulse_count=1, flow_l_min=0.0, open_ev_ids=(6,)))
+
+    completed = aggregator.flush()
+
+    assert completed is not None
+    assert completed.sector_volume_l == {
+        "II": pytest.approx(1 / 27 / 3),
+        "III": pytest.approx(1 / 27 / 3),
+        "IV": pytest.approx(1 / 27 / 3),
+    }
+
+
+def test_flowmeter_minute_attribution_keeps_unassigned_flow_when_no_sector_active() -> None:
+    aggregator = FlowmeterMinuteAggregator(node_url="http://192.168.1.40")
+    aggregator.add_sample(_sample("2026-07-31T08:10:00Z", pulse_count=0, flow_l_min=0.0, open_ev_ids=()))
+    aggregator.add_sample(_sample("2026-07-31T08:10:05Z", pulse_count=27, flow_l_min=0.0, open_ev_ids=()))
+
+    completed = aggregator.flush()
+
+    assert completed is not None
+    assert completed.sector_volume_l == {}
+    assert completed.unassigned_volume_l == 1.0
 
 
 def test_run_flowmeter_minute_capture_polls_until_completed_window(session_factory: sessionmaker[Session]) -> None:
@@ -268,6 +398,50 @@ def test_run_flowmeter_minute_capture_records_closed_session_from_last_session_l
         assert flowmeter_session is not None
         assert flowmeter_session.last_session_l == 9.25
         assert flowmeter_session.closed_at_utc == datetime(2026, 7, 31, 8, 10, 5)
+        assert flowmeter_session.started_at_utc == datetime(2026, 7, 31, 8, 10, 0)
+        assert flowmeter_session.duration_s == 5.0
+        assert flowmeter_session.volume_l == 9.25
+        assert flowmeter_session.pulse_count_start == 100
+        assert flowmeter_session.pulse_count_end == 127
+
+
+def test_persist_flowmeter_session_close_allows_unknown_start(session: Session) -> None:
+    session_id = persist_flowmeter_session_close(
+        session=session,
+        node_url="http://192.168.1.40/",
+        sample=_sample("2026-07-31T08:10:05Z", pulse_count=127, flow_l_min=0.0, last_session_l=9.25),
+        active_session=None,
+    )
+
+    flowmeter_session = session.get(ArgosNodeFlowmeterSession, session_id)
+    assert flowmeter_session is not None
+    assert flowmeter_session.node_url == "http://192.168.1.40"
+    assert flowmeter_session.started_at_utc is None
+    assert flowmeter_session.duration_s is None
+    assert flowmeter_session.volume_l == 9.25
+    assert flowmeter_session.pulse_count_start is None
+    assert flowmeter_session.pulse_count_end == 127
+
+
+def test_persist_flowmeter_session_close_records_explicit_boundaries(session: Session) -> None:
+    session_id = persist_flowmeter_session_close(
+        session=session,
+        node_url="http://192.168.1.40/",
+        sample=_sample("2026-07-31T08:10:05Z", pulse_count=127, flow_l_min=0.0, last_session_l=9.25),
+        active_session=ActiveFlowmeterSession(
+            started_at_utc=datetime(2026, 7, 31, 8, 10, 0, tzinfo=UTC),
+            pulse_count_start=100,
+        ),
+    )
+
+    flowmeter_session = session.get(ArgosNodeFlowmeterSession, session_id)
+    assert flowmeter_session is not None
+    assert flowmeter_session.started_at_utc == datetime(2026, 7, 31, 8, 10, 0)
+    assert flowmeter_session.closed_at_utc == datetime(2026, 7, 31, 8, 10, 5)
+    assert flowmeter_session.duration_s == 5.0
+    assert flowmeter_session.volume_l == 9.25
+    assert flowmeter_session.pulse_count_start == 100
+    assert flowmeter_session.pulse_count_end == 127
 
 
 def test_maybe_reset_hydrological_year_posts_once_per_admin_year(session: Session) -> None:
@@ -328,7 +502,9 @@ def _sample(
     *,
     pulse_count: int,
     flow_l_min: float,
+    last_session_l: float = 0.0,
     relay1_state: bool | None = None,
+    open_ev_ids: tuple[int, ...] = (),
 ) -> FlowmeterSample:
     return FlowmeterSample(
         captured_at_utc=datetime.fromisoformat(captured_at.replace("Z", "+00:00")),
@@ -339,9 +515,10 @@ def _sample(
         hydrological_year_l=float(pulse_count),
         session_active=bool(relay1_state),
         session_l=float(pulse_count),
-        last_session_l=0.0,
+        last_session_l=last_session_l,
         di1_state=None,
         relay1_state=relay1_state,
+        open_ev_ids=open_ev_ids,
     )
 
 
@@ -367,4 +544,5 @@ def _status(
             "last_session_l": last_session_l,
         },
         "inputs": {"digital": [{"id": 8, "state": False}]},
+        "valves": [{"id": 6, "state": "open"}] if active else [{"id": 6, "state": "closed"}],
     }

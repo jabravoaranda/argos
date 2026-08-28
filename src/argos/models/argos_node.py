@@ -35,6 +35,7 @@ class ArgosNodeFlowmeterMinute(Base):
     last_session_l_start: Mapped[float | None] = mapped_column(Float)
     last_session_l_end: Mapped[float | None] = mapped_column(Float)
     volume_l: Mapped[float] = mapped_column(Float, nullable=False)
+    unassigned_volume_l: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0")
     avg_flow_l_min: Mapped[float] = mapped_column(Float, nullable=False)
     max_flow_l_min: Mapped[float] = mapped_column(Float, nullable=False)
     samples_count: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -43,6 +44,26 @@ class ArgosNodeFlowmeterMinute(Base):
     relay1_open_samples_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     relay1_open_fraction: Mapped[float | None] = mapped_column(Float)
     ingestion_run_id: Mapped[int | None] = mapped_column(ForeignKey("ingestion_runs.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ArgosIrrigationSectorMinuteAttribution(Base):
+    __tablename__ = "argos_irrigation_sector_minute_attributions"
+    __table_args__ = (
+        UniqueConstraint(
+            "flowmeter_minute_id",
+            "sector_id",
+            name="uq_argos_irrigation_sector_minute_attr_minute_sector",
+        ),
+        Index("ix_argos_irrigation_sector_minute_attr_sector_window", "sector_id", "window_start_utc"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    flowmeter_minute_id: Mapped[int] = mapped_column(ForeignKey("argos_node_flowmeter_minutes.id"), nullable=False)
+    node_url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    window_start_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    sector_id: Mapped[str] = mapped_column(String(8), nullable=False)
+    volume_l: Mapped[float] = mapped_column(Float, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -55,8 +76,13 @@ class ArgosNodeFlowmeterSession(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     node_url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    started_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     closed_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    duration_s: Mapped[float | None] = mapped_column(Float)
+    volume_l: Mapped[float | None] = mapped_column(Float)
     last_session_l: Mapped[float] = mapped_column(Float, nullable=False)
+    pulse_count_start: Mapped[int | None] = mapped_column(Integer)
+    pulse_count_end: Mapped[int | None] = mapped_column(Integer)
     pulse_count: Mapped[int | None] = mapped_column(Integer)
     total_l: Mapped[float | None] = mapped_column(Float)
     hydrological_year_l: Mapped[float | None] = mapped_column(Float)
