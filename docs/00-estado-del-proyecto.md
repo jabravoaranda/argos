@@ -52,7 +52,8 @@ No se declara todavia:
 | Electrovalvulas | Si | Control dashboard si | Si | Parcial | Parcial | La operacion normal usa sectores I-IV; la EV fisica se resuelve desde `.env`. Confirmacion fisica de campo: Pendiente de validacion operativa. |
 | Boton manual apertura/cierre | Si | Si | Si | Software si | Parcial | Botones `Open valve`/`Close valve` y `Cerrar todo` en vista `Valvulas`; prueba fisica: Pendiente de validacion operativa. |
 | Caudalimetro | Si | Si | Si | Si | Parcial | Worker registra minutos; 218 agregados observados. Cero sesiones cerradas observadas. |
-| Diario de campo | Si | Si | Si | Tests/API | Si | CRUD y export CSV via API/dashboard con token admin para escritura. |
+| Diario de campo | Si | Si | Si | Tests/API | Si | CRUD y export CSV via API/dashboard con token admin; eventos pueden asociarse a árboles inventariados. |
+| Plantación | Si | Si | Pendiente migración/import | Tests/API | Parcial | Modelo persistente de ejemplares vegetales, matriz 12x12 `11..CC`, importador CSV idempotente y vista dashboard. |
 | Analitica | Si | Si | Si | Tests/API | Si | Variables, series, correlaciones, distribuciones y tendencias sobre datos persistidos. |
 | Sensores de suelo | Parcial | No confirmado | No confirmado | No confirmado | No | Referencias analiticas posibles, sin integracion operativa confirmada. |
 | Scheduling | Si | Si | Parcial | Parcial | Parcial | Worker diario se arranca con FastAPI si `ARGOS_DAILY_SYNC_ENABLED=true`; tarea Windows de backup no confirmada. |
@@ -81,6 +82,7 @@ No se declara todavia:
 - Consulta AEMET por API/dashboard y sync/backfill manual/admin.
 - Consulta satelital por API/dashboard y update/backfill manual/admin.
 - Dashboard Streamlit con vistas de estado, observaciones, AEMET, satelite, diario, analitica, valvulas y calidad.
+- Vista `Plantación` con matriz 12x12, búsqueda/filtros, ficha de árbol e historial de eventos asociados.
 - Apertura/cierre manual de sectores de riego configurados desde la vista `Valvulas`; la EV fisica asociada a cada sector se define en `.env`.
 - Cierre global `Cerrar todo` para todas las electroválvulas configuradas.
 - Lectura de `argos-node` `/status` y `/valves/<id>`.
@@ -91,6 +93,8 @@ No se declara todavia:
 ## 5. Limitaciones actuales
 
 - No hay riego autonomo ni programacion automatica de riego.
+- No hay analitica predictiva, QR, NFC ni estimacion individual automatica por árbol.
+- La plantilla de plantación está transcrita en `docs/reference/plantation_matrix_12x12.csv`; el símbolo `M` de `2B#` queda pendiente de confirmación porque no aparece en la leyenda.
 - No hay cierre automatico documentado ante caudal anomalo, perdida de red o timeout operativo.
 - La posicion de valvula es estimada por ARGOS; no hay sensor independiente de final de carrera confirmado.
 - Confirmacion fisica de apertura/cierre en campo: Pendiente de validacion operativa.
@@ -110,6 +114,7 @@ No se declara todavia:
 - `data/legacy` conserva material historico no resuelto hasta decision explicita.
 - El modo operativo declarado es manual supervisado.
 - No se borran, fusionan ni modifican automaticamente datos conflictivos.
+- Los ejemplares vegetales son entidades persistentes del gemelo digital; la matriz 12x12 es una vista espacial derivada.
 
 ## 7. Decisiones abiertas
 
@@ -119,6 +124,7 @@ No se declara todavia:
 - Si Ecowitt Cloud puede enriquecer observaciones `DIRECT` existentes.
 - Registro real de tareas Windows para backup y arranque automatico.
 - Criterios de aceptacion fisica de electroválvulas y caudalimetro en campo.
+- Confirmacion agronomica de especie para `2B#` y datos incompletos de variedad, patrón, fechas, líneas de riego y coordenadas GPS.
 
 ## 8. Proximos pasos
 

@@ -38,6 +38,7 @@ from argos.services.ingestion_trace import (
     mark_run_interrupted,
     validate_cursor,
 )
+from argos.services.plants import PlantImportError, ensure_base_matrix, import_plantation_matrix_csv
 from sqlalchemy import func, select
 from argos.models.ecowitt import WeatherObservation
 
@@ -62,6 +63,9 @@ def main() -> None:
         return
     if args.command == "data":
         run_data(args)
+        return
+    if args.command == "plants":
+        run_plants(args)
         return
     parser.print_help()
 
@@ -192,6 +196,16 @@ def build_parser() -> argparse.ArgumentParser:
     orphan_sat_parser.add_argument("--apply-recoverable", action="store_true")
     orphan_sat_parser.add_argument("--classify-only", action="store_true")
     orphan_sat_parser.add_argument("--output-json", type=Path, default=None)
+
+    plants_parser = subparsers.add_parser("plants", help="Plant inventory utilities.")
+    plants_subparsers = plants_parser.add_subparsers(dest="plants_command")
+    base_matrix_parser = plants_subparsers.add_parser("ensure-base-matrix", help="Create the 12x12 matrix parcel cells.")
+    base_matrix_parser.add_argument("--parcel-slug", default="tomillar")
+    base_matrix_parser.add_argument("--parcel-name", default="Finca tomillar")
+    import_matrix_parser = plants_subparsers.add_parser("import-matrix", help="Import plant matrix cells from CSV.")
+    import_matrix_parser.add_argument("--path", type=Path, required=True)
+    import_matrix_parser.add_argument("--parcel-slug", default="tomillar")
+    import_matrix_parser.add_argument("--parcel-name", default="Finca tomillar")
 
     return parser
 
@@ -561,6 +575,35 @@ def run_data(args: argparse.Namespace) -> None:
                 print("Dry run only. Pass --apply-recoverable to create recoverable SQL rows.")
         return
     fail("Unknown data command.")
+
+
+def run_plants(args: argparse.Namespace) -> None:
+    with get_sessionmaker()() as session:
+        if args.plants_command == "ensure-base-matrix":
+            parcel = ensure_base_matrix(session=session, parcel_slug=args.parcel_slug, parcel_name=args.parcel_name)
+            session.commit()
+            print(f"Matrix ready: {parcel.slug} 12x12")
+            return
+        if args.plants_command == "import-matrix":
+            try:
+                result = import_plantation_matrix_csv(
+                    session=session,
+                    path=args.path,
+                    parcel_slug=args.parcel_slug,
+                    parcel_name=args.parcel_name,
+                )
+            except PlantImportError as exc:
+                raise SystemExit(str(exc)) from exc
+            session.commit()
+            print(f"Parcel: {result.parcel_slug}")
+            print(f"Cells seen: {result.cells_seen}")
+            print(f"Cells upserted: {result.cells_upserted}")
+            print(f"Plants created: {result.plants_created}")
+            print(f"Plants updated: {result.plants_updated}")
+            print(f"Infrastructure cells: {result.infrastructure_cells}")
+            print(f"Empty cells: {result.empty_cells}")
+            return
+    fail("Unknown plants command.")
 
 
 def format_satellite_status(status) -> list[str]:

@@ -37,12 +37,13 @@ Lee primero [00-estado-del-proyecto.md](00-estado-del-proyecto.md). Es la fuente
 - Satelite: [satellite-observation.md](satellite-observation.md).
 - Analitica: [analytics.md](analytics.md).
 - Diario de campo: [field-diary.md](field-diary.md).
+- Plantación: [plantation.md](plantation.md).
 - Riego manual: [operations/manual-irrigation-operation.md](operations/manual-irrigation-operation.md).
 
 ## Decisiones
 
 - [decisions-pending.md](decisions-pending.md): decisiones consolidadas y pendientes.
-- No hay ADR formales detectados en esta revision.
+- [adr/20260828-plant-units-persistent-matrix-view.md](adr/20260828-plant-units-persistent-matrix-view.md): ejemplares vegetales persistentes y matriz derivada.
 
 ## Auditorias
 

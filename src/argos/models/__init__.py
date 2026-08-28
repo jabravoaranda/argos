@@ -22,6 +22,7 @@ from argos.models.argos_node import (
 )
 from argos.models.field_event import FieldEvent
 from argos.models.ingestion import DataSource, IngestionItem, IngestionRun, SourceArtifact, SyncCursor
+from argos.models.plants import FieldEventPlantUnit, PlantIrrigationLine, PlantMatrixCell, PlantParcel, PlantUnit
 from argos.models.satellite import (
     SatelliteAsset,
     SatelliteMetric,
@@ -50,6 +51,11 @@ __all__ = [
     "ArgosNodeFlowmeterResetEvent",
     "ArgosNodeFlowmeterSession",
     "FieldEvent",
+    "FieldEventPlantUnit",
+    "PlantIrrigationLine",
+    "PlantMatrixCell",
+    "PlantParcel",
+    "PlantUnit",
     "DataSource",
     "IngestionItem",
     "IngestionRun",

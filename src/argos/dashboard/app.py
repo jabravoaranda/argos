@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from html import escape
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -37,6 +37,7 @@ from argos.dashboard.summaries import build_annual_summary, build_monthly_summar
 from argos.dashboard.trends import build_trend_frame
 from argos.database.session import get_sessionmaker
 from argos.domain.field_events import FIELD_EVENT_TYPE_LABELS, FIELD_ZONE_LABELS
+from argos.domain.plants import PLANT_SPECIES_LABELS, PLANT_STATUS_LABELS
 from argos.integrations.ecowitt_cloud import format_cloud_mac
 from argos.integrations.aemet.client import AemetClient, AemetConfigError
 from argos.integrations.ecowitt_cloud import EcowittCloudClient, EcowittCloudConfigError
@@ -236,6 +237,7 @@ MAIN_PAGES = [
     "Resúmenes",
     "Análisis",
     "Diario de campo",
+    "Plantación",
     "Actualizar datos",
     "AEMET",
     "Satélite",
@@ -245,7 +247,7 @@ MAIN_PAGES = [
 
 PAGE_GROUPS = {
     "GENERAL": ("Inicio",),
-    "MONITORIZACIÓN": ("Observaciones", "Resúmenes", "Análisis", "Diario de campo"),
+    "MONITORIZACIÓN": ("Observaciones", "Resúmenes", "Análisis", "Diario de campo", "Plantación"),
     "OPERACIÓN": ("Válvulas", "Actualizar datos"),
     "DATOS EXTERNOS": ("AEMET", "Satélite"),
     "ADMINISTRACIÓN": ("Calidad",),
@@ -257,6 +259,7 @@ MAIN_PAGE_ICONS = {
     "Resúmenes": ":material/summarize:",
     "Análisis": ":material/analytics:",
     "Diario de campo": ":material/edit_note:",
+    "Plantación": ":material/grid_view:",
     "Actualizar datos": ":material/download:",
     "AEMET": ":material/cloud:",
     "Satélite": ":material/satellite_alt:",
@@ -288,6 +291,7 @@ PAGE_HEADER_MARKS = {
     "Resúmenes": "RS",
     "Análisis": "AN",
     "Diario de campo": "DC",
+    "Plantación": "12C",
     "Actualizar datos": "UP",
     "AEMET": "AE",
     "Satélite": "SAT",
@@ -301,6 +305,7 @@ PAGE_ARCHETYPES = {
     "Resúmenes": "Dashboard / resumen",
     "Análisis": "Análisis",
     "Diario de campo": "Cronología / conocimiento",
+    "Plantación": "Gemelo digital",
     "Actualizar datos": "Configuración / administración",
     "AEMET": "Monitorización",
     "Satélite": "Análisis",
@@ -314,6 +319,7 @@ PAGE_DESCRIPTIONS = {
     "Resúmenes": "Agregados diarios, semanales y estacionales",
     "Análisis": "Comparación, correlación y distribución de variables",
     "Diario de campo": "Eventos, actuaciones y observaciones de finca",
+    "Plantación": "Inventario individual y matriz espacial de árboles",
     "Actualizar datos": "Operaciones manuales de importación y sincronización",
     "AEMET": "Histórico externo de estación meteorológica",
     "Satélite": "Índices de vegetación y calidad por zona",
@@ -392,6 +398,8 @@ def main() -> None:
         render_analysis(client.base_url)
     elif selected_page == "Diario de campo":
         render_field_diary(client)
+    elif selected_page == "Plantación":
+        render_plantation(client)
     elif selected_page == "Actualizar datos":
         render_data_update(client)
     elif selected_page == "AEMET":
@@ -661,6 +669,39 @@ def cached_field_events(
         search=search,
         limit=1000,
     )
+
+
+@st.cache_data(ttl=30)
+def cached_plant_catalog(base_url: str) -> dict[str, Any]:
+    return ArgosApiClient(base_url=base_url).get_plant_catalog()
+
+
+@st.cache_data(ttl=30)
+def cached_plant_matrix(base_url: str, parcel_slug: str) -> dict[str, Any]:
+    return ArgosApiClient(base_url=base_url).get_plant_matrix(parcel_slug=parcel_slug)
+
+
+@st.cache_data(ttl=30)
+def cached_plants(
+    base_url: str,
+    parcel_slug: str,
+    status: str | None,
+    species: str | None,
+    irrigation_sector_id: str | None,
+    search: str | None,
+) -> list[dict[str, Any]]:
+    return ArgosApiClient(base_url=base_url).get_plants(
+        parcel_slug=parcel_slug,
+        status=status,
+        species=species,
+        irrigation_sector_id=irrigation_sector_id,
+        search=search,
+    )
+
+
+@st.cache_data(ttl=30)
+def cached_plant_history(base_url: str, plant_id: int) -> list[dict[str, Any]]:
+    return ArgosApiClient(base_url=base_url).get_plant_history(plant_id)
 
 
 @st.cache_data(ttl=120)
@@ -1489,6 +1530,102 @@ def apply_compact_dashboard_styles() -> None:
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
+            }
+
+            .argos-plantation-grid {
+                border: 1px solid rgba(148, 163, 184, 0.24);
+                border-radius: 8px;
+                display: grid;
+                gap: 1px;
+                grid-template-columns: 28px repeat(12, minmax(42px, 1fr));
+                overflow: hidden;
+                width: 100%;
+            }
+
+            .argos-plantation-cell,
+            .argos-plantation-label {
+                align-items: center;
+                box-sizing: border-box;
+                display: grid;
+                min-height: 44px;
+                min-width: 0;
+                padding: 4px;
+                text-align: center;
+            }
+
+            .argos-plantation-label {
+                background: rgba(15, 118, 110, 0.08);
+                color: rgba(15, 53, 35, 0.86);
+                font-size: 12px;
+                font-weight: 750;
+            }
+
+            .argos-plantation-cell {
+                background: rgba(248, 250, 252, 0.82);
+                border: 0;
+                color: rgba(49, 51, 63, 0.72);
+                font-size: 10.5px;
+                line-height: 1.08;
+            }
+
+            .argos-plantation-cell.empty {
+                background: rgba(248, 250, 252, 0.42);
+                color: rgba(100, 116, 139, 0.42);
+            }
+
+            .argos-plantation-cell.infrastructure {
+                background: rgba(217, 119, 6, 0.10);
+                color: #92400e;
+            }
+
+            .argos-plantation-cell.active {
+                background: rgba(22, 163, 74, 0.12);
+                color: #14532d;
+            }
+
+            .argos-plantation-cell.incident {
+                background: rgba(217, 119, 6, 0.16);
+                color: #92400e;
+            }
+
+            .argos-plantation-cell.removed,
+            .argos-plantation-cell.replaced {
+                background: rgba(100, 116, 139, 0.14);
+                color: #475569;
+            }
+
+            .argos-plantation-cell.selected {
+                box-shadow: inset 0 0 0 2px #2563eb;
+            }
+
+            .argos-plantation-cell b,
+            .argos-plantation-cell span {
+                display: block;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .argos-plantation-cell b {
+                font-size: 12px;
+                line-height: 1.05;
+            }
+
+            .argos-plantation-legend {
+                align-items: center;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin: 5px 0;
+            }
+
+            .argos-plantation-legend span {
+                border: 1px solid rgba(148, 163, 184, 0.24);
+                border-radius: 999px;
+                color: rgba(49, 51, 63, 0.72);
+                font-size: 11px;
+                line-height: 1;
+                padding: 5px 7px;
             }
 
             section[data-testid="stSidebar"] div.stButton > button[data-testid="stBaseButton-primary"]:hover {
@@ -3847,6 +3984,234 @@ def analysis_reference_label(value: str) -> str:
         "moving_average": "Media móvil",
         "linear_trend": "Tendencia lineal",
     }.get(value, value)
+
+
+def render_plantation(client: ArgosApiClient) -> None:
+    try:
+        catalog = cached_plant_catalog(client.base_url)
+        matrix = cached_plant_matrix(client.base_url, "tomillar")
+    except ArgosApiError as exc:
+        st.error(str(exc))
+        return
+
+    status_labels = {item["slug"]: item["label"] for item in catalog.get("statuses", [])} or PLANT_STATUS_LABELS
+    species_labels = {item["slug"]: item["label"] for item in catalog.get("species", [])} or PLANT_SPECIES_LABELS
+    sectors = {item["slug"]: item["label"] for item in catalog.get("irrigation_sectors", [])}
+    st.title("Plantación")
+
+    selected_status, selected_species, selected_sector, search = render_plantation_filters(
+        status_labels=status_labels,
+        species_labels=species_labels,
+        sectors=sectors,
+    )
+    try:
+        plants = cached_plants(client.base_url, "tomillar", selected_status, selected_species, selected_sector, search)
+    except ArgosApiError as exc:
+        st.error(str(exc))
+        return
+    selected_from_url = st.query_params.get("plant")
+    if selected_from_url and "plantation_selected_public_code" not in st.session_state:
+        matching = next((plant for plant in plants if plant.get("public_code") == selected_from_url), None)
+        if matching:
+            st.session_state["plantation_selected_plant_id"] = matching["id"]
+            st.session_state["plantation_selected_public_code"] = matching["public_code"]
+
+    summary_col, refresh_col = st.columns([1, 0.18], vertical_alignment="center")
+    with summary_col:
+        occupied = sum(1 for cell in matrix.get("cells", []) if cell.get("cell_type") == "plant")
+        infrastructure = sum(1 for cell in matrix.get("cells", []) if cell.get("cell_type") == "infrastructure")
+        st.caption(f"{len(plants)} árboles en el filtro. {occupied} celdas vegetales y {infrastructure} elementos no vegetales en la matriz.")
+    with refresh_col:
+        if st.button("Actualizar", icon=":material/refresh:", key="plantation_refresh", width="stretch"):
+            cached_plant_matrix.clear()
+            cached_plants.clear()
+            cached_plant_history.clear()
+            st.rerun()
+
+    grid_col, detail_col = st.columns([6.8, 3.2], vertical_alignment="top")
+    visible_ids = {int(plant["id"]) for plant in plants}
+    selected_id = st.session_state.get("plantation_selected_plant_id")
+    with grid_col:
+        render_plantation_legend(status_labels)
+        render_plantation_matrix(matrix, visible_plant_ids=visible_ids, selected_plant_id=selected_id)
+    with detail_col:
+        selected = selected_plant_from_matrix(matrix, selected_id)
+        render_plant_detail(client, selected, status_labels=status_labels, species_labels=species_labels)
+
+
+def render_plantation_filters(
+    *,
+    status_labels: dict[str, str],
+    species_labels: dict[str, str],
+    sectors: dict[str, str],
+) -> tuple[str | None, str | None, str | None, str | None]:
+    with st.container(border=True, gap="small"):
+        status_col, species_col, sector_col, search_col = st.columns([1, 1.15, 0.9, 1.25])
+        with status_col:
+            status = st.selectbox(
+                "Estado",
+                options=["Todos", *status_labels],
+                key="plantation_status",
+                format_func=lambda value: "Todos" if value == "Todos" else status_labels.get(value, value),
+            )
+        with species_col:
+            species = st.selectbox(
+                "Especie",
+                options=["Todas", *species_labels],
+                key="plantation_species",
+                format_func=lambda value: "Todas" if value == "Todas" else species_labels.get(value, value),
+            )
+        with sector_col:
+            sector = st.selectbox(
+                "Sector",
+                options=["Todos", *sectors],
+                key="plantation_sector",
+                format_func=lambda value: "Todos" if value == "Todos" else sectors.get(value, value),
+            )
+        with search_col:
+            search = st.text_input("Buscar código", key="plantation_search")
+    return (
+        None if status == "Todos" else status,
+        None if species == "Todas" else species,
+        None if sector == "Todos" else sector,
+        search.strip().upper() or None,
+    )
+
+
+def render_plantation_legend(status_labels: dict[str, str]) -> None:
+    labels = " ".join(f"<span>{escape(label)}</span>" for label in status_labels.values())
+    st.html(f'<div class="argos-plantation-legend">{labels}<span>Vacía</span><span>Infraestructura</span><span># desplazado</span></div>')
+
+
+def render_plantation_matrix(matrix: dict[str, Any], *, visible_plant_ids: set[int], selected_plant_id: int | None) -> None:
+    cells_by_position = {(cell["row"], cell["column"]): cell for cell in matrix.get("cells", [])}
+    column_labels = matrix.get("column_labels", [])
+    header_cols = st.columns([0.34, *([1] * 12)], gap="small")
+    header_cols[0].html("&nbsp;")
+    for index, label in enumerate(column_labels[:12], start=1):
+        header_cols[index].html(f'<div class="argos-plantation-label">{escape(label)}</div>')
+    for row_index, row_label in enumerate(matrix.get("row_labels", [])[:12], start=1):
+        row_cols = st.columns([0.34, *([1] * 12)], gap="small")
+        row_cols[0].html(f'<div class="argos-plantation-label">{escape(row_label)}</div>')
+        for column_index in range(1, 13):
+            cell = cells_by_position.get((row_index, column_index), {})
+            plant = cell.get("plant")
+            label = plantation_cell_label(cell)
+            disabled = plant is None or int(plant["id"]) not in visible_plant_ids
+            button_type: Literal["primary", "secondary"] = "primary" if plant and plant.get("id") == selected_plant_id else "secondary"
+            with row_cols[column_index]:
+                if st.button(
+                    label,
+                    key=f"plant_cell_{row_index}_{column_index}",
+                    disabled=disabled,
+                    type=button_type,
+                    width="stretch",
+                ) and plant:
+                    st.session_state["plantation_selected_plant_id"] = plant["id"]
+                    st.session_state["plantation_selected_public_code"] = plant["public_code"]
+                    st.query_params["plant"] = plant["public_code"]
+                    st.rerun()
+
+
+def plantation_cell_label(cell: dict[str, Any]) -> str:
+    plant = cell.get("plant")
+    if plant:
+        species = plant.get("species_label") or plant.get("species")
+        marker = cell.get("displacement_marker") or ""
+        return f"{plant['public_code']}{marker}\n{species}"
+    if cell.get("cell_type") == "infrastructure":
+        return f"{cell.get('visible_code') or cell.get('position_code')}\n{cell.get('feature_label') or 'Infra'}"
+    return f"{cell.get('position_code', '')}\n-"
+
+
+def selected_plant_from_matrix(matrix: dict[str, Any], selected_plant_id: int | None) -> dict[str, Any] | None:
+    if selected_plant_id is None:
+        return None
+    for cell in matrix.get("cells", []):
+        plant = cell.get("plant")
+        if plant and plant.get("id") == selected_plant_id:
+            return plant
+    return None
+
+
+def render_plant_detail(
+    client: ArgosApiClient,
+    plant: dict[str, Any] | None,
+    *,
+    status_labels: dict[str, str],
+    species_labels: dict[str, str],
+) -> None:
+    if plant is None:
+        st.info("Selecciona un árbol ocupado de la matriz para abrir su ficha.")
+        return
+    with st.container(border=True, gap="small"):
+        st.subheader(f"Árbol {plant['public_code']}")
+        st.caption(f"{plant['matrix_position_code']} · {plant.get('parcel_name') or plant.get('parcel_slug')}")
+        st.html(
+            '<div class="argos-summary-grid">'
+            f'{compact_metric_html("Especie", species_labels.get(plant["species"], plant["species"]))}'
+            f'{compact_metric_html("Estado", status_labels.get(plant["status"], plant["status"]))}'
+            f'{compact_metric_html("Sector", plant.get("irrigation_sector_id") or "Sin dato")}'
+            f'{compact_metric_html("Línea", plant.get("irrigation_line_slug") or "Sin dato")}'
+            "</div>"
+        )
+        if plant.get("variety") or plant.get("rootstock") or plant.get("planted_on"):
+            st.write(
+                " · ".join(
+                    value
+                    for value in (
+                        f"Variedad: {plant.get('variety')}" if plant.get("variety") else "",
+                        f"Patrón: {plant.get('rootstock')}" if plant.get("rootstock") else "",
+                        f"Plantación: {plant.get('planted_on')}" if plant.get("planted_on") else "",
+                    )
+                    if value
+                )
+            )
+        if plant.get("notes"):
+            st.caption(plant["notes"])
+        st.caption("Los riegos sectoriales son asociados por sector; no son mediciones individuales del árbol.")
+        with st.popover("Nueva observación", icon=":material/add:"):
+            render_plant_observation_form(client, plant)
+        try:
+            history = cached_plant_history(client.base_url, int(plant["id"]))
+        except ArgosApiError as exc:
+            st.error(str(exc))
+            return
+        st.markdown("**Historial**")
+        if not history:
+            st.caption("Sin eventos asociados.")
+        for event in history[:12]:
+            st.write(f"{format_compact_local_datetime(event.get('occurred_at'))} · {event.get('title')}")
+
+
+def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any]) -> None:
+    with st.form(f"plant_observation_{plant['id']}"):
+        title = st.text_input("Título", value=f"Observación {plant['public_code']}")
+        description = st.text_area("Descripción", height=90)
+        submitted = st.form_submit_button("Registrar", type="primary", disabled=not bool(client.admin_token))
+    if not client.admin_token:
+        st.caption("Hace falta ARGOS admin token para crear eventos.")
+    if not submitted:
+        return
+    payload = {
+        "occurred_at": datetime.now(UTC).isoformat(),
+        "event_type": "observation",
+        "title": title.strip(),
+        "description": description.strip() or None,
+        "zone_slug": None,
+        "tree_reference": plant["public_code"],
+        "target_type": "plant",
+        "target_value": plant["public_code"],
+        "plant_unit_ids": [plant["id"]],
+        "source": "manual",
+    }
+    try:
+        client.create_field_event(payload)
+        cached_field_events.clear()
+        cached_plant_history.clear()
+        st.rerun()
+    except ArgosApiError as exc:
+        st.error(str(exc))
 
 
 def render_field_diary(client: ArgosApiClient) -> None:

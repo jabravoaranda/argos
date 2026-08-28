@@ -271,6 +271,39 @@ class ArgosApiClient:
             params={"from": start, "to": end, "event_type": event_type, "zone_slug": zone_slug, "search": search},
         )
 
+    def get_plant_catalog(self) -> dict[str, Any]:
+        return self._get_json("/api/v1/plants/catalog")
+
+    def get_plant_matrix(self, *, parcel_slug: str = "tomillar") -> dict[str, Any]:
+        return self._get_json("/api/v1/plants/matrix", params={"parcel_slug": parcel_slug})
+
+    def get_plants(
+        self,
+        *,
+        parcel_slug: str | None = "tomillar",
+        status: str | None = None,
+        species: str | None = None,
+        irrigation_sector_id: str | None = None,
+        search: str | None = None,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return self._get_json(
+            "/api/v1/plants",
+            params={
+                "parcel_slug": parcel_slug,
+                "status": status,
+                "species": species,
+                "irrigation_sector_id": irrigation_sector_id,
+                "search": search,
+                "limit": limit,
+                "offset": offset,
+            },
+        )
+
+    def get_plant_history(self, plant_id: int, *, limit: int = 100) -> list[dict[str, Any]]:
+        return self._get_json(f"/api/v1/plants/{plant_id}/history", params={"limit": limit})
+
     def get_analytics_variables(self) -> list[dict[str, Any]]:
         return self._get_json("/api/v1/analytics/variables")
 

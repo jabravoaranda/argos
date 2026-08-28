@@ -31,11 +31,15 @@ Campos principales:
 - `description`
 - `zone_slug`
 - `tree_reference`
+- `target_type`
+- `target_value`
 - `quantity`
 - `unit`
 - `source`
 
 `source` queda preparado para `manual`, `irrigation_system` e `imported`. En esta versión el dashboard crea solo eventos `manual`.
+
+Cuando el evento se refiere a árboles inventariados, `field_event_plant_units` guarda la relación muchos-a-muchos con `plant_units`. `tree_reference` se conserva para compatibilidad y para referencias libres a árboles, filas o notas históricas no normalizadas.
 
 ## Catálogos
 

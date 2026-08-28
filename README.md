@@ -41,6 +41,7 @@ Included:
 - Streamlit dashboard backed by the FastAPI API.
 - Ecowitt Cloud history client, adapter and initial backfill persistence.
 - Field diary for manual agronomic events.
+- Persistent plant inventory with a 12x12 plantation matrix.
 - Unified analytics API and dashboard section for correlations, distributions and trend references.
 
 Still not declared operational:
@@ -133,6 +134,9 @@ GET /api/v1/weather/admin/data-gaps
 GET /api/v1/field-events
 POST /api/v1/field-events
 GET /api/v1/field-events/export.csv
+GET /api/v1/plants/matrix
+GET /api/v1/plants
+GET /api/v1/plants/{id}/history
 GET /api/v1/analytics/variables
 POST /api/v1/analytics/series
 POST /api/v1/analytics/correlation
@@ -196,6 +200,7 @@ Dashboard views:
 - Resúmenes: daily and weekly API summaries plus monthly, seasonal and annual aggregates derived from daily statistics.
 - Análisis: cross-source correlations, distributions, aligned series and trend/reference diagnostics over already persisted data.
 - Diario de campo: manual agronomic events that can be overlaid in analysis views.
+- Plantación: 12x12 plant matrix, inventory filters, tree detail and associated field-event history.
 - Actualizar datos: manual historical backfill tools for Ecowitt, AEMET and satellite sources.
 - AEMET: stored official daily observations, selected-variable charts and admin-token-protected import/sync actions.
 - Satélite: Sentinel-2 index charts, quality filtering, compact coverage metadata and Copernicus update/backfill actions.

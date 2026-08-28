@@ -22,6 +22,10 @@ ARGOS relies on database-level natural keys for ingestion idempotence wherever t
 | `argos_node_flowmeter_minutes` | `node_url, window_start_utc` |
 | `argos_node_flowmeter_sessions` | `node_url, closed_at_utc` |
 | `argos_node_flowmeter_reset_events` | `node_url, reset_type, administrative_year` |
+| `plant_parcels` | `slug` |
+| `plant_matrix_cells` | `parcel_id, matrix_row, matrix_column` |
+| `plant_units` | `public_code`; `parcel_id, matrix_row, matrix_column` |
+| `field_event_plant_units` | `field_event_id, plant_unit_id` |
 
 Phase 3 does not add extra uniqueness to domains that were already protected.
 
