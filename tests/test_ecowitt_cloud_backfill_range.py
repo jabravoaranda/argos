@@ -3,12 +3,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from argos.config.settings import get_settings
 from argos.database.base import Base
 from argos.database.session import get_engine, get_sessionmaker, reset_database_caches
 from argos.integrations.ecowitt_cloud import EcowittCloudClient, EcowittCloudCredentials
+from argos.main import create_app
 from argos.models.ecowitt import EcowittCloudRawReport, WeatherObservation
 from argos.models.ingestion import IngestionRun, SyncCursor
 from argos.services.ecowitt_backfill import BackfillRangeError, backfill_ecowitt_cloud_range
@@ -116,6 +118,38 @@ def test_backfill_ecowitt_cloud_range_reports_adapter_warnings(monkeypatch, tmp_
         assert result.imported_count == 0
         assert result.warning_count == 1
         assert "soilmoisture1" in result.warnings[0]
+
+    get_settings.cache_clear()
+    reset_database_caches()
+
+
+def test_ecowitt_cloud_admin_backfill_endpoint_imports_data(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'argos.db'}")
+    monkeypatch.setenv("ECOWITT_INGEST_TOKEN", "test-token")
+    monkeypatch.setenv("ARGOS_ADMIN_TOKEN", "test-admin-token")
+    get_settings.cache_clear()
+    reset_database_caches()
+    Base.metadata.create_all(get_engine())
+
+    fake_client = FakeCloudClient()
+    monkeypatch.setattr("argos.api.weather.EcowittCloudClient.from_settings", lambda settings: fake_client)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/weather/ecowitt-cloud/backfill",
+        params={
+            "gateway_identifier": "GW2000A",
+            "from": "2026-07-10T12:00:00Z",
+            "to": "2026-07-10T13:00:00Z",
+        },
+        headers={"X-ARGOS-ADMIN-TOKEN": "test-admin-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["imported_count"] == 1
+    assert payload["duplicate_count"] == 0
+    assert payload["warning_count"] == 0
 
     get_settings.cache_clear()
     reset_database_caches()

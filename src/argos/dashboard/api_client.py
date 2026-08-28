@@ -195,6 +195,14 @@ class ArgosApiClient:
             admin=True,
         )
 
+    def backfill_ecowitt_cloud(self, *, gateway_identifier: str, start: str, end: str) -> dict[str, Any]:
+        return self._request_json(
+            "/api/v1/weather/ecowitt-cloud/backfill",
+            method="POST",
+            params={"gateway_identifier": gateway_identifier, "from": start, "to": end},
+            admin=True,
+        )
+
     def sync_aemet(self, *, station: str, lookback_days: int) -> dict[str, Any]:
         return self._request_json(
             "/api/v1/weather/aemet/sync",

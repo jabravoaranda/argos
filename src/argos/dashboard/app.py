@@ -40,12 +40,10 @@ from argos.domain.field_events import FIELD_EVENT_TYPE_LABELS, FIELD_ZONE_LABELS
 from argos.domain.plants import PLANT_SPECIES_LABELS, PLANT_STATUS_LABELS
 from argos.integrations.ecowitt_cloud import format_cloud_mac
 from argos.integrations.aemet.client import AemetClient, AemetConfigError
-from argos.integrations.ecowitt_cloud import EcowittCloudClient, EcowittCloudConfigError
 from argos.models import ArgosIrrigationSectorMinuteAttribution, ArgosNodeFlowmeterMinute
 from argos.repositories.weather import WeatherRepository
 from argos.services.aemet_import import AemetImportRangeError, AemetImportService
 from argos.services.argos_node_flowmeter import ArgosNodeStatusError, parse_flowmeter_status
-from argos.services.ecowitt_backfill import BackfillRangeError, backfill_ecowitt_cloud_range
 
 
 logger = logging.getLogger(__name__)
@@ -4599,6 +4597,7 @@ def render_data_update(client: ArgosApiClient) -> None:
             render_configured_gateway_identifier(gateway_identifier)
             if st.button("Descargar histórico Ecowitt", icon=":material/download:", type="primary"):
                 run_ecowitt_backfill_from_dashboard(
+                    client=client,
                     gateway_identifier=gateway_identifier,
                     start=datetime.combine(start_date, time.min, tzinfo=UTC),
                     end=datetime.combine(end_date, time.max, tzinfo=UTC),
@@ -4702,40 +4701,40 @@ def mask_identifier(value: str) -> str:
     return f"{value[:2]}...{value[-4:]}"
 
 
-def run_ecowitt_backfill_from_dashboard(*, gateway_identifier: str, start: datetime, end: datetime) -> None:
+def run_ecowitt_backfill_from_dashboard(
+    *,
+    client: ArgosApiClient,
+    gateway_identifier: str,
+    start: datetime,
+    end: datetime,
+) -> None:
     if not gateway_identifier:
         st.error("Indique el gateway para asociar los datos de Ecowitt Cloud.")
         return
     try:
         with st.spinner("Descargando histórico Ecowitt Cloud..."):
             settings = get_settings()
-            client = EcowittCloudClient.from_settings(settings)
+            api_client = ArgosApiClient(
+                base_url=client.base_url,
+                admin_token=client.admin_token,
+                timeout_seconds=600,
+            )
             imported = 0
             duplicates = 0
             warnings = 0
-            with get_sessionmaker()() as session:
-                gateway = WeatherRepository(session).latest_gateway()
-                station_type = gateway.station_type if gateway is not None else None
-                chunk_start = start
-                while chunk_start < end:
-                    chunk_end = min(chunk_start + timedelta(hours=settings.ecowitt_cloud_max_backfill_hours), end)
-                    result = backfill_ecowitt_cloud_range(
-                        session=session,
-                        client=client,
-                        gateway_identifier=gateway_identifier,
-                        station_slug=settings.station_slug,
-                        station_type=station_type,
-                        gateway_aliases={"ecowitt_cloud_mac": settings.ecowitt_cloud_mac}
-                        if settings.ecowitt_cloud_mac
-                        else None,
-                        start=chunk_start,
-                        end=chunk_end,
-                    )
-                    imported += result.imported_count
-                    duplicates += result.duplicate_count
-                    warnings += result.warning_count
-                    chunk_start = chunk_end
-    except (EcowittCloudConfigError, BackfillRangeError, RuntimeError, ValueError) as exc:
+            chunk_start = start
+            while chunk_start < end:
+                chunk_end = min(chunk_start + timedelta(hours=settings.ecowitt_cloud_max_backfill_hours), end)
+                result = api_client.backfill_ecowitt_cloud(
+                    gateway_identifier=gateway_identifier,
+                    start=format_utc_iso(chunk_start),
+                    end=format_utc_iso(chunk_end),
+                )
+                imported += int(result.get("imported_count", 0))
+                duplicates += int(result.get("duplicate_count", 0))
+                warnings += int(result.get("warning_count", 0))
+                chunk_start = chunk_end
+    except (ArgosApiError, RuntimeError, ValueError) as exc:
         st.error(str(exc))
         return
     st.cache_data.clear()
