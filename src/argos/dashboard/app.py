@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import csv
 import io
 import logging
@@ -4180,12 +4181,23 @@ def render_plant_detail(
             st.caption("Sin eventos asociados.")
         for event in history[:12]:
             st.write(f"{format_compact_local_datetime(event.get('occurred_at'))} · {event.get('title')}")
+            if event.get("photo_url"):
+                st.image(f"{client.base_url.rstrip('/')}{event['photo_url']}", width=220)
 
 
 def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any]) -> None:
     with st.form(f"plant_observation_{plant['id']}"):
         title = st.text_input("Título", value=f"Observación {plant['public_code']}")
         description = st.text_area("Descripción", height=90)
+        upload_col, camera_col = st.columns(2)
+        with upload_col:
+            uploaded_photo = st.file_uploader(
+                "Subir foto",
+                type=["jpg", "jpeg", "png", "webp"],
+                key=f"plant_observation_upload_{plant['id']}",
+            )
+        with camera_col:
+            camera_photo = st.camera_input("Abrir cámara", key=f"plant_observation_camera_{plant['id']}")
         submitted = st.form_submit_button("Registrar", type="primary", disabled=not bool(client.admin_token))
     if not client.admin_token:
         st.caption("Hace falta ARGOS admin token para crear eventos.")
@@ -4203,6 +4215,9 @@ def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any])
         "plant_unit_ids": [plant["id"]],
         "source": "manual",
     }
+    photo_payload = uploaded_photo_payload(camera_photo or uploaded_photo)
+    if photo_payload is not None:
+        payload["photo"] = photo_payload
     try:
         client.create_field_event(payload)
         cached_field_events.clear()
@@ -4210,6 +4225,17 @@ def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any])
         st.rerun()
     except ArgosApiError as exc:
         st.error(str(exc))
+
+
+def uploaded_photo_payload(uploaded_file: Any | None) -> dict[str, Any] | None:
+    if uploaded_file is None:
+        return None
+    content = uploaded_file.getvalue()
+    return {
+        "filename": uploaded_file.name,
+        "content_type": uploaded_file.type or "application/octet-stream",
+        "data_base64": base64.b64encode(content).decode("ascii"),
+    }
 
 
 def render_field_diary(client: ArgosApiClient) -> None:

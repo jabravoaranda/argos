@@ -59,9 +59,8 @@ La importación es idempotente: repetirla actualiza celdas y árboles existentes
 
 ## Interfaz
 
-La vista `Plantación` del dashboard muestra la matriz, filtros por estado, especie y sector, búsqueda por código, selección de celda ocupada y ficha del árbol con historial de eventos asociados.
+La vista `Plantación` del dashboard muestra la matriz, filtros por estado, especie y sector, búsqueda por código, selección de celda ocupada y ficha del árbol con historial de eventos asociados. Desde la ficha se pueden registrar observaciones con foto subida desde el dispositivo o capturada con cámara; si la imagen conserva fecha EXIF, ARGOS registra el evento con esa fecha de captura.
 
 Pendiente:
 
 - Completar variedad, patrón, fecha de plantación, líneas de riego y coordenadas GPS si existen.
-- Añadir fotografías/archivos asociados cuando exista un modelo documental común para artefactos no satelitales.

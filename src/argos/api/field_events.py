@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from argos.api.weather import require_admin_token
@@ -20,6 +21,8 @@ from argos.schemas.field_events import (
     FieldEventRead,
     FieldEventUpdate,
 )
+from argos.services.data_layout import resolve_storage_path
+from argos.services.field_event_photos import FieldEventPhotoInput, attach_field_event_photo
 
 router = APIRouter(prefix="/api/v1/field-events", tags=["field-events"])
 
@@ -106,10 +109,16 @@ def create_field_event(
 ) -> FieldEventRead:
     values = payload.model_dump()
     plant_unit_ids = values.pop("plant_unit_ids", [])
+    photo = values.pop("photo", None)
     _validate_quantity_unit(values.get("quantity"), values.get("unit"))
     event = FieldEventRepository(session).create(values)
     if plant_unit_ids:
         PlantRepository(session).link_event_to_plants(event=event, plant_ids=plant_unit_ids)
+    if photo is not None:
+        try:
+            attach_field_event_photo(event, FieldEventPhotoInput(**photo))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     session.commit()
     return _field_event_read(event)
 
@@ -120,6 +129,21 @@ def get_field_event(event_id: int, session: Session = Depends(get_db_session)) -
     if event is None:
         raise HTTPException(status_code=404, detail="Field event not found.")
     return _field_event_read(event)
+
+
+@router.get("/{event_id}/photo")
+def get_field_event_photo(event_id: int, session: Session = Depends(get_db_session)) -> FileResponse:
+    event = FieldEventRepository(session).get(event_id)
+    if event is None or not event.photo_storage_path:
+        raise HTTPException(status_code=404, detail="Field event photo not found.")
+    path = resolve_storage_path(event.photo_storage_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Field event photo file not found.")
+    return FileResponse(
+        path,
+        media_type=event.photo_mime_type or "application/octet-stream",
+        filename=event.photo_original_filename or path.name,
+    )
 
 
 @router.patch("/{event_id}", response_model=FieldEventRead)
@@ -181,4 +205,6 @@ def _event_export_row(event: Any) -> dict[str, Any]:
 def _field_event_read(event: Any) -> FieldEventRead:
     read = FieldEventRead.model_validate(event)
     read.plant_unit_ids = [link.plant_unit_id for link in getattr(event, "plant_links", [])]
+    if event.photo_storage_path:
+        read.photo_url = f"/api/v1/field-events/{event.id}/photo"
     return read

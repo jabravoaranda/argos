@@ -71,8 +71,22 @@ class FieldEventBase(BaseModel):
         return self
 
 
+class FieldEventPhotoUpload(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(min_length=1, max_length=100)
+    data_base64: str = Field(min_length=1)
+
+    @field_validator("filename", "content_type", "data_base64", mode="before")
+    @classmethod
+    def strip_required_text(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
 class FieldEventCreate(FieldEventBase):
     source: str = "manual"
+    photo: FieldEventPhotoUpload | None = None
 
     @field_validator("source")
     @classmethod
@@ -139,6 +153,13 @@ class FieldEventRead(BaseModel):
     plant_unit_ids: list[int] = Field(default_factory=list)
     quantity: float | None
     unit: str | None
+    photo_storage_path: str | None
+    photo_mime_type: str | None
+    photo_original_filename: str | None
+    photo_size_bytes: int | None
+    photo_sha256: str | None
+    photo_taken_at: datetime | None
+    photo_url: str | None = None
     source: str
     created_at: datetime
     updated_at: datetime | None
