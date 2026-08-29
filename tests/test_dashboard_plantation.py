@@ -48,7 +48,7 @@ def test_plant_observation_submit_button_is_clickable_without_admin_token(monkey
     monkeypatch.setattr("argos.dashboard.app.st.form", lambda key: FakeContext())
     monkeypatch.setattr("argos.dashboard.app.st.text_input", lambda *args, **kwargs: "Observación 11")
     monkeypatch.setattr("argos.dashboard.app.st.text_area", lambda *args, **kwargs: "")
-    monkeypatch.setattr("argos.dashboard.app.st.columns", lambda *args, **kwargs: [FakeContext(), FakeContext()])
+    monkeypatch.setattr("argos.dashboard.app.st.caption", lambda *args, **kwargs: None)
     monkeypatch.setattr("argos.dashboard.app.st.file_uploader", lambda *args, **kwargs: None)
     monkeypatch.setattr("argos.dashboard.app.st.camera_input", lambda *args, **kwargs: None)
 

@@ -4181,15 +4181,13 @@ def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any])
     with st.form(f"plant_observation_{plant['id']}"):
         title = st.text_input("Título", value=f"Observación {plant['public_code']}")
         description = st.text_area("Descripción", height=90)
-        upload_col, camera_col = st.columns(2)
-        with upload_col:
-            uploaded_photo = st.file_uploader(
-                "Subir foto",
-                type=["jpg", "jpeg", "png", "webp"],
-                key=f"plant_observation_upload_{plant['id']}",
-            )
-        with camera_col:
-            camera_photo = st.camera_input("Abrir cámara", key=f"plant_observation_camera_{plant['id']}")
+        uploaded_photo = st.file_uploader(
+            "Foto desde móvil o archivo",
+            type=["jpg", "jpeg", "png", "webp"],
+            key=f"plant_observation_upload_{plant['id']}",
+        )
+        st.caption("En móvil, este botón permite elegir galería o cámara. La cámara integrada requiere HTTPS.")
+        camera_photo = st.camera_input("Cámara integrada", key=f"plant_observation_camera_{plant['id']}")
         selected_photo = camera_photo or uploaded_photo
         if selected_photo is not None:
             st.success(f"Foto lista para registrar: {selected_photo.name} ({format_file_size(selected_photo.size)})")
