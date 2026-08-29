@@ -4146,43 +4146,35 @@ def render_plant_detail(
     with st.container(border=True, gap="small"):
         st.subheader(f"Árbol {plant['public_code']}")
         st.caption(f"{plant['matrix_position_code']} · {plant.get('parcel_name') or plant.get('parcel_slug')}")
-        st.html(
-            '<div class="argos-summary-grid">'
-            f'{compact_metric_html("Especie", species_labels.get(plant["species"], plant["species"]))}'
-            f'{compact_metric_html("Estado", status_labels.get(plant["status"], plant["status"]))}'
-            f'{compact_metric_html("Sector", plant.get("irrigation_sector_id") or "Sin dato")}'
-            f'{compact_metric_html("Línea", plant.get("irrigation_line_slug") or "Sin dato")}'
-            "</div>"
-        )
-        if plant.get("variety") or plant.get("rootstock") or plant.get("planted_on"):
-            st.write(
-                " · ".join(
-                    value
-                    for value in (
-                        f"Variedad: {plant.get('variety')}" if plant.get("variety") else "",
-                        f"Patrón: {plant.get('rootstock')}" if plant.get("rootstock") else "",
-                        f"Plantación: {plant.get('planted_on')}" if plant.get("planted_on") else "",
-                    )
-                    if value
-                )
+        ficha_tab, historial_tab = st.tabs(["Ficha", "Historial"])
+        with ficha_tab:
+            st.html(
+                '<div class="argos-summary-grid">'
+                f'{compact_metric_html("Especie", species_labels.get(plant["species"], plant["species"]))}'
+                f'{compact_metric_html("Estado", status_labels.get(plant["status"], plant["status"]))}'
+                f'{compact_metric_html("Sector", plant.get("irrigation_sector_id") or "Sin dato")}'
+                f'{compact_metric_html("Línea", plant.get("irrigation_line_slug") or "Sin dato")}'
+                "</div>"
             )
-        if plant.get("notes"):
-            st.caption(plant["notes"])
-        st.caption("Los riegos sectoriales son asociados por sector; no son mediciones individuales del árbol.")
-        with st.popover("Nueva observación", icon=":material/add:"):
-            render_plant_observation_form(client, plant)
-        try:
-            history = cached_plant_history(client.base_url, int(plant["id"]))
-        except ArgosApiError as exc:
-            st.error(str(exc))
-            return
-        st.markdown("**Historial**")
-        if not history:
-            st.caption("Sin eventos asociados.")
-        for event in history[:12]:
-            st.write(f"{format_compact_local_datetime(event.get('occurred_at'))} · {event.get('title')}")
-            if event.get("photo_url"):
-                st.image(f"{client.base_url.rstrip('/')}{event['photo_url']}", width=220)
+            if plant.get("variety") or plant.get("rootstock") or plant.get("planted_on"):
+                st.write(
+                    " · ".join(
+                        value
+                        for value in (
+                            f"Variedad: {plant.get('variety')}" if plant.get("variety") else "",
+                            f"Patrón: {plant.get('rootstock')}" if plant.get("rootstock") else "",
+                            f"Plantación: {plant.get('planted_on')}" if plant.get("planted_on") else "",
+                        )
+                        if value
+                    )
+                )
+            if plant.get("notes"):
+                st.caption(plant["notes"])
+            st.caption("Los riegos sectoriales son asociados por sector; no son mediciones individuales del árbol.")
+            with st.popover("Nueva observación", icon=":material/add:"):
+                render_plant_observation_form(client, plant)
+        with historial_tab:
+            render_plant_history(client, plant)
 
 
 def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any]) -> None:
@@ -4198,6 +4190,9 @@ def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any])
             )
         with camera_col:
             camera_photo = st.camera_input("Abrir cámara", key=f"plant_observation_camera_{plant['id']}")
+        selected_photo = camera_photo or uploaded_photo
+        if selected_photo is not None:
+            st.success(f"Foto lista para registrar: {selected_photo.name} ({format_file_size(selected_photo.size)})")
         submitted = st.form_submit_button("Registrar", type="primary")
     if not submitted:
         return
@@ -4216,7 +4211,7 @@ def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any])
         "plant_unit_ids": [plant["id"]],
         "source": "manual",
     }
-    photo_payload = uploaded_photo_payload(camera_photo or uploaded_photo)
+    photo_payload = uploaded_photo_payload(selected_photo)
     if photo_payload is not None:
         payload["photo"] = photo_payload
     try:
@@ -4228,6 +4223,23 @@ def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any])
         st.error(str(exc))
 
 
+def render_plant_history(client: ArgosApiClient, plant: dict[str, Any]) -> None:
+    try:
+        history = cached_plant_history(client.base_url, int(plant["id"]))
+    except ArgosApiError as exc:
+        st.error(str(exc))
+        return
+    if not history:
+        st.caption("Sin eventos asociados.")
+        return
+    for event in history[:12]:
+        st.write(f"{format_compact_local_datetime(event.get('occurred_at'))} · {event.get('title')}")
+        if event.get("description"):
+            st.caption(event["description"])
+        if event.get("photo_url"):
+            st.image(f"{client.base_url.rstrip('/')}{event['photo_url']}", width=220)
+
+
 def uploaded_photo_payload(uploaded_file: Any | None) -> dict[str, Any] | None:
     if uploaded_file is None:
         return None
@@ -4237,6 +4249,14 @@ def uploaded_photo_payload(uploaded_file: Any | None) -> dict[str, Any] | None:
         "content_type": uploaded_file.type or "application/octet-stream",
         "data_base64": base64.b64encode(content).decode("ascii"),
     }
+
+
+def format_file_size(size_bytes: int | None) -> str:
+    if size_bytes is None:
+        return "tamaño desconocido"
+    if size_bytes < 1024 * 1024:
+        return f"{max(size_bytes / 1024, 0.1):.1f} KB"
+    return f"{size_bytes / (1024 * 1024):.1f} MB"
 
 
 def render_field_diary(client: ArgosApiClient) -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
-from argos.dashboard.app import plantation_cell_label, render_plant_observation_form, selected_plant_from_matrix
+from argos.dashboard.app import format_file_size, plantation_cell_label, render_plant_observation_form, selected_plant_from_matrix
 
 
 def test_plantation_cell_label_distinguishes_plants_empty_and_infrastructure() -> None:
@@ -28,6 +28,12 @@ def test_selected_plant_from_matrix_returns_selected_tree() -> None:
 
     assert selected_plant_from_matrix(matrix, 2)["public_code"] == "12"
     assert selected_plant_from_matrix(matrix, 3) is None
+
+
+def test_format_file_size_for_photo_feedback() -> None:
+    assert format_file_size(None) == "tamaño desconocido"
+    assert format_file_size(512) == "0.5 KB"
+    assert format_file_size(2 * 1024 * 1024) == "2.0 MB"
 
 
 def test_plant_observation_submit_button_is_clickable_without_admin_token(monkeypatch) -> None:
