@@ -46,6 +46,13 @@ def ensure_base_matrix(
     repository = PlantRepository(session)
     parcel = repository.upsert_parcel(slug=parcel_slug, name=parcel_name)
     for row in range(1, MATRIX_SIZE + 1):
+        repository.upsert_irrigation_line(
+            parcel_id=parcel.id,
+            slug=irrigation_line_slug_for_row(row),
+            name=irrigation_line_name_for_row(row),
+            sector_id=None,
+        )
+    for row in range(1, MATRIX_SIZE + 1):
         for column in range(1, MATRIX_SIZE + 1):
             repository.upsert_matrix_cell(
                 parcel_id=parcel.id,
@@ -107,6 +114,12 @@ def import_plantation_matrix_csv(
             continue
         if species is None:
             raise PlantImportError(f"Unknown plant symbol {symbol!r} at {row['cell_position']}.")
+        irrigation_line = repository.upsert_irrigation_line(
+            parcel_id=parcel.id,
+            slug=irrigation_line_slug_for_row(matrix_row),
+            name=irrigation_line_name_for_row(matrix_row),
+            sector_id=_optional_text(row.get("irrigation_sector_id")),
+        )
         plant, created = repository.upsert_plant_by_public_code(
             public_code=visible_code,
             values={
@@ -121,7 +134,7 @@ def import_plantation_matrix_csv(
                 "planted_on_precision": row.get("planted_on_precision") or "unknown",
                 "status": row.get("status") or "active",
                 "irrigation_sector_id": _optional_text(row.get("irrigation_sector_id")),
-                "irrigation_line_id": None,
+                "irrigation_line_id": irrigation_line.id,
                 "latitude": _optional_float(row.get("latitude")),
                 "longitude": _optional_float(row.get("longitude")),
                 "notes": _optional_text(row.get("notes")),
@@ -162,6 +175,18 @@ def plantation_matrix_layout(*, session: Session, parcel_slug: str = DEFAULT_PLA
             for column in range(1, MATRIX_SIZE + 1)
         ],
     }
+
+
+def irrigation_line_slug_for_row(row: int) -> str:
+    if row < 1 or row > MATRIX_SIZE:
+        raise PlantImportError(f"Plantation row must be between 1 and {MATRIX_SIZE}.")
+    return f"fila-{MATRIX_DIGITS[row - 1].lower()}"
+
+
+def irrigation_line_name_for_row(row: int) -> str:
+    if row < 1 or row > MATRIX_SIZE:
+        raise PlantImportError(f"Plantation row must be between 1 and {MATRIX_SIZE}.")
+    return f"Fila {MATRIX_DIGITS[row - 1]}"
 
 
 def _empty_layout(*, parcel_slug: str, parcel_name: str) -> dict[str, Any]:

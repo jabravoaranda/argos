@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from argos.database.base import Base
 from argos.domain.plants import matrix_position_code, parse_matrix_position_code
-from argos.models import FieldEvent, FieldEventPlantUnit, PlantMatrixCell, PlantParcel, PlantUnit
+from argos.models import FieldEvent, FieldEventPlantUnit, PlantIrrigationLine, PlantMatrixCell, PlantParcel, PlantUnit
 from argos.repositories.plants import PlantRepository
 from argos.services.plants import ensure_base_matrix, import_plantation_matrix_csv, plantation_matrix_layout
 
@@ -73,6 +73,9 @@ def test_import_matrix_csv_is_idempotent_and_preserves_empty_cells() -> None:
         assert session.scalar(select(PlantMatrixCell).where(PlantMatrixCell.matrix_position_code == "17")).cell_type == "empty"
         assert session.scalar(select(PlantMatrixCell).where(PlantMatrixCell.visible_code == "1B")).cell_type == "infrastructure"
         assert session.scalar(select(PlantUnit).where(PlantUnit.public_code == "2B#")).species == "mango"
+        assert session.scalar(select(PlantUnit).where(PlantUnit.public_code == "11")).irrigation_line.slug == "fila-1"
+        assert session.scalar(select(PlantUnit).where(PlantUnit.public_code == "AC")).irrigation_line.slug == "fila-a"
+        assert session.scalar(select(PlantIrrigationLine).where(PlantIrrigationLine.slug == "fila-c")).name == "Fila C"
 
 
 def test_matrix_layout_returns_all_144_cells_and_attached_plants() -> None:
@@ -85,6 +88,7 @@ def test_matrix_layout_returns_all_144_cells_and_attached_plants() -> None:
         assert len(layout["cells"]) == 144
         assert layout["cells"][0]["position_code"] == "11"
         assert layout["cells"][-1]["position_code"] == "CC"
+        assert session.query(PlantIrrigationLine).count() == 12
 
 
 def test_plant_history_is_chronological_and_uses_many_to_many_link() -> None:

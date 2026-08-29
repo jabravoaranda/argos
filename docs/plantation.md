@@ -7,7 +7,7 @@ Ultima actualizacion: 2026-08-28
 Responsable logico: Operador ARGOS
 Revision: 1
 
-ARGOS representa la plantación como ejemplares vegetales persistentes y una matriz 12x12 derivada de datos. Las coordenadas usan dos símbolos base 12: filas y columnas de `1` a `C`; por tanto la primera celda es `11` y la última es `CC`.
+ARGOS representa la plantación como ejemplares vegetales persistentes y una matriz 12x12 derivada de datos. Las coordenadas usan dos símbolos base 12: filas y columnas de `1` a `C`; por tanto la primera celda es `11` y la última es `CC`. La línea de riego se deriva de la fila de la matriz (`fila-1` ... `fila-C`).
 
 ## Datos
 
@@ -63,4 +63,4 @@ La vista `Plantación` del dashboard muestra la matriz, filtros por estado, espe
 
 Pendiente:
 
-- Completar variedad, patrón, fecha de plantación, líneas de riego y coordenadas GPS si existen.
+- Completar variedad, patrón, fecha de plantación, sector de riego y coordenadas GPS si existen.

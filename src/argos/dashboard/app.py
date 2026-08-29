@@ -4198,10 +4198,11 @@ def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any])
             )
         with camera_col:
             camera_photo = st.camera_input("Abrir cámara", key=f"plant_observation_camera_{plant['id']}")
-        submitted = st.form_submit_button("Registrar", type="primary", disabled=not bool(client.admin_token))
-    if not client.admin_token:
-        st.caption("Hace falta ARGOS admin token para crear eventos.")
+        submitted = st.form_submit_button("Registrar", type="primary")
     if not submitted:
+        return
+    if not client.admin_token:
+        st.error("Hace falta ARGOS admin token para crear eventos.")
         return
     payload = {
         "occurred_at": datetime.now(UTC).isoformat(),

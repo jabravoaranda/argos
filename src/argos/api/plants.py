@@ -19,7 +19,7 @@ from argos.schemas.plants import (
     PlantUnitUpdate,
     plant_unit_read,
 )
-from argos.services.plants import plantation_matrix_layout
+from argos.services.plants import irrigation_line_name_for_row, irrigation_line_slug_for_row, plantation_matrix_layout
 
 
 router = APIRouter(prefix="/api/v1/plants", tags=["plants"])
@@ -96,10 +96,12 @@ def create_or_update_plant(
     parcel_name = DEFAULT_PLANT_PARCEL_NAME if payload.parcel_slug == DEFAULT_PLANT_PARCEL_SLUG else payload.parcel_slug
     parcel = repository.upsert_parcel(slug=payload.parcel_slug, name=parcel_name)
     matrix_row, matrix_column = parse_matrix_position_code(payload.matrix_position_code)
-    line = (
-        repository.get_irrigation_line(parcel_id=parcel.id, slug=payload.irrigation_line_slug)
-        if payload.irrigation_line_slug
-        else None
+    line_slug = payload.irrigation_line_slug or irrigation_line_slug_for_row(matrix_row)
+    line = repository.upsert_irrigation_line(
+        parcel_id=parcel.id,
+        slug=line_slug,
+        name=irrigation_line_name_for_row(matrix_row),
+        sector_id=payload.irrigation_sector_id,
     )
     plant, _created = repository.upsert_plant_by_public_code(
         public_code=payload.public_code,
@@ -146,9 +148,17 @@ def update_plant(
         raise HTTPException(status_code=404, detail="Plant not found.")
     values = payload.model_dump(exclude_unset=True)
     line_slug = values.pop("irrigation_line_slug", None)
-    if line_slug:
-        line = repository.get_irrigation_line(parcel_id=plant.parcel_id, slug=line_slug)
-        values["irrigation_line_id"] = line.id if line else None
+    matrix_row = plant.matrix_row
+    if "matrix_position_code" in values:
+        matrix_row, _matrix_column = parse_matrix_position_code(values["matrix_position_code"])
+    if line_slug or "matrix_position_code" in values:
+        line = repository.upsert_irrigation_line(
+            parcel_id=plant.parcel_id,
+            slug=line_slug or irrigation_line_slug_for_row(matrix_row),
+            name=irrigation_line_name_for_row(matrix_row),
+            sector_id=values.get("irrigation_sector_id", plant.irrigation_sector_id),
+        )
+        values["irrigation_line_id"] = line.id
     for key, value in values.items():
         setattr(plant, key, value)
     session.commit()
@@ -165,4 +175,12 @@ def get_plant_history(
     plant = repository.get_plant(plant_id)
     if plant is None:
         raise HTTPException(status_code=404, detail="Plant not found.")
-    return [FieldEventRead.model_validate(event) for event in repository.plant_history(plant_id=plant_id, limit=limit)]
+    return [_plant_field_event_read(event) for event in repository.plant_history(plant_id=plant_id, limit=limit)]
+
+
+def _plant_field_event_read(event: Any) -> FieldEventRead:
+    read = FieldEventRead.model_validate(event)
+    read.plant_unit_ids = [link.plant_unit_id for link in getattr(event, "plant_links", [])]
+    if event.photo_storage_path:
+        read.photo_url = f"/api/v1/field-events/{event.id}/photo"
+    return read

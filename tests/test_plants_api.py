@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -18,6 +19,7 @@ def test_plants_api_lists_filters_matrix_and_history(monkeypatch, tmp_path) -> N
     monkeypatch.setenv("ECOWITT_INGEST_TOKEN", "test-token")
     monkeypatch.setenv("ARGOS_ADMIN_TOKEN", "test-admin-token")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'argos.db'}")
+    monkeypatch.setenv("ARGOS_DATA_DIR", str(tmp_path / "data"))
     get_settings.cache_clear()
     reset_database_caches()
     Base.metadata.create_all(get_engine())
@@ -57,6 +59,14 @@ def test_plants_api_lists_filters_matrix_and_history(monkeypatch, tmp_path) -> N
             "target_type": "plant",
             "target_value": plant["public_code"],
             "plant_unit_ids": [plant["id"]],
+            "photo": {
+                "filename": "higuera.png",
+                "content_type": "image/png",
+                "data_base64": base64.b64encode(
+                    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+                    b"\x08\x02\x00\x00\x00\x90wS\xde"
+                ).decode("ascii"),
+            },
             "source": "manual",
         },
     )
@@ -66,6 +76,7 @@ def test_plants_api_lists_filters_matrix_and_history(monkeypatch, tmp_path) -> N
     history = client.get(f"/api/v1/plants/{plant['id']}/history")
     assert history.status_code == 200
     assert [row["title"] for row in history.json()] == ["Revisión higuera"]
+    assert history.json()[0]["photo_url"] == f"/api/v1/field-events/{event.json()['id']}/photo"
 
     get_settings.cache_clear()
     reset_database_caches()
