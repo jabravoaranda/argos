@@ -4050,7 +4050,7 @@ def render_plantation(client: ArgosApiClient) -> None:
             cached_plant_history.clear()
             st.rerun()
 
-    grid_col, detail_col = st.columns([5.2, 4.8], vertical_alignment="top")
+    grid_col, detail_col = st.columns([3.6, 6.4], vertical_alignment="top")
     visible_ids = {int(plant["id"]) for plant in plants}
     selected_id = st.session_state.get("plantation_selected_plant_id")
     with grid_col:
