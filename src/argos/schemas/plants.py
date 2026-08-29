@@ -192,7 +192,9 @@ class PlantPhotoStageItemRead(BaseModel):
     date_source: str
     detected_code: str | None
     confidence: float
+    resolver: str
     status: str
+    diagnostic: dict[str, str]
     diagnostics: dict[str, str]
     plant_id: int | None
     plant_public_code: str | None

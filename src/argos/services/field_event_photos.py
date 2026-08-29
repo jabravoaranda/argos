@@ -11,7 +11,7 @@ from io import BytesIO
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -50,6 +50,7 @@ class FieldEventPhotoInput:
 class PlantCodeResolverResult:
     detected_code: str | None
     confidence: float
+    resolver: str
     diagnostics: dict[str, str]
 
 
@@ -64,19 +65,71 @@ class FilenamePlantCodeResolver(PlantCodeResolver):
         normalized_filename = _normalize_code_text(filename)
         exact_matches = [code for code in candidate_codes if re.search(rf"(?<![0-9A-Z]){re.escape(code)}(?![0-9A-Z])", normalized_filename)]
         if len(exact_matches) == 1:
-            return PlantCodeResolverResult(exact_matches[0], 0.95, {"provider": "filename", "match": "exact"})
+            return PlantCodeResolverResult(exact_matches[0], 0.95, "filename", {"match": "exact"})
         if len(exact_matches) > 1:
-            return PlantCodeResolverResult(None, 0.45, {"provider": "filename", "match": "ambiguous"})
+            return PlantCodeResolverResult(None, 0.45, "filename", {"match": "ambiguous"})
         loose_matches = [code for code in candidate_codes if code in normalized_filename]
         if len(loose_matches) == 1:
-            return PlantCodeResolverResult(loose_matches[0], 0.72, {"provider": "filename", "match": "loose"})
+            return PlantCodeResolverResult(loose_matches[0], 0.72, "filename", {"match": "loose"})
         detected_tokens = re.findall(r"(?<![0-9A-Z])([1-9A-C][1-9A-C]#?)(?![0-9A-Z])", normalized_filename)
         unique_tokens = sorted(set(detected_tokens))
         if len(unique_tokens) == 1:
-            return PlantCodeResolverResult(unique_tokens[0], 0.6, {"provider": "filename", "match": "unresolved_code"})
+            return PlantCodeResolverResult(unique_tokens[0], 0.6, "filename", {"match": "unresolved_code"})
         if len(unique_tokens) > 1:
-            return PlantCodeResolverResult(None, 0.35, {"provider": "filename", "match": "ambiguous_code"})
-        return PlantCodeResolverResult(None, 0.0, {"provider": "filename", "match": "none"})
+            return PlantCodeResolverResult(None, 0.35, "filename", {"match": "ambiguous_code"})
+        return PlantCodeResolverResult(None, 0.0, "filename", {"match": "none"})
+
+
+class QRPlantCodeResolver(PlantCodeResolver):
+    def resolve(self, *, filename: str, content: bytes, candidate_codes: set[str]) -> PlantCodeResolverResult:
+        del filename
+        decoded_values = _decode_qr_values(content)
+        for value in decoded_values:
+            match = re.fullmatch(r"\s*P:(?P<code>[0-9A-Za-z#]+)\s*", value)
+            if not match:
+                continue
+            detected_code = match.group("code").upper()
+            if detected_code in candidate_codes:
+                return PlantCodeResolverResult(detected_code, 0.99, "qr", {"match": "plant_code", "payload": value})
+            return PlantCodeResolverResult(detected_code, 0.4, "qr", {"match": "unknown_plant_code", "payload": value})
+        if decoded_values:
+            return PlantCodeResolverResult(None, 0.2, "qr", {"match": "unsupported_payload", "payload": decoded_values[0]})
+        return PlantCodeResolverResult(None, 0.0, "qr", {"match": "none"})
+
+
+class CatalogVisualPlantCodeResolver(PlantCodeResolver):
+    def resolve(self, *, filename: str, content: bytes, candidate_codes: set[str]) -> PlantCodeResolverResult:
+        del filename
+        if not candidate_codes:
+            return PlantCodeResolverResult(None, 0.0, "vision", {"match": "empty_catalog"})
+        try:
+            with Image.open(BytesIO(content)) as image:
+                oriented = ImageOps.exif_transpose(image).convert("L")
+        except Exception:
+            return PlantCodeResolverResult(None, 0.0, "vision", {"match": "unreadable_image"})
+        best_code, best_score = _match_catalog_code_visual(oriented, candidate_codes)
+        if best_code is None:
+            return PlantCodeResolverResult(None, 0.0, "vision", {"match": "none"})
+        if best_score >= 0.72:
+            return PlantCodeResolverResult(best_code, best_score, "vision", {"match": "catalog_template", "score": f"{best_score:.3f}"})
+        return PlantCodeResolverResult(best_code, best_score, "vision", {"match": "low_confidence", "score": f"{best_score:.3f}"})
+
+
+class CompositePlantCodeResolver(PlantCodeResolver):
+    def __init__(self, resolvers: list[PlantCodeResolver] | None = None) -> None:
+        self.resolvers = resolvers or [QRPlantCodeResolver(), CatalogVisualPlantCodeResolver(), FilenamePlantCodeResolver()]
+
+    def resolve(self, *, filename: str, content: bytes, candidate_codes: set[str]) -> PlantCodeResolverResult:
+        diagnostics: dict[str, str] = {}
+        best = PlantCodeResolverResult(None, 0.0, "none", {"match": "none"})
+        for resolver in self.resolvers:
+            result = resolver.resolve(filename=filename, content=content, candidate_codes=candidate_codes)
+            diagnostics[result.resolver] = result.diagnostics.get("match", "")
+            if result.detected_code in candidate_codes and result.confidence >= 0.9:
+                return PlantCodeResolverResult(result.detected_code, result.confidence, result.resolver, {**result.diagnostics, "pipeline": str(diagnostics)})
+            if result.confidence > best.confidence:
+                best = result
+        return PlantCodeResolverResult(best.detected_code, best.confidence, best.resolver, {**best.diagnostics, "pipeline": str(diagnostics)})
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +143,7 @@ class StagedPlantPhoto:
     date_source: str
     detected_code: str | None
     confidence: float
+    resolver: str
     status: str
     diagnostics: dict[str, str]
     plant_id: int | None
@@ -150,7 +204,7 @@ def stage_plant_photos(
     settings: Settings | None = None,
 ) -> list[StagedPlantPhoto]:
     settings = settings or get_settings()
-    resolver = resolver or FilenamePlantCodeResolver()
+    resolver = resolver or CompositePlantCodeResolver()
     plants = list(session.scalars(select(PlantUnit)).all())
     plants_by_code = {plant.public_code.upper(): plant for plant in plants}
     existing_hashes = set(session.scalars(select(FieldEventPhoto.sha256)).all())
@@ -165,7 +219,14 @@ def stage_plant_photos(
         detected_code = resolver_result.detected_code.upper() if resolver_result.detected_code else None
         plant = plants_by_code.get(detected_code or "")
         duplicate = checksum in existing_hashes or checksum in legacy_hashes or checksum in seen_hashes
-        status = _stage_status(plant=plant, duplicate=duplicate, confidence=resolver_result.confidence, detected_code=detected_code)
+        status = _stage_status(
+            plant=plant,
+            duplicate=duplicate,
+            confidence=resolver_result.confidence,
+            detected_code=detected_code,
+            resolver=resolver_result.resolver,
+            diagnostics=resolver_result.diagnostics,
+        )
         staged.append(
             StagedPlantPhoto(
                 filename=photo.filename,
@@ -177,6 +238,7 @@ def stage_plant_photos(
                 date_source=date_source,
                 detected_code=detected_code,
                 confidence=resolver_result.confidence,
+                resolver=resolver_result.resolver,
                 status=status,
                 diagnostics=resolver_result.diagnostics,
                 plant_id=plant.id if plant else None,
@@ -305,6 +367,7 @@ def thumbnail_data_url(data_base64: str, content_type: str, *, max_size: tuple[i
     try:
         content = base64.b64decode(data_base64, validate=True)
         with Image.open(BytesIO(content)) as image:
+            image = ImageOps.exif_transpose(image)
             image.thumbnail(max_size)
             output = BytesIO()
             output_format = "JPEG" if _normalize_content_type(content_type) == "image/jpeg" else "PNG"
@@ -329,10 +392,21 @@ def _normalize_content_type(value: str) -> str:
     return value.split(";", 1)[0].strip().lower()
 
 
-def _stage_status(*, plant: PlantUnit | None, duplicate: bool, confidence: float, detected_code: str | None) -> str:
+def _stage_status(
+    *,
+    plant: PlantUnit | None,
+    duplicate: bool,
+    confidence: float,
+    detected_code: str | None,
+    resolver: str,
+    diagnostics: dict[str, str],
+) -> str:
     if duplicate:
         return "duplicate"
-    if plant is not None and confidence >= 0.9:
+    reliable_resolver_match = resolver == "qr" and confidence >= 0.99
+    reliable_resolver_match = reliable_resolver_match or (resolver == "vision" and diagnostics.get("match") == "catalog_template")
+    reliable_resolver_match = reliable_resolver_match or confidence >= 0.9
+    if plant is not None and reliable_resolver_match:
         return "matched"
     if detected_code is not None or confidence > 0:
         return "review"
@@ -341,6 +415,79 @@ def _stage_status(*, plant: PlantUnit | None, duplicate: bool, confidence: float
 
 def _normalize_code_text(value: str) -> str:
     return re.sub(r"[^0-9A-Z#]+", " ", value.upper())
+
+
+def _decode_qr_values(content: bytes) -> list[str]:
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        return []
+    try:
+        with Image.open(BytesIO(content)) as image:
+            oriented = ImageOps.exif_transpose(image).convert("RGB")
+        array = cv2.cvtColor(np.array(oriented), cv2.COLOR_RGB2BGR)
+        detector = cv2.QRCodeDetector()
+        decoded: list[str] = []
+        ok, values, _points, _straight = detector.detectAndDecodeMulti(array)
+        if ok and values:
+            decoded.extend(value for value in values if value)
+        if not decoded:
+            value, _points, _straight = detector.detectAndDecode(array)
+            if value:
+                decoded.append(value)
+        return decoded
+    except Exception:
+        return []
+
+
+def _match_catalog_code_visual(image: Image.Image, candidate_codes: set[str]) -> tuple[str | None, float]:
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        return None, 0.0
+    scale = min(1.0, 1200 / max(image.size))
+    if scale < 1:
+        image = image.resize((int(image.width * scale), int(image.height * scale)))
+    image_array = np.array(ImageOps.autocontrast(image))
+    _, thresholded = cv2.threshold(image_array, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    best_code: str | None = None
+    best_score = 0.0
+    for code in sorted(candidate_codes):
+        for template in _code_templates(code):
+            template_array = np.array(template)
+            if template_array.shape[0] >= thresholded.shape[0] or template_array.shape[1] >= thresholded.shape[1]:
+                continue
+            result = cv2.matchTemplate(thresholded, template_array, cv2.TM_CCOEFF_NORMED)
+            _, max_value, _, _ = cv2.minMaxLoc(result)
+            if max_value > best_score:
+                best_code = code
+                best_score = float(max_value)
+    return best_code, best_score
+
+
+def _code_templates(code: str) -> list[Image.Image]:
+    templates: list[Image.Image] = []
+    for font_size in (32, 44, 58, 72, 88, 108, 132):
+        font = _code_font(font_size)
+        text_bbox = ImageDraw.Draw(Image.new("L", (1, 1))).textbbox((0, 0), code, font=font)
+        width = text_bbox[2] - text_bbox[0] + 18
+        height = text_bbox[3] - text_bbox[1] + 18
+        image = Image.new("L", (width, height), 0)
+        draw = ImageDraw.Draw(image)
+        draw.text((9 - text_bbox[0], 9 - text_bbox[1]), code, fill=255, font=font)
+        templates.append(image)
+    return templates
+
+
+def _code_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    for name in ("DejaVuSans-Bold.ttf", "arialbd.ttf", "arial.ttf"):
+        try:
+            return ImageFont.truetype(name, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
 
 
 def _local_filename_datetime(date_text: str, time_text: str, *, settings: Settings) -> datetime | None:

@@ -73,6 +73,14 @@ La importación masiva desde `Plantación` usa dos fases:
 
 El resolvedor no interpreta posiciones de matriz. Si detecta `11`, `18#` o cualquier otro código, lo resuelve contra `plant_units.public_code`; desde el árbol ya resuelto se obtienen celda, especie, fila, línea y sector.
 
+Pipeline de resolución:
+
+1. QR: máxima prioridad. Un QR con payload `P:<codigo>` se acepta solo si `<codigo>` existe literalmente en `plant_units.public_code`.
+2. Visión local de catálogo cerrado: compara la imagen orientada contra los códigos existentes. No genera códigos fuera del catálogo.
+3. Nombre de archivo: fallback útil para lotes ya nombrados manualmente.
+
+La primera versión de importación masiva usaba solo el nombre de archivo (`FilenamePlantCodeResolver`). Por eso una fotografía con una tablilla manuscrita `C2`, pero sin `C2` en el nombre del archivo, terminaba como `unassigned`, `código: sin detectar`, `confianza: 0.00`.
+
 Estados de staging:
 
 - `matched`: identificación inequívoca y resuelta contra un árbol existente.
@@ -81,6 +89,8 @@ Estados de staging:
 - `duplicate`: el SHA256 ya existe en fotos confirmadas o se repite dentro del lote.
 
 La fecha de captura se calcula por este orden: `EXIF DateTimeOriginal`, patrones reconocibles del nombre de archivo como `WhatsApp Image YYYY-MM-DD at HH.MM.SS`, y fecha indicada por el usuario para el lote. Si no hay metadatos ni fecha de lote, la API rechaza la confirmación en lugar de asignar la fecha actual.
+
+Las miniaturas se generan como derivados de previsualización. Antes de redimensionar se aplica la orientación EXIF con `ImageOps.exif_transpose`, de forma que una foto vertical tomada con móvil no aparezca tumbada. El original confirmado se almacena sin reescritura innecesaria.
 
 Al confirmar, ARGOS agrupa las fotos del mismo árbol en una observación de seguimiento fotográfico y conserva cada archivo con sus metadatos individuales en `field_event_photos`. Para compatibilidad con pantallas y APIs existentes, la primera foto del grupo se mantiene también en los campos históricos `photo_*` de `field_events`.
 

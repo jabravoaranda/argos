@@ -4182,7 +4182,7 @@ def render_plant_photo_batch_import(client: ArgosApiClient, matrix: dict[str, An
         st.image(item["thumbnail_data_url"], width=120)
         st.caption(
             f"{item['filename']} · {item['status']} · código: {item.get('detected_code') or 'sin detectar'} · "
-            f"confianza: {float(item.get('confidence') or 0):.2f} · fecha: {item.get('date_source')}"
+            f"confianza: {float(item.get('confidence') or 0):.2f} · resolver: {item.get('resolver') or '-'} · fecha: {item.get('date_source')}"
         )
         default_value = str(item["plant_id"]) if item.get("plant_id") else ""
         selected = st.selectbox(
@@ -4207,7 +4207,18 @@ def render_plant_photo_batch_import(client: ArgosApiClient, matrix: dict[str, An
         confirm_items.append(confirm_item)
     if missing_uploads:
         st.warning("Vuelve a seleccionar las fotos para confirmar el lote.")
-    if st.button("Confirmar lote", icon=":material/check:", type="primary", key="plant_photo_batch_confirm", disabled=missing_uploads):
+    has_unassigned = any(item.get("plant_id") is None and not item.get("duplicate") for item in confirm_items)
+    assigned_count = sum(1 for item in confirm_items if item.get("plant_id") is not None and item.get("status") != "duplicate")
+    importable_count = sum(1 for item in confirm_items if item.get("status") != "duplicate")
+    if assigned_count == 0 and importable_count:
+        st.warning(f"0 de {importable_count} fotografías identificadas. Revise las asignaciones antes de confirmar.")
+    elif assigned_count < importable_count:
+        st.info(f"{assigned_count} de {importable_count} fotografías identificadas. Complete o revise las asignaciones antes de confirmar.")
+    import_unassigned = False
+    if has_unassigned:
+        import_unassigned = st.checkbox("Confirmar lote dejando fotos sin árbol fuera de la importación", key="plant_photo_batch_confirm_unassigned")
+    confirm_disabled = missing_uploads or (has_unassigned and not import_unassigned)
+    if st.button("Confirmar lote", icon=":material/check:", type="primary", key="plant_photo_batch_confirm", disabled=confirm_disabled):
         if not client.admin_token:
             st.error("Hace falta ARGOS admin token para importar fotos.")
             return
