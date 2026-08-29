@@ -1546,16 +1546,16 @@ def apply_compact_dashboard_styles() -> None:
                 align-items: center;
                 box-sizing: border-box;
                 display: grid;
-                min-height: 44px;
+                min-height: 24px;
                 min-width: 0;
-                padding: 4px;
+                padding: 1px 2px;
                 text-align: center;
             }
 
             .argos-plantation-label {
                 background: rgba(15, 118, 110, 0.08);
                 color: rgba(15, 53, 35, 0.86);
-                font-size: 12px;
+                font-size: 10px;
                 font-weight: 750;
             }
 
@@ -1563,8 +1563,8 @@ def apply_compact_dashboard_styles() -> None:
                 background: rgba(248, 250, 252, 0.82);
                 border: 0;
                 color: rgba(49, 51, 63, 0.72);
-                font-size: 10.5px;
-                line-height: 1.08;
+                font-size: 9px;
+                line-height: 1;
             }
 
             .argos-plantation-cell.empty {
@@ -1606,22 +1606,45 @@ def apply_compact_dashboard_styles() -> None:
             }
 
             .argos-plantation-cell b {
-                font-size: 12px;
-                line-height: 1.05;
+                font-size: 10px;
+                line-height: 1;
+            }
+
+            div[class*="st-key-plant_cell_"] {
+                margin: 0 !important;
+            }
+
+            div[class*="st-key-plant_cell_"] button {
+                border-radius: 4px !important;
+                font-size: 10px !important;
+                height: 24px !important;
+                min-height: 24px !important;
+                padding: 0 2px !important;
+            }
+
+            div[class*="st-key-plant_cell_"] button p,
+            div[class*="st-key-plant_cell_"] button span {
+                font-size: 10px !important;
+                line-height: 1 !important;
+                margin: 0 !important;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
 
             .argos-plantation-legend {
                 align-items: center;
                 display: flex;
                 flex-wrap: wrap;
-                gap: 6px;
-                margin: 5px 0;
+                gap: 3px;
+                margin: 2px 0 4px;
             }
 
             .argos-plantation-legend span {
                 border: 1px solid rgba(148, 163, 184, 0.24);
                 border-radius: 999px;
                 color: rgba(49, 51, 63, 0.72);
+                font-size: 10px;
                 font-size: 11px;
                 line-height: 1;
                 padding: 5px 7px;
@@ -4027,7 +4050,7 @@ def render_plantation(client: ArgosApiClient) -> None:
             cached_plant_history.clear()
             st.rerun()
 
-    grid_col, detail_col = st.columns([6.8, 3.2], vertical_alignment="top")
+    grid_col, detail_col = st.columns([5.2, 4.8], vertical_alignment="top")
     visible_ids = {int(plant["id"]) for plant in plants}
     selected_id = st.session_state.get("plantation_selected_plant_id")
     with grid_col:
@@ -4085,12 +4108,12 @@ def render_plantation_legend(status_labels: dict[str, str]) -> None:
 def render_plantation_matrix(matrix: dict[str, Any], *, visible_plant_ids: set[int], selected_plant_id: int | None) -> None:
     cells_by_position = {(cell["row"], cell["column"]): cell for cell in matrix.get("cells", [])}
     column_labels = matrix.get("column_labels", [])
-    header_cols = st.columns([0.34, *([1] * 12)], gap="small")
+    header_cols = st.columns([0.28, *([1] * 12)], gap=None)
     header_cols[0].html("&nbsp;")
     for index, label in enumerate(column_labels[:12], start=1):
         header_cols[index].html(f'<div class="argos-plantation-label">{escape(label)}</div>')
     for row_index, row_label in enumerate(matrix.get("row_labels", [])[:12], start=1):
-        row_cols = st.columns([0.34, *([1] * 12)], gap="small")
+        row_cols = st.columns([0.28, *([1] * 12)], gap=None)
         row_cols[0].html(f'<div class="argos-plantation-label">{escape(row_label)}</div>')
         for column_index in range(1, 13):
             cell = cells_by_position.get((row_index, column_index), {})
