@@ -3,21 +3,35 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from argos.api.weather import require_admin_token
 from argos.database.session import get_db_session
-from argos.domain.plants import DEFAULT_PLANT_PARCEL_NAME, DEFAULT_PLANT_PARCEL_SLUG, parse_matrix_position_code
+from argos.domain.plants import DEFAULT_PLANT_PARCEL_NAME, DEFAULT_PLANT_PARCEL_SLUG, PLANT_SPECIES_LABELS, parse_matrix_position_code
+from argos.repositories.field_events import FieldEventRepository
 from argos.repositories.plants import PlantRepository
 from argos.schemas.field_events import FieldEventRead
 from argos.schemas.plants import (
     PlantCatalogRead,
     PlantMatrixCellRead,
     PlantMatrixRead,
+    PlantPhotoConfirmRead,
+    PlantPhotoConfirmRequest,
+    PlantPhotoStageItemRead,
+    PlantPhotoStageRead,
+    PlantPhotoStageRequest,
     PlantUnitCreate,
     PlantUnitRead,
     PlantUnitUpdate,
     plant_unit_read,
+)
+from argos.models.field_event import FieldEvent, FieldEventPhoto
+from argos.services.field_event_photos import (
+    FieldEventPhotoInput,
+    add_event_photo_item,
+    stage_plant_photos,
+    thumbnail_data_url,
 )
 from argos.services.plants import irrigation_line_name_for_row, irrigation_line_slug_for_row, plantation_matrix_layout
 
@@ -84,6 +98,132 @@ def list_plants(
         offset=offset,
     )
     return [plant_unit_read(plant) for plant in plants]
+
+
+@router.post("/photos/stage", response_model=PlantPhotoStageRead)
+def stage_plant_photo_batch(
+    payload: PlantPhotoStageRequest,
+    _admin: None = Depends(require_admin_token),
+    session: Session = Depends(get_db_session),
+) -> PlantPhotoStageRead:
+    try:
+        staged = stage_plant_photos(
+            session=session,
+            photos=[FieldEventPhotoInput(**photo.model_dump()) for photo in payload.photos],
+            fallback_date=payload.fallback_taken_at,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return PlantPhotoStageRead(
+        items=[
+            PlantPhotoStageItemRead(
+                index=index,
+                filename=item.filename,
+                content_type=item.content_type,
+                sha256=item.sha256,
+                size_bytes=item.size_bytes,
+                taken_at=item.taken_at,
+                date_source=item.date_source,
+                detected_code=item.detected_code,
+                confidence=item.confidence,
+                status=item.status,
+                diagnostics=item.diagnostics,
+                plant_id=item.plant_id,
+                plant_public_code=item.plant_public_code,
+                matrix_position_code=item.matrix_position_code,
+                species=item.species,
+                species_label=PLANT_SPECIES_LABELS.get(item.species, item.species) if item.species else None,
+                irrigation_sector_id=item.irrigation_sector_id,
+                duplicate=item.duplicate,
+                thumbnail_data_url=thumbnail_data_url(item.data_base64, item.content_type),
+            )
+            for index, item in enumerate(staged)
+        ]
+    )
+
+
+@router.post("/photos/confirm", response_model=PlantPhotoConfirmRead)
+def confirm_plant_photo_batch(
+    payload: PlantPhotoConfirmRequest,
+    _admin: None = Depends(require_admin_token),
+    session: Session = Depends(get_db_session),
+) -> PlantPhotoConfirmRead:
+    existing_hashes = set(session.scalars(select(FieldEventPhoto.sha256)).all())
+    legacy_hashes = set(session.scalars(select(FieldEvent.photo_sha256).where(FieldEvent.photo_sha256.is_not(None))).all())
+    photos_by_plant: dict[int, list[Any]] = {}
+    skipped_duplicates = 0
+    skipped_unassigned = 0
+    seen_hashes: set[str] = set()
+    for item in payload.items:
+        if item.sha256 in existing_hashes or item.sha256 in legacy_hashes or item.sha256 in seen_hashes:
+            skipped_duplicates += 1
+            continue
+        seen_hashes.add(item.sha256)
+        if item.plant_id is None:
+            skipped_unassigned += 1
+            continue
+        photos_by_plant.setdefault(item.plant_id, []).append(item)
+
+    event_ids: list[int] = []
+    imported_photos = 0
+    repository = PlantRepository(session)
+    try:
+        for plant_id, items in photos_by_plant.items():
+            plant = repository.get_plant(plant_id)
+            if plant is None:
+                skipped_unassigned += len(items)
+                continue
+            occurred_at = _batch_event_datetime(items, fallback=payload.fallback_taken_at)
+            event = FieldEventRepository(session).create(
+                {
+                    "occurred_at": occurred_at,
+                    "event_type": "observation",
+                    "title": f"Seguimiento fotográfico {plant.public_code}",
+                    "description": f"Lote fotográfico: {len(items)} foto(s).",
+                    "zone_slug": None,
+                    "tree_reference": plant.public_code,
+                    "target_type": "plant",
+                    "target_value": plant.public_code,
+                    "source": "manual",
+                }
+            )
+            repository.link_event_to_plants(event=event, plant_ids=[plant.id])
+            first_photo = None
+            for item in items:
+                photo = add_event_photo_item(
+                    event=event,
+                    photo=FieldEventPhotoInput(
+                        filename=item.filename,
+                        content_type=item.content_type,
+                        data_base64=item.data_base64,
+                    ),
+                    date_source=item.date_source,
+                    taken_at=item.taken_at,
+                    detected_code=item.detected_code,
+                    resolver_confidence=item.confidence,
+                )
+                session.add(photo)
+                first_photo = first_photo or photo
+                imported_photos += 1
+                existing_hashes.add(item.sha256)
+            if first_photo is not None:
+                event.photo_storage_path = first_photo.storage_path
+                event.photo_mime_type = first_photo.mime_type
+                event.photo_original_filename = first_photo.original_filename
+                event.photo_size_bytes = first_photo.size_bytes
+                event.photo_sha256 = first_photo.sha256
+                event.photo_taken_at = first_photo.taken_at
+            event_ids.append(event.id)
+        session.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return PlantPhotoConfirmRead(
+        created_events=len(event_ids),
+        imported_photos=imported_photos,
+        skipped_duplicates=skipped_duplicates,
+        skipped_unassigned=skipped_unassigned,
+        event_ids=event_ids,
+    )
 
 
 @router.post("", response_model=PlantUnitRead, status_code=status.HTTP_201_CREATED)
@@ -184,3 +324,12 @@ def _plant_field_event_read(event: Any) -> FieldEventRead:
     if event.photo_storage_path:
         read.photo_url = f"/api/v1/field-events/{event.id}/photo"
     return read
+
+
+def _batch_event_datetime(items: list[Any], *, fallback: Any) -> Any:
+    dated = [item.taken_at for item in items if item.taken_at is not None]
+    if dated:
+        return min(dated)
+    if fallback is not None:
+        return fallback
+    raise HTTPException(status_code=422, detail="Las fotos sin fecha necesitan una fecha de lote.")

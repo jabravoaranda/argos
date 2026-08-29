@@ -34,6 +34,7 @@ def test_initial_schema_tables_are_registered() -> None:
         "argos_node_flowmeter_reset_events",
         "argos_node_flowmeter_sessions",
         "field_events",
+        "field_event_photos",
         "field_event_plant_units",
         "plant_irrigation_lines",
         "plant_matrix_cells",
@@ -48,6 +49,7 @@ def test_initial_schema_tables_are_registered() -> None:
     assert _models.ArgosIrrigationSectorMinuteAttribution.__tablename__ == "argos_irrigation_sector_minute_attributions"
     assert _models.ArgosNodeFlowmeterSession.__tablename__ == "argos_node_flowmeter_sessions"
     assert _models.FieldEvent.__tablename__ == "field_events"
+    assert _models.FieldEventPhoto.__tablename__ == "field_event_photos"
     assert _models.PlantUnit.__tablename__ == "plant_units"
     assert _models.PlantMatrixCell.__tablename__ == "plant_matrix_cells"
     assert _models.DataSource.__tablename__ == "data_sources"

@@ -3,13 +3,35 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Float, Index, Integer, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from argos.database.base import Base
 
 if TYPE_CHECKING:
     from argos.models.plants import FieldEventPlantUnit
+
+
+class FieldEventPhoto(Base):
+    __tablename__ = "field_event_photos"
+    __table_args__ = (
+        UniqueConstraint("sha256", name="uq_field_event_photos_sha256"),
+        Index("ix_field_event_photos_field_event_id", "field_event_id"),
+        Index("ix_field_event_photos_sha256", "sha256"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    field_event_id: Mapped[int] = mapped_column(ForeignKey("field_events.id"), nullable=False)
+    storage_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    taken_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    date_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    detected_code: Mapped[str | None] = mapped_column(String(100))
+    resolver_confidence: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class FieldEvent(Base):
@@ -42,3 +64,4 @@ class FieldEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
     plant_links: Mapped[list["FieldEventPlantUnit"]] = relationship(cascade="all, delete-orphan")
+    photos: Mapped[list[FieldEventPhoto]] = relationship(cascade="all, delete-orphan")

@@ -3,7 +3,7 @@
 Estado: Vigente
 Tipo: Capacidad operativa
 Fuente de verdad: `docs/00-estado-del-proyecto.md`
-Ultima actualizacion: 2026-08-28
+Ultima actualizacion: 2026-08-29
 Responsable logico: Operador ARGOS
 Revision: 1
 
@@ -18,6 +18,7 @@ Tablas principales:
 - `plant_units`
 - `plant_irrigation_lines`
 - `field_event_plant_units`
+- `field_event_photos`
 
 La transcripción inicial de la plantilla está en:
 
@@ -57,9 +58,35 @@ uv run argos plants import-matrix --path docs/reference/plantation_matrix_12x12.
 
 La importación es idempotente: repetirla actualiza celdas y árboles existentes por código visible, sin duplicarlos.
 
+## Fotografías
+
+Las fotografías confirmadas no se guardan dentro de SQLite. ARGOS conserva los archivos en el directorio de datos y registra en SQLite los metadatos necesarios para trazabilidad:
+
+- `field_events`: observación agronómica.
+- `field_event_plant_units`: enlace entre la observación y el árbol afectado.
+- `field_event_photos`: una fila por archivo, con nombre original, MIME, tamaño, SHA256, fecha de captura, origen de fecha, código detectado y confianza del resolvedor.
+
+La importación masiva desde `Plantación` usa dos fases:
+
+1. `Analizar fotos`: calcula SHA256, MIME, tamaño, miniatura y fecha; ejecuta un `PlantCodeResolver`; y propone un árbol únicamente si el código detectado existe en `plant_units`.
+2. `Confirmar lote`: crea los `field_events` y sus enlaces solo para las fotos no duplicadas que el usuario deje asignadas a un árbol.
+
+El resolvedor no interpreta posiciones de matriz. Si detecta `11`, `18#` o cualquier otro código, lo resuelve contra `plant_units.public_code`; desde el árbol ya resuelto se obtienen celda, especie, fila, línea y sector.
+
+Estados de staging:
+
+- `matched`: identificación inequívoca y resuelta contra un árbol existente.
+- `review`: detección ambigua o de baja confianza; requiere revisión.
+- `unassigned`: no se puede resolver contra un árbol.
+- `duplicate`: el SHA256 ya existe en fotos confirmadas o se repite dentro del lote.
+
+La fecha de captura se calcula por este orden: `EXIF DateTimeOriginal`, patrones reconocibles del nombre de archivo como `WhatsApp Image YYYY-MM-DD at HH.MM.SS`, y fecha indicada por el usuario para el lote. Si no hay metadatos ni fecha de lote, la API rechaza la confirmación en lugar de asignar la fecha actual.
+
+Al confirmar, ARGOS agrupa las fotos del mismo árbol en una observación de seguimiento fotográfico y conserva cada archivo con sus metadatos individuales en `field_event_photos`. Para compatibilidad con pantallas y APIs existentes, la primera foto del grupo se mantiene también en los campos históricos `photo_*` de `field_events`.
+
 ## Interfaz
 
-La vista `Plantación` del dashboard muestra la matriz, filtros por estado, especie y sector, búsqueda por código, selección de celda ocupada y ficha del árbol con historial de eventos asociados. Desde la ficha se pueden registrar observaciones con foto subida desde el dispositivo o capturada con cámara; si la imagen conserva fecha EXIF, ARGOS registra el evento con esa fecha de captura.
+La vista `Plantación` del dashboard muestra la matriz, filtros por estado, especie y sector, búsqueda por código, selección de celda ocupada y ficha del árbol con historial de eventos asociados. Desde la ficha se pueden registrar observaciones con foto subida desde el dispositivo o capturada con cámara; si la imagen conserva fecha EXIF, ARGOS registra el evento con esa fecha de captura. La acción `Importar lote de fotos` permite revisar una galería de staging con miniatura, código detectado, propuesta de árbol/celda, confianza y selector manual antes de confirmar.
 
 Pendiente:
 

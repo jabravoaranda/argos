@@ -4038,7 +4038,7 @@ def render_plantation(client: ArgosApiClient) -> None:
             st.session_state["plantation_selected_plant_id"] = matching["id"]
             st.session_state["plantation_selected_public_code"] = matching["public_code"]
 
-    summary_col, refresh_col = st.columns([1, 0.18], vertical_alignment="center")
+    summary_col, import_col, refresh_col = st.columns([1, 0.24, 0.18], vertical_alignment="center")
     with summary_col:
         occupied = sum(1 for cell in matrix.get("cells", []) if cell.get("cell_type") == "plant")
         infrastructure = sum(1 for cell in matrix.get("cells", []) if cell.get("cell_type") == "infrastructure")
@@ -4049,6 +4049,9 @@ def render_plantation(client: ArgosApiClient) -> None:
             cached_plants.clear()
             cached_plant_history.clear()
             st.rerun()
+    with import_col:
+        with st.popover("Importar lote de fotos", icon=":material/add_photo_alternate:"):
+            render_plant_photo_batch_import(client, matrix)
 
     grid_col, detail_col = st.columns([3.6, 6.4], vertical_alignment="top")
     visible_ids = {int(plant["id"]) for plant in plants}
@@ -4133,6 +4136,93 @@ def render_plantation_matrix(matrix: dict[str, Any], *, visible_plant_ids: set[i
                     st.session_state["plantation_selected_public_code"] = plant["public_code"]
                     st.query_params["plant"] = plant["public_code"]
                     st.rerun()
+
+
+def render_plant_photo_batch_import(client: ArgosApiClient, matrix: dict[str, Any]) -> None:
+    fallback_date = st.date_input("Fecha del lote", value=datetime.now(ZoneInfo(get_settings().local_timezone)).date(), key="plant_photo_batch_date")
+    uploaded_files = st.file_uploader(
+        "Fotos",
+        type=["jpg", "jpeg", "png", "webp"],
+        accept_multiple_files=True,
+        key="plant_photo_batch_files",
+    )
+    if st.button("Analizar fotos", icon=":material/search:", disabled=not bool(uploaded_files), key="plant_photo_batch_stage"):
+        if not client.admin_token:
+            st.error("Hace falta ARGOS admin token para importar fotos.")
+            return
+        try:
+            photo_payloads = [uploaded_photo_payload(file) for file in uploaded_files]
+            response = client.stage_plant_photo_batch(
+                {
+                    "fallback_taken_at": local_datetime_to_utc_iso(fallback_date, time.min),
+                    "photos": photo_payloads,
+                }
+            )
+            st.session_state["plant_photo_batch_uploads"] = {
+                item["sha256"]: payload
+                for item, payload in zip(response.get("items", []), photo_payloads, strict=False)
+            }
+            st.session_state["plant_photo_batch_items"] = response.get("items", [])
+        except ArgosApiError as exc:
+            st.error(str(exc))
+            return
+    staged_items = st.session_state.get("plant_photo_batch_items") or []
+    if not staged_items:
+        return
+    uploaded_payloads = st.session_state.get("plant_photo_batch_uploads") or {}
+    plants = sorted(
+        [cell["plant"] for cell in matrix.get("cells", []) if cell.get("plant")],
+        key=lambda plant: (plant["matrix_row"], plant["matrix_column"]),
+    )
+    options = ["", *[str(plant["id"]) for plant in plants]]
+    labels = {str(plant["id"]): f"{plant['public_code']} · {plant['matrix_position_code']} · {plant['species_label']}" for plant in plants}
+    confirm_items = []
+    missing_uploads = False
+    for item in staged_items:
+        st.image(item["thumbnail_data_url"], width=120)
+        st.caption(
+            f"{item['filename']} · {item['status']} · código: {item.get('detected_code') or 'sin detectar'} · "
+            f"confianza: {float(item.get('confidence') or 0):.2f} · fecha: {item.get('date_source')}"
+        )
+        default_value = str(item["plant_id"]) if item.get("plant_id") else ""
+        selected = st.selectbox(
+            "Árbol",
+            options=options,
+            index=options.index(default_value) if default_value in options else 0,
+            format_func=lambda value: "Sin asignar" if not value else labels[value],
+            key=f"plant_photo_batch_assign_{item['index']}_{item['sha256'][:8]}",
+            disabled=bool(item.get("duplicate")),
+        )
+        if item.get("duplicate"):
+            st.warning("Duplicada: no se importará.")
+        source_payload = uploaded_payloads.get(item["sha256"], {})
+        if not source_payload:
+            missing_uploads = True
+        confirm_item = {
+            key: item[key]
+            for key in ("filename", "content_type", "sha256", "taken_at", "date_source", "detected_code", "confidence", "status")
+        }
+        confirm_item["data_base64"] = source_payload.get("data_base64", "")
+        confirm_item["plant_id"] = int(selected) if selected else None
+        confirm_items.append(confirm_item)
+    if missing_uploads:
+        st.warning("Vuelve a seleccionar las fotos para confirmar el lote.")
+    if st.button("Confirmar lote", icon=":material/check:", type="primary", key="plant_photo_batch_confirm", disabled=missing_uploads):
+        if not client.admin_token:
+            st.error("Hace falta ARGOS admin token para importar fotos.")
+            return
+        try:
+            result = client.confirm_plant_photo_batch({"fallback_taken_at": local_datetime_to_utc_iso(fallback_date, time.min), "items": confirm_items})
+            st.success(
+                f"{result['imported_photos']} fotos importadas en {result['created_events']} observaciones. "
+                f"{result['skipped_duplicates']} duplicadas y {result['skipped_unassigned']} sin asignar."
+            )
+            st.session_state.pop("plant_photo_batch_items", None)
+            st.session_state.pop("plant_photo_batch_uploads", None)
+            cached_field_events.clear()
+            cached_plant_history.clear()
+        except ArgosApiError as exc:
+            st.error(str(exc))
 
 
 def plantation_cell_label(cell: dict[str, Any]) -> str:

@@ -312,6 +312,12 @@ class ArgosApiClient:
     def get_plant_history(self, plant_id: int, *, limit: int = 100) -> list[dict[str, Any]]:
         return self._get_json(f"/api/v1/plants/{plant_id}/history", params={"limit": limit})
 
+    def stage_plant_photo_batch(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json("/api/v1/plants/photos/stage", method="POST", json_payload=payload, admin=True)
+
+    def confirm_plant_photo_batch(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json("/api/v1/plants/photos/confirm", method="POST", json_payload=payload, admin=True)
+
     def get_analytics_variables(self) -> list[dict[str, Any]]:
         return self._get_json("/api/v1/analytics/variables")
 

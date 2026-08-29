@@ -171,6 +171,69 @@ class PlantMatrixRead(BaseModel):
     cells: list[PlantMatrixCellRead]
 
 
+class PlantPhotoUpload(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(min_length=1, max_length=100)
+    data_base64: str = Field(min_length=1)
+
+
+class PlantPhotoStageRequest(BaseModel):
+    photos: list[PlantPhotoUpload] = Field(min_length=1, max_length=100)
+    fallback_taken_at: datetime | None = None
+
+
+class PlantPhotoStageItemRead(BaseModel):
+    index: int
+    filename: str
+    content_type: str
+    sha256: str
+    size_bytes: int
+    taken_at: datetime | None
+    date_source: str
+    detected_code: str | None
+    confidence: float
+    status: str
+    diagnostics: dict[str, str]
+    plant_id: int | None
+    plant_public_code: str | None
+    matrix_position_code: str | None
+    species: str | None
+    species_label: str | None
+    irrigation_sector_id: str | None
+    duplicate: bool
+    thumbnail_data_url: str
+
+
+class PlantPhotoStageRead(BaseModel):
+    items: list[PlantPhotoStageItemRead]
+
+
+class PlantPhotoConfirmItem(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(min_length=1, max_length=100)
+    data_base64: str = Field(min_length=1)
+    sha256: str = Field(min_length=64, max_length=64)
+    plant_id: int | None = None
+    taken_at: datetime | None = None
+    date_source: str
+    detected_code: str | None = Field(default=None, max_length=100)
+    confidence: float | None = None
+    status: str
+
+
+class PlantPhotoConfirmRequest(BaseModel):
+    items: list[PlantPhotoConfirmItem] = Field(min_length=1, max_length=100)
+    fallback_taken_at: datetime | None = None
+
+
+class PlantPhotoConfirmRead(BaseModel):
+    created_events: int
+    imported_photos: int
+    skipped_duplicates: int
+    skipped_unassigned: int
+    event_ids: list[int]
+
+
 def plant_unit_read(plant: Any) -> PlantUnitRead:
     return PlantUnitRead(
         id=plant.id,

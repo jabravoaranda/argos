@@ -22,7 +22,7 @@ from argos.schemas.field_events import (
     FieldEventUpdate,
 )
 from argos.services.data_layout import resolve_storage_path
-from argos.services.field_event_photos import FieldEventPhotoInput, attach_field_event_photo
+from argos.services.field_event_photos import FieldEventPhotoInput, add_event_photo_item, attach_field_event_photo
 
 router = APIRouter(prefix="/api/v1/field-events", tags=["field-events"])
 
@@ -116,7 +116,9 @@ def create_field_event(
         PlantRepository(session).link_event_to_plants(event=event, plant_ids=plant_unit_ids)
     if photo is not None:
         try:
-            attach_field_event_photo(event, FieldEventPhotoInput(**photo))
+            photo_input = FieldEventPhotoInput(**photo)
+            attach_field_event_photo(event, photo_input)
+            session.add(add_event_photo_item(event=event, photo=photo_input, date_source="unknown"))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     session.commit()
