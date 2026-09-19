@@ -30,6 +30,10 @@ def format_file_size(size_bytes: int | None) -> str:
     return f"{size_bytes / (1024 * 1024):.1f} MB"
 
 
+def format_utc_iso(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 def format_number(value: Any, unit: str) -> str:
     if value is None:
         return "-"
