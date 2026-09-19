@@ -6,12 +6,14 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from argos.api.weather import require_admin_token
 from argos.database.session import get_db_session
 from argos.domain.field_events import FIELD_EVENT_TYPE_LABELS, FIELD_EVENT_TYPES, FIELD_ZONE_LABELS, FIELD_ZONES
 from argos.repositories.field_events import FieldEventRepository
+from argos.repositories.plants import PlantRepository
 from argos.schemas.field_events import (
     FieldEventCatalogItemRead,
     FieldEventCatalogRead,
@@ -19,6 +21,8 @@ from argos.schemas.field_events import (
     FieldEventRead,
     FieldEventUpdate,
 )
+from argos.services.data_layout import resolve_storage_path
+from argos.services.field_event_photos import FieldEventPhotoInput, add_event_photo_item, attach_field_event_photo
 
 router = APIRouter(prefix="/api/v1/field-events", tags=["field-events"])
 
@@ -63,7 +67,7 @@ def list_field_events(
         limit=limit,
         offset=offset,
     )
-    return [FieldEventRead.model_validate(event) for event in events]
+    return [_field_event_read(event) for event in events]
 
 
 @router.get("/export.csv")
@@ -104,10 +108,21 @@ def create_field_event(
     session: Session = Depends(get_db_session),
 ) -> FieldEventRead:
     values = payload.model_dump()
+    plant_unit_ids = values.pop("plant_unit_ids", [])
+    photo = values.pop("photo", None)
     _validate_quantity_unit(values.get("quantity"), values.get("unit"))
     event = FieldEventRepository(session).create(values)
+    if plant_unit_ids:
+        PlantRepository(session).link_event_to_plants(event=event, plant_ids=plant_unit_ids)
+    if photo is not None:
+        try:
+            photo_input = FieldEventPhotoInput(**photo)
+            attach_field_event_photo(event, photo_input)
+            session.add(add_event_photo_item(event=event, photo=photo_input, date_source="unknown"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     session.commit()
-    return FieldEventRead.model_validate(event)
+    return _field_event_read(event)
 
 
 @router.get("/{event_id}", response_model=FieldEventRead)
@@ -115,7 +130,22 @@ def get_field_event(event_id: int, session: Session = Depends(get_db_session)) -
     event = FieldEventRepository(session).get(event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Field event not found.")
-    return FieldEventRead.model_validate(event)
+    return _field_event_read(event)
+
+
+@router.get("/{event_id}/photo")
+def get_field_event_photo(event_id: int, session: Session = Depends(get_db_session)) -> FileResponse:
+    event = FieldEventRepository(session).get(event_id)
+    if event is None or not event.photo_storage_path:
+        raise HTTPException(status_code=404, detail="Field event photo not found.")
+    path = resolve_storage_path(event.photo_storage_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Field event photo file not found.")
+    return FileResponse(
+        path,
+        media_type=event.photo_mime_type or "application/octet-stream",
+        filename=event.photo_original_filename or path.name,
+    )
 
 
 @router.patch("/{event_id}", response_model=FieldEventRead)
@@ -130,12 +160,15 @@ def update_field_event(
     if event is None:
         raise HTTPException(status_code=404, detail="Field event not found.")
     values = payload.model_dump(exclude_unset=True)
+    plant_unit_ids = values.pop("plant_unit_ids", None)
     quantity = values.get("quantity", event.quantity)
     unit = values.get("unit", event.unit)
     _validate_quantity_unit(quantity, unit)
     event = repository.update(event, values)
+    if plant_unit_ids is not None:
+        PlantRepository(session).link_event_to_plants(event=event, plant_ids=plant_unit_ids)
     session.commit()
-    return FieldEventRead.model_validate(event)
+    return _field_event_read(event)
 
 
 @router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -169,3 +202,11 @@ def _event_export_row(event: Any) -> dict[str, Any]:
         "description": event.description or "",
         "source": event.source,
     }
+
+
+def _field_event_read(event: Any) -> FieldEventRead:
+    read = FieldEventRead.model_validate(event)
+    read.plant_unit_ids = [link.plant_unit_id for link in getattr(event, "plant_links", [])]
+    if event.photo_storage_path:
+        read.photo_url = f"/api/v1/field-events/{event.id}/photo"
+    return read

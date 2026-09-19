@@ -112,6 +112,33 @@ def test_api_client_sends_field_event_json(monkeypatch) -> None:
     assert timeout == 3
 
 
+def test_api_client_sends_ecowitt_cloud_backfill_admin_request(monkeypatch) -> None:
+    requests: list[Any] = []
+
+    def fake_urlopen(request: Any, timeout: int) -> FakeResponse:
+        requests.append((request, timeout))
+        return FakeResponse(b'{"imported_count": 1, "duplicate_count": 0, "warning_count": 0, "warnings": []}')
+
+    monkeypatch.setattr("argos.dashboard.api_client.urlopen", fake_urlopen)
+    client = ArgosApiClient(base_url="http://localhost:8080", admin_token="admin", timeout_seconds=9)
+
+    result = client.backfill_ecowitt_cloud(
+        gateway_identifier="GW2000A",
+        start="2026-07-10T12:00:00Z",
+        end="2026-07-10T13:00:00Z",
+    )
+
+    request, timeout = requests[0]
+    assert result["imported_count"] == 1
+    assert request.full_url == (
+        "http://localhost:8080/api/v1/weather/ecowitt-cloud/backfill?"
+        "gateway_identifier=GW2000A&from=2026-07-10T12%3A00%3A00Z&to=2026-07-10T13%3A00%3A00Z"
+    )
+    assert request.get_method() == "POST"
+    assert request.headers["X-argos-admin-token"] == "admin"
+    assert timeout == 9
+
+
 def test_api_client_sends_analytics_json(monkeypatch) -> None:
     requests: list[Any] = []
 

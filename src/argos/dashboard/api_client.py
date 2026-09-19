@@ -195,6 +195,14 @@ class ArgosApiClient:
             admin=True,
         )
 
+    def backfill_ecowitt_cloud(self, *, gateway_identifier: str, start: str, end: str) -> dict[str, Any]:
+        return self._request_json(
+            "/api/v1/weather/ecowitt-cloud/backfill",
+            method="POST",
+            params={"gateway_identifier": gateway_identifier, "from": start, "to": end},
+            admin=True,
+        )
+
     def sync_aemet(self, *, station: str, lookback_days: int) -> dict[str, Any]:
         return self._request_json(
             "/api/v1/weather/aemet/sync",
@@ -271,6 +279,45 @@ class ArgosApiClient:
             params={"from": start, "to": end, "event_type": event_type, "zone_slug": zone_slug, "search": search},
         )
 
+    def get_plant_catalog(self) -> dict[str, Any]:
+        return self._get_json("/api/v1/plants/catalog")
+
+    def get_plant_matrix(self, *, parcel_slug: str = "tomillar") -> dict[str, Any]:
+        return self._get_json("/api/v1/plants/matrix", params={"parcel_slug": parcel_slug})
+
+    def get_plants(
+        self,
+        *,
+        parcel_slug: str | None = "tomillar",
+        status: str | None = None,
+        species: str | None = None,
+        irrigation_sector_id: str | None = None,
+        search: str | None = None,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return self._get_json(
+            "/api/v1/plants",
+            params={
+                "parcel_slug": parcel_slug,
+                "status": status,
+                "species": species,
+                "irrigation_sector_id": irrigation_sector_id,
+                "search": search,
+                "limit": limit,
+                "offset": offset,
+            },
+        )
+
+    def get_plant_history(self, plant_id: int, *, limit: int = 100) -> list[dict[str, Any]]:
+        return self._get_json(f"/api/v1/plants/{plant_id}/history", params={"limit": limit})
+
+    def stage_plant_photo_batch(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.with_timeout(120)._request_json("/api/v1/plants/photos/stage", method="POST", json_payload=payload, admin=True)
+
+    def confirm_plant_photo_batch(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json("/api/v1/plants/photos/confirm", method="POST", json_payload=payload, admin=True)
+
     def get_analytics_variables(self) -> list[dict[str, Any]]:
         return self._get_json("/api/v1/analytics/variables")
 
@@ -337,3 +384,6 @@ class ArgosApiClient:
         if query:
             return f"{base}{path}?{query}"
         return f"{base}{path}"
+
+    def with_timeout(self, timeout_seconds: int) -> ArgosApiClient:
+        return ArgosApiClient(base_url=self.base_url, admin_token=self.admin_token, timeout_seconds=timeout_seconds)

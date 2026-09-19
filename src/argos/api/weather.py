@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from argos.config.settings import Settings, get_settings
 from argos.database.session import get_db_session
 from argos.integrations.aemet.client import AemetClient, AemetConfigError, AemetError
+from argos.integrations.ecowitt_cloud import EcowittCloudClient, EcowittCloudConfigError, EcowittCloudError
 from argos.repositories.weather import WeatherRepository
 from argos.repositories.aemet import AemetRepository
 from argos.schemas.weather import (
@@ -18,6 +19,7 @@ from argos.schemas.weather import (
     AemetImportSummaryRead,
     AemetSyncRunRead,
     DataGapRead,
+    EcowittCloudBackfillRead,
     GatewayHardwareRead,
     GatewayStatusRead,
     IngestionEventRead,
@@ -32,6 +34,7 @@ from argos.schemas.weather import (
 )
 from argos.models.aemet import WeatherDailyObservation
 from argos.services.aemet_import import AemetImportRangeError, AemetImportService
+from argos.services.ecowitt_backfill import BackfillRangeError, backfill_ecowitt_cloud_range
 from argos.services.weather_statistics import recompute_statistics
 from argos.utils.redaction import redact_sensitive_values
 
@@ -147,6 +150,44 @@ def aemet_observation_bounds(
         select(func.count()).select_from(WeatherDailyObservation).where(WeatherDailyObservation.station_id == station_record.id)
     )
     return AemetObservationBoundsRead(station=station, first_date=first_date, last_date=last_date, count=int(count or 0))
+
+
+@router.post("/ecowitt-cloud/backfill", response_model=EcowittCloudBackfillRead)
+def backfill_ecowitt_cloud(
+    start: datetime = Query(..., alias="from"),
+    end: datetime = Query(..., alias="to"),
+    gateway_identifier: str | None = Query(default=None),
+    _admin: None = Depends(require_admin_token),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> EcowittCloudBackfillRead:
+    try:
+        client = EcowittCloudClient.from_settings(settings)
+        gateway = WeatherRepository(session).latest_gateway()
+        configured_gateway = client.credentials.mac
+        selected_gateway = gateway_identifier or configured_gateway
+        result = backfill_ecowitt_cloud_range(
+            session=session,
+            client=client,
+            gateway_identifier=selected_gateway,
+            station_slug=settings.station_slug,
+            station_type=gateway.station_type if gateway is not None else None,
+            gateway_aliases={"ecowitt_cloud_mac": configured_gateway},
+            start=start,
+            end=end,
+        )
+    except EcowittCloudConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except BackfillRangeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except EcowittCloudError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return EcowittCloudBackfillRead(
+        imported_count=result.imported_count,
+        duplicate_count=result.duplicate_count,
+        warning_count=result.warning_count,
+        warnings=result.warnings,
+    )
 
 
 @router.post("/aemet/backfill", response_model=AemetImportSummaryRead)

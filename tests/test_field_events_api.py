@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import base64
+from io import BytesIO
+from pathlib import Path
+
 from fastapi.testclient import TestClient
+from PIL import Image
+from sqlalchemy import select
 
 from argos.config.settings import get_settings
 from argos.database.base import Base
-from argos.database.session import get_engine, reset_database_caches
+from argos.database.session import get_engine, get_sessionmaker, reset_database_caches
 from argos.main import create_app
+from argos.models.field_event import FieldEvent
 
 
 ADMIN_HEADERS = {"X-ARGOS-ADMIN-TOKEN": "test-admin-token"}
@@ -123,7 +130,67 @@ def test_field_events_validate_required_fields_and_quantity_unit(monkeypatch, tm
     reset_database_caches()
 
 
+def test_field_event_create_accepts_photo_upload(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ECOWITT_INGEST_TOKEN", "test-token")
+    monkeypatch.setenv("ARGOS_ADMIN_TOKEN", "test-admin-token")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'argos.db'}")
+    monkeypatch.setenv("ARGOS_DATA_DIR", str(tmp_path / "data"))
+    get_settings.cache_clear()
+    reset_database_caches()
+    Base.metadata.create_all(get_engine())
+    client = TestClient(create_app())
+
+    photo_bytes = jpeg_with_exif_taken_at("2026:08:01 11:30:00", offset="+02:00")
+    response = client.post(
+        "/api/v1/field-events",
+        json={
+            "source": "manual",
+            "occurred_at": "2026-08-02T09:30:00Z",
+            "event_type": "observation",
+            "title": "Foto árbol 11",
+            "photo": {
+                "filename": "árbol 11.jpg",
+                "content_type": "image/jpeg",
+                "data_base64": base64.b64encode(photo_bytes).decode("ascii"),
+            },
+        },
+        headers=ADMIN_HEADERS,
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["photo_mime_type"] == "image/jpeg"
+    assert payload["photo_size_bytes"] == len(photo_bytes)
+    assert payload["photo_original_filename"] == "_rbol 11.jpg"
+    assert payload["photo_url"] == f"/api/v1/field-events/{payload['id']}/photo"
+    assert payload["occurred_at"].startswith("2026-08-01T09:30:00")
+    assert payload["photo_taken_at"].startswith("2026-08-01T09:30:00")
+
+    with get_sessionmaker()() as session:
+        event = session.scalar(select(FieldEvent))
+        assert event is not None
+        assert event.photo_storage_path is not None
+        assert (Path(tmp_path / "data") / event.photo_storage_path).read_bytes() == photo_bytes
+
+    photo_response = client.get(payload["photo_url"])
+    assert photo_response.status_code == 200
+    assert photo_response.content == photo_bytes
+
+    get_settings.cache_clear()
+    reset_database_caches()
+
+
 def create_event(client: TestClient, **payload):
     response = client.post("/api/v1/field-events", json={"source": "manual", **payload}, headers=ADMIN_HEADERS)
     assert response.status_code == 201
     return response.json()
+
+
+def jpeg_with_exif_taken_at(value: str, *, offset: str) -> bytes:
+    image = Image.new("RGB", (1, 1), color="white")
+    exif = Image.Exif()
+    exif[36867] = value
+    exif[36881] = offset
+    output = BytesIO()
+    image.save(output, format="JPEG", exif=exif)
+    return output.getvalue()

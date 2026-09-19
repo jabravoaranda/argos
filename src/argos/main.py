@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from threading import Event, Thread
 
@@ -11,6 +11,7 @@ from argos.api.analytics import router as analytics_router
 from argos.api.ecowitt import router as ecowitt_router
 from argos.api.field_events import router as field_events_router
 from argos.api.health import router as health_router
+from argos.api.plants import router as plants_router
 from argos.api.satellite import router as satellite_router
 from argos.api.weather import router as weather_router
 from argos.config.irrigation import get_main_irrigation_ev, irrigation_sector_mappings
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> Iterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = app.state.settings
     workers: list[tuple[Thread, Event, float]] = []
     if settings.argos_node_url:
@@ -80,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(weather_router)
     app.include_router(satellite_router)
     app.include_router(field_events_router)
+    app.include_router(plants_router)
     app.include_router(analytics_router)
     return app
 

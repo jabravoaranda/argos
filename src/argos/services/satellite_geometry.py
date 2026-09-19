@@ -101,13 +101,13 @@ def _validate_polygon_coordinates(coordinates: Any) -> list[list[list[float]]]:
         if not isinstance(ring, list) or len(ring) < 4:
             raise SatelliteGeometryError("Satellite AOI polygon rings must contain at least four positions.")
 
-        positions = [_validate_position(position) for position in ring]
+        positions: list[tuple[float, float]] = [_validate_position(position) for position in ring]
         if positions[0] != positions[-1]:
             raise SatelliteGeometryError("Satellite AOI polygon rings must be closed.")
         if ring_index == 0 and len(set(positions[:-1])) < 3:
             raise SatelliteGeometryError("Satellite AOI polygon must contain at least three distinct points.")
         rings.append([list(position) for position in positions])
-    if _ring_area_degrees2([tuple(position) for position in rings[0]]) == 0:
+    if _ring_area_degrees2([(position[0], position[1]) for position in rings[0]]) == 0:
         raise SatelliteGeometryError("Satellite AOI polygon area must be greater than zero.")
     return rings
 

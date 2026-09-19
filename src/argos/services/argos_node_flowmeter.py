@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from argos.dashboard.argos_node_client import ArgosNodeClient, ArgosNodeError
 from argos.models.argos_node import ArgosNodeFlowmeterMinute
+from argos.models.ingestion import IngestionRun
 from argos.repositories.argos_node import ArgosNodeRepository
 from argos.services.ingestion_trace import finalize_ingestion_run, mark_run_failed, start_ingestion_run
 
@@ -550,16 +551,16 @@ def run_flowmeter_minute_capture(
                 _wait_for_next_poll(stop_event=stop_event, sleep=sleep, poll_interval_seconds=poll_interval_seconds)
     except Exception as exc:
         with session_factory() as trace_session:
-            run_trace = trace_session.get(type(run_trace), ingestion_run_id)
-            if run_trace is not None:
-                mark_run_failed(run_trace, exc)
+            persisted_run = trace_session.get(IngestionRun, ingestion_run_id)
+            if persisted_run is not None:
+                mark_run_failed(persisted_run, exc)
                 trace_session.commit()
         raise
     with session_factory() as trace_session:
-        run_trace = trace_session.get(type(run_trace), ingestion_run_id)
-        if run_trace is not None:
-            run_trace.inserted_count = completed_windows
-            finalize_ingestion_run(run_trace)
+        persisted_run = trace_session.get(IngestionRun, ingestion_run_id)
+        if persisted_run is not None:
+            persisted_run.inserted_count = completed_windows
+            finalize_ingestion_run(persisted_run)
             trace_session.commit()
     return completed_windows
 

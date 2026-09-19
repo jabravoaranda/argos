@@ -168,7 +168,7 @@ def safe_data_path(relative_path: str | Path, *, root: Path) -> Path:
 def build_data_inventory(*, session: Session | None = None, settings: Settings | None = None) -> list[FileInventoryRecord]:
     paths = data_paths(settings)
     asset_refs = _satellite_asset_refs(session) if session is not None else {}
-    records = []
+    records: list[FileInventoryRecord] = []
     if not paths.data.exists():
         return records
     for path in sorted(item for item in paths.data.rglob("*") if item.is_file()):
@@ -409,7 +409,7 @@ def retention_report(*, records: list[FileInventoryRecord], now: datetime | None
 
 def audit_staging(*, session: Session, settings: Settings | None = None, older_than: timedelta = timedelta(hours=24)) -> list[StagingAuditIssue]:
     paths = data_paths(settings)
-    issues = []
+    issues: list[StagingAuditIssue] = []
     if not paths.staging.exists():
         return issues
     artifact_paths = {artifact.storage_path for artifact in session.scalars(select(SourceArtifact)).all()}
@@ -434,7 +434,7 @@ def reconcile_orphan_satellite_assets(
     paths = data_paths(settings)
     sql_asset_paths = _existing_satellite_asset_paths(session, settings=settings)
     checksum_paths = _png_paths_by_checksum(paths.data)
-    records = []
+    records: list[OrphanSatelliteAssetRecord] = []
     for path in sorted(paths.data.rglob("*.png")):
         resolved = path.resolve()
         if str(resolved) in sql_asset_paths:
@@ -460,7 +460,7 @@ def reconcile_orphan_satellite_assets(
                 size_bytes=path.stat().st_size,
                 sha256=checksum,
                 modified_at_utc=datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat(),
-                name_pattern=parsed["pattern"],
+                name_pattern=parsed["pattern"] or "unknown",
                 probable_aoi_slug=parsed.get("aoi_slug"),
                 probable_acquisition_time=parsed.get("acquisition_time"),
                 probable_scene_id=parsed.get("scene_id"),

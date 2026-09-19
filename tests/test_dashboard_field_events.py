@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from datetime import date, time
 
 import pytest
@@ -10,6 +11,7 @@ from argos.dashboard.app import (
     field_event_row_html,
     field_events_csv,
     parse_optional_float,
+    uploaded_photo_payload,
 )
 
 
@@ -83,3 +85,20 @@ def test_field_event_quantity_and_float_helpers() -> None:
     assert parse_optional_float("") is None
     assert field_event_quantity_label(None, None) == "—"
     assert field_event_quantity_label(2, "kg") == "2 kg"
+
+
+def test_uploaded_photo_payload_encodes_file() -> None:
+    class FakeUpload:
+        name = "arbol.jpg"
+        type = "image/jpeg"
+
+        def getvalue(self) -> bytes:
+            return b"photo-bytes"
+
+    payload = uploaded_photo_payload(FakeUpload())
+
+    assert payload == {
+        "filename": "arbol.jpg",
+        "content_type": "image/jpeg",
+        "data_base64": base64.b64encode(b"photo-bytes").decode("ascii"),
+    }

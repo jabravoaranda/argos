@@ -38,6 +38,7 @@ from argos.services.ingestion_trace import (
     mark_run_interrupted,
     validate_cursor,
 )
+from argos.services.plants import PlantImportError, ensure_base_matrix, import_plantation_matrix_csv
 from sqlalchemy import func, select
 from argos.models.ecowitt import WeatherObservation
 
@@ -62,6 +63,9 @@ def main() -> None:
         return
     if args.command == "data":
         run_data(args)
+        return
+    if args.command == "plants":
+        run_plants(args)
         return
     parser.print_help()
 
@@ -192,6 +196,16 @@ def build_parser() -> argparse.ArgumentParser:
     orphan_sat_parser.add_argument("--apply-recoverable", action="store_true")
     orphan_sat_parser.add_argument("--classify-only", action="store_true")
     orphan_sat_parser.add_argument("--output-json", type=Path, default=None)
+
+    plants_parser = subparsers.add_parser("plants", help="Plant inventory utilities.")
+    plants_subparsers = plants_parser.add_subparsers(dest="plants_command")
+    base_matrix_parser = plants_subparsers.add_parser("ensure-base-matrix", help="Create the 12x12 matrix parcel cells.")
+    base_matrix_parser.add_argument("--parcel-slug", default="tomillar")
+    base_matrix_parser.add_argument("--parcel-name", default="Finca tomillar")
+    import_matrix_parser = plants_subparsers.add_parser("import-matrix", help="Import plant matrix cells from CSV.")
+    import_matrix_parser.add_argument("--path", type=Path, required=True)
+    import_matrix_parser.add_argument("--parcel-slug", default="tomillar")
+    import_matrix_parser.add_argument("--parcel-name", default="Finca tomillar")
 
     return parser
 
@@ -349,22 +363,22 @@ def run_node(args: argparse.Namespace) -> None:
 def run_data(args: argparse.Namespace) -> None:
     if args.data_command == "audit-duplicates":
         with get_sessionmaker()() as session:
-            results = audit_duplicates(session)
-        for line in format_duplicate_results(results):
+            duplicate_results = audit_duplicates(session)
+        for line in format_duplicate_results(duplicate_results):
             print(line)
-        if has_structural_duplicates(results):
+        if has_structural_duplicates(duplicate_results):
             raise SystemExit(1)
         return
     if args.data_command == "list-ingestion-runs":
         with get_sessionmaker()() as session:
-            statement = select(IngestionRun, DataSource.code).join(DataSource).order_by(
+            ingestion_statement = select(IngestionRun, DataSource.code).join(DataSource).order_by(
                 IngestionRun.started_at_utc.desc(), IngestionRun.id.desc()
             ).limit(args.limit)
             if args.source:
-                statement = statement.where(DataSource.code == args.source)
+                ingestion_statement = ingestion_statement.where(DataSource.code == args.source)
             if args.status:
-                statement = statement.where(IngestionRun.status == args.status)
-            for run, source_code in session.execute(statement):
+                ingestion_statement = ingestion_statement.where(IngestionRun.status == args.status)
+            for run, source_code in session.execute(ingestion_statement):
                 print(
                     f"{run.run_uuid} {source_code} {run.mode} {run.status} "
                     f"started={run.started_at_utc} finished={run.finished_at_utc or '-'} "
@@ -413,10 +427,10 @@ def run_data(args: argparse.Namespace) -> None:
         return
     if args.data_command == "show-sync-cursors":
         with get_sessionmaker()() as session:
-            statement = select(SyncCursor, DataSource.code).join(DataSource).order_by(DataSource.code, SyncCursor.scope, SyncCursor.scope_key)
+            cursor_statement = select(SyncCursor, DataSource.code).join(DataSource).order_by(DataSource.code, SyncCursor.scope, SyncCursor.scope_key)
             if args.source:
-                statement = statement.where(DataSource.code == args.source)
-            for cursor, source_code in session.execute(statement):
+                cursor_statement = cursor_statement.where(DataSource.code == args.source)
+            for cursor, source_code in session.execute(cursor_statement):
                 validate_cursor(cursor)
                 print(
                     f"{source_code} scope={cursor.scope} key={cursor.scope_key} "
@@ -425,10 +439,10 @@ def run_data(args: argparse.Namespace) -> None:
         return
     if args.data_command == "audit-source-artifacts":
         with get_sessionmaker()() as session:
-            issues = audit_source_artifacts(session)
-        for issue in issues:
-            print(f"{issue.issue}: artifact_id={issue.artifact_id} path={issue.storage_path}")
-        if issues:
+            artifact_issues = audit_source_artifacts(session)
+        for artifact_issue in artifact_issues:
+            print(f"{artifact_issue.issue}: artifact_id={artifact_issue.artifact_id} path={artifact_issue.storage_path}")
+        if artifact_issues:
             raise SystemExit(1)
         print("OK source_artifacts: issues=0")
         return
@@ -446,19 +460,19 @@ def run_data(args: argparse.Namespace) -> None:
         return
     if args.data_command == "inventory-files":
         with get_sessionmaker()() as session:
-            records = build_data_inventory(session=session)
-        manifest = write_inventory_manifest(records, manifest_dir=args.manifest_dir)
-        write_inventory_markdown(records, output_path=args.markdown, manifest_path=manifest)
-        print(f"Files inventoried: {len(records)}")
+            inventory_records = build_data_inventory(session=session)
+        manifest = write_inventory_manifest(inventory_records, manifest_dir=args.manifest_dir)
+        write_inventory_markdown(inventory_records, output_path=args.markdown, manifest_path=manifest)
+        print(f"Files inventoried: {len(inventory_records)}")
         print(f"Manifest: {manifest}")
         print(f"Markdown: {args.markdown}")
         return
     if args.data_command == "reconcile-legacy-weather":
         with get_sessionmaker()() as session:
-            records = build_data_inventory(session=session)
-            results = reconcile_legacy_weather(records=records, session=session)
-        write_weather_reconciliation(results, output_path=args.output)
-        print(f"Legacy weather files analyzed: {len(results)}")
+            inventory_records = build_data_inventory(session=session)
+            weather_results = reconcile_legacy_weather(records=inventory_records, session=session)
+        write_weather_reconciliation(weather_results, output_path=args.output)
+        print(f"Legacy weather files analyzed: {len(weather_results)}")
         print(f"Report: {args.output}")
         return
     if args.data_command == "migrate-layout":
@@ -507,8 +521,8 @@ def run_data(args: argparse.Namespace) -> None:
             print(f"Log: {log_path}")
         return
     if args.data_command == "retention-report":
-        records = build_data_inventory()
-        candidates = retention_report(records=records)
+        inventory_records = build_data_inventory()
+        candidates = retention_report(records=inventory_records)
         shown = 0
         for candidate in candidates:
             if shown >= args.limit:
@@ -523,26 +537,26 @@ def run_data(args: argparse.Namespace) -> None:
         return
     if args.data_command == "audit-staging":
         with get_sessionmaker()() as session:
-            issues = audit_staging(session=session, older_than=timedelta(hours=args.older_than_hours))
-        for issue in issues:
-            print(f"{issue.issue}: {issue.relative_path} {issue.details}")
-        if issues:
+            staging_issues = audit_staging(session=session, older_than=timedelta(hours=args.older_than_hours))
+        for staging_issue in staging_issues:
+            print(f"{staging_issue.issue}: {staging_issue.relative_path} {staging_issue.details}")
+        if staging_issues:
             raise SystemExit(1)
         print("OK staging: issues=0")
         return
     if args.data_command == "reconcile-orphan-satellite-assets":
         with get_sessionmaker()() as session:
-            records = reconcile_orphan_satellite_assets(session=session)
+            orphan_records = reconcile_orphan_satellite_assets(session=session)
             output_json = args.output_json.parent if args.output_json else Path("var/manifests")
             manifest = write_orphan_satellite_reconciliation(
-                records,
+                orphan_records,
                 markdown_path=Path("docs/audits/orphan-satellite-assets-reconciliation.md"),
                 manifest_dir=output_json,
             )
             if args.output_json and args.output_json != manifest:
                 args.output_json.write_text(manifest.read_text(encoding="utf-8"), encoding="utf-8")
                 manifest = args.output_json
-            summary = orphan_satellite_summary(records)
+            summary = orphan_satellite_summary(orphan_records)
             print(f"Total analyzed: {summary['total']}")
             print(f"Recoverable: {summary['recoverable_asset']}")
             print(f"Duplicates: {summary['duplicate_file']}")
@@ -555,12 +569,41 @@ def run_data(args: argparse.Namespace) -> None:
             print(f"Ambiguities: {summary['ambiguous']}")
             print(f"Manifest: {manifest}")
             if args.apply_recoverable:
-                created = apply_recoverable_orphan_satellite_assets(session=session, records=records)
+                created = apply_recoverable_orphan_satellite_assets(session=session, records=orphan_records)
                 print(f"SQL rows created: {created}")
             else:
                 print("Dry run only. Pass --apply-recoverable to create recoverable SQL rows.")
         return
     fail("Unknown data command.")
+
+
+def run_plants(args: argparse.Namespace) -> None:
+    with get_sessionmaker()() as session:
+        if args.plants_command == "ensure-base-matrix":
+            parcel = ensure_base_matrix(session=session, parcel_slug=args.parcel_slug, parcel_name=args.parcel_name)
+            session.commit()
+            print(f"Matrix ready: {parcel.slug} 12x12")
+            return
+        if args.plants_command == "import-matrix":
+            try:
+                result = import_plantation_matrix_csv(
+                    session=session,
+                    path=args.path,
+                    parcel_slug=args.parcel_slug,
+                    parcel_name=args.parcel_name,
+                )
+            except PlantImportError as exc:
+                raise SystemExit(str(exc)) from exc
+            session.commit()
+            print(f"Parcel: {result.parcel_slug}")
+            print(f"Cells seen: {result.cells_seen}")
+            print(f"Cells upserted: {result.cells_upserted}")
+            print(f"Plants created: {result.plants_created}")
+            print(f"Plants updated: {result.plants_updated}")
+            print(f"Infrastructure cells: {result.infrastructure_cells}")
+            print(f"Empty cells: {result.empty_cells}")
+            return
+    fail("Unknown plants command.")
 
 
 def format_satellite_status(status) -> list[str]:

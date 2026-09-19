@@ -109,6 +109,13 @@ class StatisticsRecomputeRead(BaseModel):
     weekly_count: int
 
 
+class EcowittCloudBackfillRead(BaseModel):
+    imported_count: int
+    duplicate_count: int
+    warning_count: int
+    warnings: list[str]
+
+
 class RawReportRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
