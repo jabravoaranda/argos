@@ -5,7 +5,7 @@ Tipo: Registro de ejecucion
 Fuente de verdad: `docs/roadmap-future-iterations.md`
 Ultima actualizacion: 2026-09-19
 Responsable logico: Mantenimiento de software
-Revision: 1
+Revision: 2
 
 ## Alcance de esta iteracion
 
@@ -23,29 +23,38 @@ Se han ejecutado solamente cambios y comprobaciones verificables por software. N
 Validacion final:
 
 - `ruff`: correcto.
-- `mypy src`: correcto, 90 archivos fuente sin incidencias.
-- `pytest`: 289 pruebas superadas y 2 omitidas.
+- `mypy src`: correcto, 93 archivos fuente sin incidencias.
+- `pytest`: 295 pruebas superadas y 2 omitidas.
 - Enlaces Markdown internos: correctos.
 - `git diff --check`: correcto; solo avisos informativos de conversion LF/CRLF de Git en Windows.
 
 ## Fase 1: en curso
 
-Primera extraccion completada sin cambio de comportamiento:
+Extracciones completadas sin cambio de comportamiento:
 
 - `src/argos/dashboard/formatting.py`: formatos numericos, binarios, fechas, identificadores y tamanos.
 - `src/argos/dashboard/dataframes.py`: conversion comun de registros API a `DataFrame`.
 - `src/argos/dashboard/pages/quality.py`: pagina de Calidad separada.
+- `src/argos/dashboard/pages/aemet.py`: pagina, cache, operaciones de importacion y utilidades AEMET separadas.
+- `src/argos/dashboard/pages/satellite.py`: pagina, cache, graficos y operaciones satelitales separadas.
+- `src/argos/dashboard/ui.py`: descarga CSV comun extraida para compartirla entre paginas.
 - `src/argos/dashboard/app.py` mantiene los nombres importados que ya consumian las pruebas y el resto de la aplicacion.
-- Se han agregado pruebas directas para formato y para el bloqueo de Calidad sin token administrativo.
+- Se han agregado pruebas directas para formato, AEMET y el bloqueo de Calidad sin token administrativo.
 
-El archivo principal ha bajado de 7.077 a 6.873 lineas. La meta de menos de 2.000 lineas sigue abierta y debe alcanzarse mediante extracciones pequenas, cada una con suite completa.
+El archivo principal ha bajado de 7.077 a 6.114 lineas. La meta de menos de 2.000 lineas sigue abierta y debe alcanzarse mediante extracciones pequenas, cada una con suite completa.
 
 Siguiente orden recomendado:
 
-1. Extraer las utilidades y la pagina AEMET.
-2. Extraer utilidades satelitales y despues la pagina Satelite.
-3. Extraer Diario de campo y Plantacion.
-4. Mantener Valvulas para el final por su criticidad operativa.
+1. Extraer Diario de campo y Plantacion.
+2. Extraer Observaciones, Resumenes y Analisis en bloques acotados.
+3. Mantener Valvulas para el final por su criticidad operativa.
+
+## Calidad continua: completada
+
+- Agregado `.github/workflows/quality.yml` para ejecutar en cada PR y envio a `main`.
+- El flujo instala el entorno bloqueado y ejecuta `ruff`, `mypy`, `pytest` y la validacion de enlaces Markdown.
+- Se cancela una ejecucion anterior de la misma rama cuando llega una revision nueva.
+- La secuencia equivalente se ha validado localmente; la primera PR valida ademas su ejecucion en GitHub.
 
 ## Fase 2: parcialmente completada
 
