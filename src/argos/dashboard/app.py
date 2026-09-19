@@ -31,8 +31,27 @@ from argos.config.irrigation import (
 from argos.config.settings import get_settings
 from argos.dashboard.api_client import ArgosApiClient, ArgosApiError
 from argos.dashboard.argos_node_client import ArgosNodeClient, ArgosNodeError
+from argos.dashboard.dataframes import dataframe_from_records
 from argos.dashboard.filters import filter_observations_by_source, observation_source_counts
-from argos.dashboard.raw_reports import build_raw_report_table, latest_payload_preview
+from argos.dashboard.formatting import (
+    format_binary_ev_state,
+    format_binary_signal as format_binary_signal,
+    format_compact_date as format_compact_date,
+    format_compact_date_range,
+    format_compact_local_datetime,
+    format_datetime,
+    format_file_size,
+    format_float as format_float,
+    format_integer,
+    format_local_datetime,
+    format_number,
+    format_percent,
+    format_percent_100,
+    format_wind_direction,
+    parse_datetime,
+    short_identifier,
+)
+from argos.dashboard.pages.quality import render_quality
 from argos.dashboard.statistics import build_descriptive_statistics
 from argos.dashboard.summaries import build_annual_summary, build_monthly_summary, build_seasonal_summary
 from argos.dashboard.trends import build_trend_frame
@@ -325,22 +344,6 @@ PAGE_DESCRIPTIONS = {
     "Válvulas": "Control de riego, caudal y acumulados",
     "Calidad": "Trazabilidad, gaps y datos operacionales",
 }
-
-SPANISH_MONTH_ABBR = {
-    1: "ene",
-    2: "feb",
-    3: "mar",
-    4: "abr",
-    5: "may",
-    6: "jun",
-    7: "jul",
-    8: "ago",
-    9: "sep",
-    10: "oct",
-    11: "nov",
-    12: "dic",
-}
-
 
 def main() -> None:
     apply_compact_dashboard_styles()
@@ -847,13 +850,6 @@ def cached_irrigation_sector_totals(node_url: str, start: str, end: str) -> dict
     for row in rows:
         totals[row.sector_id] = totals.get(row.sector_id, 0.0) + row.volume_l
     return totals
-
-
-def dataframe_from_records(records: list[dict[str, Any]], date_column: str) -> pd.DataFrame:
-    frame = pd.DataFrame.from_records(records)
-    if not frame.empty and date_column in frame:
-        frame[date_column] = pd.to_datetime(frame[date_column])
-    return frame
 
 
 def render_home_header() -> None:
@@ -4373,14 +4369,6 @@ def uploaded_photo_payload(uploaded_file: Any | None) -> dict[str, Any] | None:
     }
 
 
-def format_file_size(size_bytes: int | None) -> str:
-    if size_bytes is None:
-        return "tamaño desconocido"
-    if size_bytes < 1024 * 1024:
-        return f"{max(size_bytes / 1024, 0.1):.1f} KB"
-    return f"{size_bytes / (1024 * 1024):.1f} MB"
-
-
 def render_field_diary(client: ArgosApiClient) -> None:
     catalog = cached_field_event_catalog(client.base_url)
     event_type_labels = {item["slug"]: item["label"] for item in catalog.get("event_types", [])} or FIELD_EVENT_TYPE_LABELS
@@ -4541,8 +4529,19 @@ def render_field_event_form(
     prefix = f"field_event_{mode}_{event.get('id') if event else 'new'}"
     occurred_at = parse_datetime(event.get("occurred_at")) if event else datetime.now(UTC)
     local_occurred = (occurred_at or datetime.now(UTC)).astimezone(ZoneInfo(get_settings().local_timezone))
-    type_options = list(event_type_labels)
-    zone_options = ["", *zone_labels]
+    type_options: list[str] = list(event_type_labels)
+    zone_options: list[str] = ["", *zone_labels]
+    current_event_type = event.get("event_type") if event else None
+    event_type_index = type_options.index(current_event_type) if isinstance(current_event_type, str) and current_event_type in type_options else 0
+    current_zone_slug = event.get("zone_slug") if event else None
+    zone_index = zone_options.index(current_zone_slug) if isinstance(current_zone_slug, str) and current_zone_slug in zone_options else 0
+
+    def event_type_label(value: str) -> str:
+        return event_type_labels.get(value, value)
+
+    def zone_label(value: str) -> str:
+        return "—" if not value else zone_labels.get(value, value)
+
     with st.form(prefix):
         date_col, time_col, type_col = st.columns([1, 0.8, 1.2])
         with date_col:
@@ -4550,11 +4549,11 @@ def render_field_event_form(
         with time_col:
             event_time = st.time_input("Hora", value=local_occurred.time().replace(microsecond=0), key=f"{prefix}_time")
         with type_col:
-            event_type = st.selectbox(
+            selected_event_type = st.selectbox(
                 "Tipo",
                 options=type_options,
-                index=max(0, type_options.index(event.get("event_type"))) if event and event.get("event_type") in type_options else 0,
-                format_func=lambda value: event_type_labels.get(value, value),
+                index=event_type_index,
+                format_func=event_type_label,
                 key=f"{prefix}_type",
             )
         title = st.text_input("Título", value=event.get("title", "") if event else "", key=f"{prefix}_title")
@@ -4566,11 +4565,11 @@ def render_field_event_form(
         )
         zone_col, tree_col, quantity_col, unit_col = st.columns([1.1, 1.1, 0.8, 0.8])
         with zone_col:
-            zone_slug = st.selectbox(
+            selected_zone_slug = st.selectbox(
                 "Zona",
                 options=zone_options,
-                index=zone_options.index(event.get("zone_slug")) if event and event.get("zone_slug") in zone_options else 0,
-                format_func=lambda value: "—" if not value else zone_labels.get(value, value),
+                index=zone_index,
+                format_func=zone_label,
                 key=f"{prefix}_zone",
             )
         with tree_col:
@@ -4592,6 +4591,8 @@ def render_field_event_form(
         st.caption("Hace falta ARGOS admin token para crear o modificar eventos.")
     if not submitted:
         return
+    event_type = selected_event_type or type_options[0]
+    zone_slug = selected_zone_slug or ""
     try:
         payload = field_event_form_payload(
             event_date=event_date,
@@ -5175,11 +5176,11 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
 
     metrics = [metric for metric in SATELLITE_LABELS]
     aoi_options = satellite_aoi_options(status=status, zones=zones)
-    selected_aoi_value = "__all__"
+    selected_aoi_value: str = "__all__"
     with st.container(key="satellite_controls", horizontal=True, vertical_alignment="bottom"):
         if aoi_options:
             aoi_select_options = ["__all__", *[option["slug"] for option in aoi_options]]
-            selected_aoi_slug = st.selectbox(
+            selected_aoi_option: str = st.selectbox(
                 "AOI",
                 options=aoi_select_options,
                 format_func=lambda slug: "Todas"
@@ -5188,14 +5189,14 @@ def render_satellite(client: ArgosApiClient, *, start_iso: str, end_iso: str) ->
                 key="satellite_aoi_filter",
                 width=230,
             )
-            selected_aoi_value = selected_aoi_slug
+            selected_aoi_value = selected_aoi_option
         selected_metrics = st.multiselect(
             "Índices satelitales",
             options=metrics,
             default=metrics,
             format_func=lambda value: SATELLITE_LABELS.get(value, value.upper()),
         )
-        quality_filter = st.selectbox(
+        quality_filter: str = st.selectbox(
             "Calidad satelital",
             ["all", "valid", "partial", "invalid"],
             format_func=lambda value: SATELLITE_QUALITY_LABELS.get(value, value),
@@ -6053,7 +6054,7 @@ def flowmeter_status_html(parsed: Any) -> str:
 
 def render_flowmeter_admin_actions(client: ArgosNodeClient) -> None:
     with st.expander("Acciones admin caudalímetro", expanded=False):
-        actions = {
+        actions: dict[str, dict[str, Any]] = {
             "total": {
                 "label": "Reset total",
                 "confirm_label": "Confirmar reset total",
@@ -6762,52 +6763,6 @@ def log_valve_timing(event: str, timing: dict[str, Any]) -> None:
     logger.info("valve timing %s: %s", event, timing)
 
 
-def render_quality(client: ArgosApiClient) -> None:
-    if not client.admin_token:
-        st.info("Enter the admin token in the sidebar to inspect operational data.")
-        return
-
-    try:
-        gaps = client.get_data_gaps()
-        events = client.get_events(limit=20)
-        unknown_fields = client.get_unknown_fields()
-        raw_reports = client.get_raw_reports(limit=10)
-    except ArgosApiError as exc:
-        st.error(str(exc))
-        return
-
-    gap_df = dataframe_from_records(gaps, "gap_start")
-    event_df = dataframe_from_records(events, "created_at")
-    unknown_df = pd.DataFrame.from_records(unknown_fields)
-    raw_df = build_raw_report_table(raw_reports)
-    raw_payload_preview = latest_payload_preview(raw_reports)
-
-    with st.container(horizontal=True):
-        st.metric("Open gaps", len(gap_df), border=True)
-        st.metric("Recent events", len(event_df), border=True)
-        st.metric("Unknown fields", len(unknown_df), border=True)
-        st.metric("Raw reports", len(raw_df), border=True)
-
-    with st.container(border=True):
-        st.subheader("Data gaps")
-        st.dataframe(gap_df, hide_index=True)
-
-    with st.container(border=True):
-        st.subheader("Recent ingestion events")
-        st.dataframe(event_df, hide_index=True)
-
-    with st.container(border=True):
-        st.subheader("Unknown fields")
-        st.dataframe(unknown_df, hide_index=True)
-
-    with st.container(border=True):
-        st.subheader("Recent raw reports")
-        if raw_payload_preview is not None:
-            with st.expander("Latest redacted payload"):
-                st.json(raw_payload_preview)
-        st.dataframe(raw_df, hide_index=True)
-
-
 def add_csv_download(frame: pd.DataFrame, label: str, file_name: str, *, key: str | None = None) -> None:
     if frame.empty:
         return
@@ -6819,143 +6774,6 @@ def add_csv_download(frame: pd.DataFrame, label: str, file_name: str, *, key: st
         icon=":material/download:",
         key=key,
     )
-
-
-def format_number(value: Any, unit: str) -> str:
-    if value is None:
-        return "-"
-    if isinstance(value, int | float):
-        suffix = f" {unit}" if unit else ""
-        return f"{value:.2f}{suffix}"
-    return str(value)
-
-
-def format_integer(value: Any) -> str:
-    if value is None:
-        return "-"
-    if isinstance(value, int):
-        return f"{value:d}"
-    if isinstance(value, float):
-        return f"{value:.0f}"
-    return str(value)
-
-
-def format_binary_signal(value: Any) -> str:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return "-"
-    if isinstance(value, bool):
-        return "1" if value else "0"
-    if isinstance(value, int | float):
-        return "1" if int(value) == 1 else "0"
-    normalized = str(value).strip().lower()
-    if normalized in {"true", "1", "on", "high"}:
-        return "1"
-    if normalized in {"false", "0", "off", "low"}:
-        return "0"
-    return str(value)
-
-
-def format_wind_direction(value: Any) -> str:
-    if value is None:
-        return "-"
-    if not isinstance(value, int | float):
-        return str(value)
-
-    normalized = value % 360
-    compass_points = ("N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW")
-    compass = compass_points[int((normalized + 11.25) // 22.5) % len(compass_points)]
-    return f"{normalized:.0f} deg · {compass}"
-
-
-def format_datetime(value: Any) -> str:
-    if not value:
-        return "-"
-    return str(value).replace("T", " ").replace("Z", " UTC")
-
-
-def format_local_datetime(value: Any) -> str:
-    parsed = parse_datetime(value)
-    if parsed is None:
-        return "-"
-    local = parsed.astimezone()
-    month = SPANISH_MONTH_ABBR[local.month]
-    return f"{local.day} {month} {local.year} · {local:%H:%M}"
-
-
-def format_compact_local_datetime(value: Any) -> str:
-    parsed = parse_datetime(value)
-    if parsed is None:
-        return "-"
-    local = parsed.astimezone()
-    month = SPANISH_MONTH_ABBR[local.month]
-    return f"{local.day} {month} {local.year}, {local:%H:%M}"
-
-
-def format_compact_date_range(start: str, end: str) -> str:
-    return f"{format_compact_date(start)}–{format_compact_date(end)}"
-
-
-def format_compact_date(value: str) -> str:
-    parsed = date.fromisoformat(value)
-    return f"{parsed.day} {SPANISH_MONTH_ABBR[parsed.month]} {parsed.year}"
-
-
-def parse_datetime(value: Any) -> datetime | None:
-    if isinstance(value, pd.Timestamp):
-        parsed = value.to_pydatetime()
-    elif isinstance(value, datetime):
-        parsed = value
-    elif value:
-        text = str(value)
-        try:
-            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    else:
-        return None
-
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed
-
-
-def format_float(value: Any) -> str:
-    if value is None:
-        return "-"
-    if isinstance(value, int | float):
-        return f"{value:.3f}"
-    return str(value)
-
-
-def format_percent(value: Any) -> str:
-    if value is None:
-        return "-"
-    if isinstance(value, int | float):
-        return f"{value * 100:.0f}%"
-    return str(value)
-
-
-def format_binary_ev_state(value: Any) -> str:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return "-"
-    if isinstance(value, bool):
-        return "Abierta (1)" if value else "Cerrada (0)"
-    if isinstance(value, int | float):
-        return "Abierta (1)" if int(value) == 1 else "Cerrada (0)"
-    normalized = str(value).strip().lower()
-    if normalized in {"true", "1", "open", "opened", "on"}:
-        return "Abierta (1)"
-    if normalized in {"false", "0", "closed", "close", "off"}:
-        return "Cerrada (0)"
-    return str(value)
-
-
-def format_percent_100(value: Any) -> str:
-    if value is None:
-        return "-"
-    if isinstance(value, int | float):
-        return f"{value:.0f}%"
-    return str(value)
 
 
 def format_aemet_import_result(result: dict[str, Any]) -> str:
@@ -7049,15 +6867,6 @@ def valve_action_from_state(state: dict[str, Any] | None) -> str | None:
     if phase == "open":
         return "close"
     return None
-
-
-def short_identifier(value: Any) -> str:
-    if not value:
-        return "-"
-    text = str(value)
-    if len(text) <= 12:
-        return text
-    return f"{text[:8]}...{text[-4:]}"
 
 
 if __name__ == "__main__":

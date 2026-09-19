@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from threading import Event, Thread
 
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> Iterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = app.state.settings
     workers: list[tuple[Thread, Event, float]] = []
     if settings.argos_node_url:
