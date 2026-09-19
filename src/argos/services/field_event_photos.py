@@ -7,8 +7,10 @@ import mimetypes
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -367,11 +369,11 @@ def thumbnail_data_url(data_base64: str, content_type: str, *, max_size: tuple[i
     try:
         content = base64.b64decode(data_base64, validate=True)
         with Image.open(BytesIO(content)) as image:
-            image = ImageOps.exif_transpose(image)
-            image.thumbnail(max_size)
+            oriented = ImageOps.exif_transpose(image)
+            oriented.thumbnail(max_size)
             output = BytesIO()
             output_format = "JPEG" if _normalize_content_type(content_type) == "image/jpeg" else "PNG"
-            image.save(output, format=output_format)
+            oriented.save(output, format=output_format)
             thumbnail_mime = "image/jpeg" if output_format == "JPEG" else "image/png"
             return f"data:{thumbnail_mime};base64,{base64.b64encode(output.getvalue()).decode('ascii')}"
     except Exception:
@@ -429,11 +431,11 @@ def _decode_qr_values(content: bytes) -> list[str]:
         array = cv2.cvtColor(np.array(oriented), cv2.COLOR_RGB2BGR)
         detector = cv2.QRCodeDetector()
         decoded: list[str] = []
-        ok, values, _points, _straight = detector.detectAndDecodeMulti(array)
+        ok, values, _multi_points, _straight_codes = detector.detectAndDecodeMulti(array)
         if ok and values:
             decoded.extend(value for value in values if value)
         if not decoded:
-            value, _points, _straight = detector.detectAndDecode(array)
+            value, _single_points, _straight_code = detector.detectAndDecode(array)
             if value:
                 decoded.append(value)
         return decoded
@@ -447,38 +449,146 @@ def _match_catalog_code_visual(image: Image.Image, candidate_codes: set[str]) ->
         import numpy as np
     except Exception:
         return None, 0.0
-    scale = min(1.0, 1200 / max(image.size))
+    scale = min(1.0, 520 / max(image.size))
     if scale < 1:
         image = image.resize((int(image.width * scale), int(image.height * scale)))
     image_array = np.array(ImageOps.autocontrast(image))
     _, thresholded = cv2.threshold(image_array, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    component_code, component_score = _match_code_components(thresholded, candidate_codes)
+    if component_code is not None and component_score >= 0.72:
+        return component_code, component_score
+    search_areas = _visual_code_search_areas(thresholded)
     best_code: str | None = None
     best_score = 0.0
     for code in sorted(candidate_codes):
-        for template in _code_templates(code):
+        for template in _cached_code_templates(code):
             template_array = np.array(template)
-            if template_array.shape[0] >= thresholded.shape[0] or template_array.shape[1] >= thresholded.shape[1]:
-                continue
-            result = cv2.matchTemplate(thresholded, template_array, cv2.TM_CCOEFF_NORMED)
-            _, max_value, _, _ = cv2.minMaxLoc(result)
-            if max_value > best_score:
-                best_code = code
-                best_score = float(max_value)
+            for area in search_areas:
+                if template_array.shape[0] >= area.shape[0] or template_array.shape[1] >= area.shape[1]:
+                    continue
+                result = cv2.matchTemplate(area, template_array, cv2.TM_CCOEFF_NORMED)
+                _, max_value, _, _ = cv2.minMaxLoc(result)
+                if max_value > best_score:
+                    best_code = code
+                    best_score = float(max_value)
     return best_code, best_score
 
 
-def _code_templates(code: str) -> list[Image.Image]:
+def _match_code_components(thresholded: Any, candidate_codes: set[str]) -> tuple[str | None, float]:
+    try:
+        import cv2
+    except Exception:
+        return None, 0.0
+    contours, _hierarchy = cv2.findContours(thresholded, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    boxes = []
+    image_area = thresholded.shape[0] * thresholded.shape[1]
+    for contour in contours:
+        x, y, width, height = cv2.boundingRect(contour)
+        area = width * height
+        if area < 120 or area > image_area * 0.15 or height < 22 or width < 8:
+            continue
+        if width / max(height, 1) > 2.2:
+            continue
+        boxes.append((x, y, width, height))
+    if len(boxes) < 2:
+        return None, 0.0
+    boxes = sorted(boxes, key=lambda box: box[2] * box[3], reverse=True)[:6]
+    boxes = sorted(boxes, key=lambda box: box[0])
+    valid_chars = sorted(set("".join(candidate_codes)))
+    best_code: str | None = None
+    best_score = 0.0
+    for start in range(max(1, len(boxes) - 1)):
+        pair = boxes[start : start + 2]
+        if len(pair) < 2:
+            continue
+        chars = []
+        scores = []
+        for x, y, width, height in pair:
+            pad = 6
+            crop = thresholded[max(y - pad, 0) : min(y + height + pad, thresholded.shape[0]), max(x - pad, 0) : min(x + width + pad, thresholded.shape[1])]
+            char, score = _match_component_char(crop, valid_chars)
+            chars.append(char)
+            scores.append(score)
+        code = "".join(chars)
+        score = min(scores) if scores else 0.0
+        if code in candidate_codes and score > best_score:
+            best_code = code
+            best_score = score
+    return best_code, best_score
+
+
+def _match_component_char(crop: Any, valid_chars: list[str]) -> tuple[str, float]:
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        return "", 0.0
+    best_char = ""
+    best_score = -1.0
+    for char in valid_chars:
+        for template in _cached_char_templates(char):
+            template_array = np.array(template)
+            resized = cv2.resize(crop, (template_array.shape[1], template_array.shape[0]), interpolation=cv2.INTER_AREA)
+            result = cv2.matchTemplate(resized, template_array, cv2.TM_CCOEFF_NORMED)
+            _, max_value, _, _ = cv2.minMaxLoc(result)
+            if max_value > best_score:
+                best_char = char
+                best_score = float(max_value)
+    return best_char, max(best_score, 0.0)
+
+
+def _visual_code_search_areas(thresholded: Any) -> list[Any]:
+    try:
+        import cv2
+    except Exception:
+        return [thresholded]
+    contours, _hierarchy = cv2.findContours(thresholded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    boxes = []
+    image_area = thresholded.shape[0] * thresholded.shape[1]
+    for contour in contours:
+        x, y, width, height = cv2.boundingRect(contour)
+        area = width * height
+        if area < 80 or area > image_area * 0.7:
+            continue
+        boxes.append((x, y, width, height))
+    if not boxes:
+        return [thresholded]
+    min_x = max(min(x for x, _y, _width, _height in boxes) - 24, 0)
+    min_y = max(min(y for _x, y, _width, _height in boxes) - 24, 0)
+    max_x = min(max(x + width for x, _y, width, _height in boxes) + 24, thresholded.shape[1])
+    max_y = min(max(y + height for _x, y, _width, height in boxes) + 24, thresholded.shape[0])
+    cropped = thresholded[min_y:max_y, min_x:max_x]
+    return [cropped] if cropped.size else [thresholded]
+
+
+@lru_cache(maxsize=64)
+def _cached_char_templates(char: str) -> tuple[Image.Image, ...]:
     templates: list[Image.Image] = []
-    for font_size in (32, 44, 58, 72, 88, 108, 132):
+    for font_size in (52, 76, 104):
+        font = _code_font(font_size)
+        text_bbox = ImageDraw.Draw(Image.new("L", (1, 1))).textbbox((0, 0), char, font=font)
+        width = int(text_bbox[2] - text_bbox[0] + 14)
+        height = int(text_bbox[3] - text_bbox[1] + 14)
+        image = Image.new("L", (width, height), 0)
+        draw = ImageDraw.Draw(image)
+        draw.text((7 - text_bbox[0], 7 - text_bbox[1]), char, fill=255, font=font)
+        templates.append(image)
+    return tuple(templates)
+
+
+@lru_cache(maxsize=512)
+def _cached_code_templates(code: str) -> tuple[Image.Image, ...]:
+    templates: list[Image.Image] = []
+    for font_size in (32, 52, 76, 104):
         font = _code_font(font_size)
         text_bbox = ImageDraw.Draw(Image.new("L", (1, 1))).textbbox((0, 0), code, font=font)
-        width = text_bbox[2] - text_bbox[0] + 18
-        height = text_bbox[3] - text_bbox[1] + 18
+        width = int(text_bbox[2] - text_bbox[0] + 18)
+        height = int(text_bbox[3] - text_bbox[1] + 18)
         image = Image.new("L", (width, height), 0)
         draw = ImageDraw.Draw(image)
         draw.text((9 - text_bbox[0], 9 - text_bbox[1]), code, fill=255, font=font)
         templates.append(image)
-    return templates
+    return tuple(templates)
 
 
 def _code_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:

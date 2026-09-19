@@ -313,7 +313,7 @@ class ArgosApiClient:
         return self._get_json(f"/api/v1/plants/{plant_id}/history", params={"limit": limit})
 
     def stage_plant_photo_batch(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._request_json("/api/v1/plants/photos/stage", method="POST", json_payload=payload, admin=True)
+        return self.with_timeout(120)._request_json("/api/v1/plants/photos/stage", method="POST", json_payload=payload, admin=True)
 
     def confirm_plant_photo_batch(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request_json("/api/v1/plants/photos/confirm", method="POST", json_payload=payload, admin=True)
@@ -384,3 +384,6 @@ class ArgosApiClient:
         if query:
             return f"{base}{path}?{query}"
         return f"{base}{path}"
+
+    def with_timeout(self, timeout_seconds: int) -> ArgosApiClient:
+        return ArgosApiClient(base_url=self.base_url, admin_token=self.admin_token, timeout_seconds=timeout_seconds)
