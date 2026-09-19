@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import base64
-import csv
-import io
 import logging
 import math
 import time as monotonic_time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from html import escape
-from typing import Any, Literal
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -38,12 +35,13 @@ from argos.dashboard.formatting import (
     format_compact_date as format_compact_date,
     format_compact_local_datetime,
     format_datetime,
-    format_file_size,
+    format_file_size as format_file_size,
     format_float as format_float,
     format_integer,
     format_local_datetime,
     format_number,
     format_percent,
+    format_utc_iso,
     format_wind_direction,
     parse_datetime,
     short_identifier,
@@ -62,6 +60,41 @@ from argos.dashboard.pages.aemet import (
     run_aemet_backfill_from_dashboard,
     run_aemet_csv_import_from_dashboard,
     run_aemet_sync_from_dashboard,
+)
+from argos.dashboard.pages.field_diary import (
+    cached_field_event_catalog as cached_field_event_catalog,
+    cached_field_events as cached_field_events,
+    field_event_end_iso as field_event_end_iso,
+    field_event_form_payload as field_event_form_payload,
+    field_event_quantity_label as field_event_quantity_label,
+    field_event_row_html as field_event_row_html,
+    field_event_start_iso as field_event_start_iso,
+    field_events_csv as field_events_csv,
+    format_field_event_quantity as format_field_event_quantity,
+    local_datetime_to_utc_iso,
+    parse_optional_float as parse_optional_float,
+    render_field_diary,
+    render_field_event_delete_confirmation as render_field_event_delete_confirmation,
+    render_field_event_filters as render_field_event_filters,
+    render_field_event_form as render_field_event_form,
+    render_field_event_table as render_field_event_table,
+)
+from argos.dashboard.pages.plantation import (
+    cached_plant_catalog as cached_plant_catalog,
+    cached_plant_history as cached_plant_history,
+    cached_plant_matrix as cached_plant_matrix,
+    cached_plants as cached_plants,
+    plantation_cell_label as plantation_cell_label,
+    render_plant_detail as render_plant_detail,
+    render_plant_history as render_plant_history,
+    render_plant_observation_form as render_plant_observation_form,
+    render_plant_photo_batch_import as render_plant_photo_batch_import,
+    render_plantation,
+    render_plantation_filters as render_plantation_filters,
+    render_plantation_legend as render_plantation_legend,
+    render_plantation_matrix as render_plantation_matrix,
+    selected_plant_from_matrix as selected_plant_from_matrix,
+    uploaded_photo_payload as uploaded_photo_payload,
 )
 from argos.dashboard.pages.quality import render_quality
 from argos.dashboard.pages.satellite import (
@@ -90,10 +123,9 @@ from argos.dashboard.pages.satellite import (
 from argos.dashboard.statistics import build_descriptive_statistics
 from argos.dashboard.summaries import build_annual_summary, build_monthly_summary, build_seasonal_summary
 from argos.dashboard.trends import build_trend_frame
-from argos.dashboard.ui import add_csv_download
+from argos.dashboard.ui import add_csv_download, compact_metric_html
 from argos.database.session import get_sessionmaker
-from argos.domain.field_events import FIELD_EVENT_TYPE_LABELS, FIELD_ZONE_LABELS
-from argos.domain.plants import PLANT_SPECIES_LABELS, PLANT_STATUS_LABELS
+from argos.domain.field_events import FIELD_ZONE_LABELS
 from argos.integrations.ecowitt_cloud import format_cloud_mac
 from argos.models import ArgosIrrigationSectorMinuteAttribution, ArgosNodeFlowmeterMinute
 from argos.repositories.weather import WeatherRepository
@@ -554,61 +586,16 @@ def cached_weekly(base_url: str, start: str, end: str) -> list[dict[str, Any]]:
 
 
 
-@st.cache_data(ttl=60)
-def cached_field_event_catalog(base_url: str) -> dict[str, Any]:
-    return ArgosApiClient(base_url=base_url).get_field_event_catalog()
 
 
-@st.cache_data(ttl=30)
-def cached_field_events(
-    base_url: str,
-    start: str | None,
-    end: str | None,
-    event_type: str | None,
-    zone_slug: str | None,
-    search: str | None,
-) -> list[dict[str, Any]]:
-    return ArgosApiClient(base_url=base_url).get_field_events(
-        start=start,
-        end=end,
-        event_type=event_type,
-        zone_slug=zone_slug,
-        search=search,
-        limit=1000,
-    )
 
 
-@st.cache_data(ttl=30)
-def cached_plant_catalog(base_url: str) -> dict[str, Any]:
-    return ArgosApiClient(base_url=base_url).get_plant_catalog()
 
 
-@st.cache_data(ttl=30)
-def cached_plant_matrix(base_url: str, parcel_slug: str) -> dict[str, Any]:
-    return ArgosApiClient(base_url=base_url).get_plant_matrix(parcel_slug=parcel_slug)
 
 
-@st.cache_data(ttl=30)
-def cached_plants(
-    base_url: str,
-    parcel_slug: str,
-    status: str | None,
-    species: str | None,
-    irrigation_sector_id: str | None,
-    search: str | None,
-) -> list[dict[str, Any]]:
-    return ArgosApiClient(base_url=base_url).get_plants(
-        parcel_slug=parcel_slug,
-        status=status,
-        species=species,
-        irrigation_sector_id=irrigation_sector_id,
-        search=search,
-    )
 
 
-@st.cache_data(ttl=30)
-def cached_plant_history(base_url: str, plant_id: int) -> list[dict[str, Any]]:
-    return ArgosApiClient(base_url=base_url).get_plant_history(plant_id)
 
 
 @st.cache_data(ttl=120)
@@ -2907,10 +2894,6 @@ def observation_period_meteogram_wind_frequency(label: str) -> str:
     return "3h" if label == "Week" else "1h"
 
 
-def format_utc_iso(value: datetime) -> str:
-    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
-
-
 def with_local_observed_time(frame: pd.DataFrame) -> pd.DataFrame:
     if "observed_at_utc" not in frame:
         return frame
@@ -3874,749 +3857,54 @@ def analysis_reference_label(value: str) -> str:
     }.get(value, value)
 
 
-def render_plantation(client: ArgosApiClient) -> None:
-    try:
-        catalog = cached_plant_catalog(client.base_url)
-        matrix = cached_plant_matrix(client.base_url, "tomillar")
-    except ArgosApiError as exc:
-        st.error(str(exc))
-        return
-
-    status_labels = {item["slug"]: item["label"] for item in catalog.get("statuses", [])} or PLANT_STATUS_LABELS
-    species_labels = {item["slug"]: item["label"] for item in catalog.get("species", [])} or PLANT_SPECIES_LABELS
-    sectors = {item["slug"]: item["label"] for item in catalog.get("irrigation_sectors", [])}
-    st.title("Plantación")
-
-    selected_status, selected_species, selected_sector, search = render_plantation_filters(
-        status_labels=status_labels,
-        species_labels=species_labels,
-        sectors=sectors,
-    )
-    try:
-        plants = cached_plants(client.base_url, "tomillar", selected_status, selected_species, selected_sector, search)
-    except ArgosApiError as exc:
-        st.error(str(exc))
-        return
-    selected_from_url = st.query_params.get("plant")
-    if selected_from_url and "plantation_selected_public_code" not in st.session_state:
-        matching = next((plant for plant in plants if plant.get("public_code") == selected_from_url), None)
-        if matching:
-            st.session_state["plantation_selected_plant_id"] = matching["id"]
-            st.session_state["plantation_selected_public_code"] = matching["public_code"]
-
-    summary_col, import_col, refresh_col = st.columns([1, 0.24, 0.18], vertical_alignment="center")
-    with summary_col:
-        occupied = sum(1 for cell in matrix.get("cells", []) if cell.get("cell_type") == "plant")
-        infrastructure = sum(1 for cell in matrix.get("cells", []) if cell.get("cell_type") == "infrastructure")
-        st.caption(f"{len(plants)} árboles en el filtro. {occupied} celdas vegetales y {infrastructure} elementos no vegetales en la matriz.")
-    with refresh_col:
-        if st.button("Actualizar", icon=":material/refresh:", key="plantation_refresh", width="stretch"):
-            cached_plant_matrix.clear()
-            cached_plants.clear()
-            cached_plant_history.clear()
-            st.rerun()
-    with import_col:
-        with st.popover("Importar lote de fotos", icon=":material/add_photo_alternate:"):
-            render_plant_photo_batch_import(client, matrix)
-
-    grid_col, detail_col = st.columns([3.6, 6.4], vertical_alignment="top")
-    visible_ids = {int(plant["id"]) for plant in plants}
-    selected_id = st.session_state.get("plantation_selected_plant_id")
-    with grid_col:
-        render_plantation_legend(status_labels)
-        render_plantation_matrix(matrix, visible_plant_ids=visible_ids, selected_plant_id=selected_id)
-    with detail_col:
-        selected = selected_plant_from_matrix(matrix, selected_id)
-        render_plant_detail(client, selected, status_labels=status_labels, species_labels=species_labels)
 
 
-def render_plantation_filters(
-    *,
-    status_labels: dict[str, str],
-    species_labels: dict[str, str],
-    sectors: dict[str, str],
-) -> tuple[str | None, str | None, str | None, str | None]:
-    with st.container(border=True, gap="small"):
-        status_col, species_col, sector_col, search_col = st.columns([1, 1.15, 0.9, 1.25])
-        with status_col:
-            status = st.selectbox(
-                "Estado",
-                options=["Todos", *status_labels],
-                key="plantation_status",
-                format_func=lambda value: "Todos" if value == "Todos" else status_labels.get(value, value),
-            )
-        with species_col:
-            species = st.selectbox(
-                "Especie",
-                options=["Todas", *species_labels],
-                key="plantation_species",
-                format_func=lambda value: "Todas" if value == "Todas" else species_labels.get(value, value),
-            )
-        with sector_col:
-            sector = st.selectbox(
-                "Sector",
-                options=["Todos", *sectors],
-                key="plantation_sector",
-                format_func=lambda value: "Todos" if value == "Todos" else sectors.get(value, value),
-            )
-        with search_col:
-            search = st.text_input("Buscar código", key="plantation_search")
-    return (
-        None if status == "Todos" else status,
-        None if species == "Todas" else species,
-        None if sector == "Todos" else sector,
-        search.strip().upper() or None,
-    )
 
 
-def render_plantation_legend(status_labels: dict[str, str]) -> None:
-    labels = " ".join(f"<span>{escape(label)}</span>" for label in status_labels.values())
-    st.html(f'<div class="argos-plantation-legend">{labels}<span>Vacía</span><span>Infraestructura</span><span># desplazado</span></div>')
 
 
-def render_plantation_matrix(matrix: dict[str, Any], *, visible_plant_ids: set[int], selected_plant_id: int | None) -> None:
-    cells_by_position = {(cell["row"], cell["column"]): cell for cell in matrix.get("cells", [])}
-    column_labels = matrix.get("column_labels", [])
-    header_cols = st.columns([0.28, *([1] * 12)], gap=None)
-    header_cols[0].html("&nbsp;")
-    for index, label in enumerate(column_labels[:12], start=1):
-        header_cols[index].html(f'<div class="argos-plantation-label">{escape(label)}</div>')
-    for row_index, row_label in enumerate(matrix.get("row_labels", [])[:12], start=1):
-        row_cols = st.columns([0.28, *([1] * 12)], gap=None)
-        row_cols[0].html(f'<div class="argos-plantation-label">{escape(row_label)}</div>')
-        for column_index in range(1, 13):
-            cell = cells_by_position.get((row_index, column_index), {})
-            plant = cell.get("plant")
-            label = plantation_cell_label(cell)
-            disabled = plant is None or int(plant["id"]) not in visible_plant_ids
-            button_type: Literal["primary", "secondary"] = "primary" if plant and plant.get("id") == selected_plant_id else "secondary"
-            with row_cols[column_index]:
-                if st.button(
-                    label,
-                    key=f"plant_cell_{row_index}_{column_index}",
-                    disabled=disabled,
-                    type=button_type,
-                    width="stretch",
-                ) and plant:
-                    st.session_state["plantation_selected_plant_id"] = plant["id"]
-                    st.session_state["plantation_selected_public_code"] = plant["public_code"]
-                    st.query_params["plant"] = plant["public_code"]
-                    st.rerun()
 
 
-def render_plant_photo_batch_import(client: ArgosApiClient, matrix: dict[str, Any]) -> None:
-    fallback_date = st.date_input("Fecha del lote", value=datetime.now(ZoneInfo(get_settings().local_timezone)).date(), key="plant_photo_batch_date")
-    uploaded_files = st.file_uploader(
-        "Fotos",
-        type=["jpg", "jpeg", "png", "webp"],
-        accept_multiple_files=True,
-        key="plant_photo_batch_files",
-    )
-    if st.button("Analizar fotos", icon=":material/search:", disabled=not bool(uploaded_files), key="plant_photo_batch_stage"):
-        if not client.admin_token:
-            st.error("Hace falta ARGOS admin token para importar fotos.")
-            return
-        try:
-            photo_payloads = [uploaded_photo_payload(file) for file in uploaded_files]
-            response = client.stage_plant_photo_batch(
-                {
-                    "fallback_taken_at": local_datetime_to_utc_iso(fallback_date, time.min),
-                    "photos": photo_payloads,
-                }
-            )
-            st.session_state["plant_photo_batch_uploads"] = {
-                item["sha256"]: payload
-                for item, payload in zip(response.get("items", []), photo_payloads, strict=False)
-            }
-            st.session_state["plant_photo_batch_items"] = response.get("items", [])
-        except ArgosApiError as exc:
-            st.error(str(exc))
-            return
-    staged_items = st.session_state.get("plant_photo_batch_items") or []
-    if not staged_items:
-        return
-    uploaded_payloads = st.session_state.get("plant_photo_batch_uploads") or {}
-    plants = sorted(
-        [cell["plant"] for cell in matrix.get("cells", []) if cell.get("plant")],
-        key=lambda plant: (plant["matrix_row"], plant["matrix_column"]),
-    )
-    options = ["", *[str(plant["id"]) for plant in plants]]
-    labels = {str(plant["id"]): f"{plant['public_code']} · {plant['matrix_position_code']} · {plant['species_label']}" for plant in plants}
-    confirm_items = []
-    missing_uploads = False
-    for item in staged_items:
-        st.image(item["thumbnail_data_url"], width=120)
-        st.caption(
-            f"{item['filename']} · {item['status']} · código: {item.get('detected_code') or 'sin detectar'} · "
-            f"confianza: {float(item.get('confidence') or 0):.2f} · resolver: {item.get('resolver') or '-'} · fecha: {item.get('date_source')}"
-        )
-        default_value = str(item["plant_id"]) if item.get("plant_id") else ""
-        selected = st.selectbox(
-            "Árbol",
-            options=options,
-            index=options.index(default_value) if default_value in options else 0,
-            format_func=lambda value: "Sin asignar" if not value else labels[value],
-            key=f"plant_photo_batch_assign_{item['index']}_{item['sha256'][:8]}",
-            disabled=bool(item.get("duplicate")),
-        )
-        if item.get("duplicate"):
-            st.warning("Duplicada: no se importará.")
-        source_payload = uploaded_payloads.get(item["sha256"], {})
-        if not source_payload:
-            missing_uploads = True
-        confirm_item = {
-            key: item[key]
-            for key in ("filename", "content_type", "sha256", "taken_at", "date_source", "detected_code", "confidence", "status")
-        }
-        confirm_item["data_base64"] = source_payload.get("data_base64", "")
-        confirm_item["plant_id"] = int(selected) if selected else None
-        confirm_items.append(confirm_item)
-    if missing_uploads:
-        st.warning("Vuelve a seleccionar las fotos para confirmar el lote.")
-    has_unassigned = any(item.get("plant_id") is None and not item.get("duplicate") for item in confirm_items)
-    assigned_count = sum(1 for item in confirm_items if item.get("plant_id") is not None and item.get("status") != "duplicate")
-    importable_count = sum(1 for item in confirm_items if item.get("status") != "duplicate")
-    if assigned_count == 0 and importable_count:
-        st.warning(f"0 de {importable_count} fotografías identificadas. Revise las asignaciones antes de confirmar.")
-    elif assigned_count < importable_count:
-        st.info(f"{assigned_count} de {importable_count} fotografías identificadas. Complete o revise las asignaciones antes de confirmar.")
-    import_unassigned = False
-    if has_unassigned:
-        import_unassigned = st.checkbox("Confirmar lote dejando fotos sin árbol fuera de la importación", key="plant_photo_batch_confirm_unassigned")
-    confirm_disabled = missing_uploads or (has_unassigned and not import_unassigned)
-    if st.button("Confirmar lote", icon=":material/check:", type="primary", key="plant_photo_batch_confirm", disabled=confirm_disabled):
-        if not client.admin_token:
-            st.error("Hace falta ARGOS admin token para importar fotos.")
-            return
-        try:
-            result = client.confirm_plant_photo_batch({"fallback_taken_at": local_datetime_to_utc_iso(fallback_date, time.min), "items": confirm_items})
-            st.success(
-                f"{result['imported_photos']} fotos importadas en {result['created_events']} observaciones. "
-                f"{result['skipped_duplicates']} duplicadas y {result['skipped_unassigned']} sin asignar."
-            )
-            st.session_state.pop("plant_photo_batch_items", None)
-            st.session_state.pop("plant_photo_batch_uploads", None)
-            cached_field_events.clear()
-            cached_plant_history.clear()
-        except ArgosApiError as exc:
-            st.error(str(exc))
 
 
-def plantation_cell_label(cell: dict[str, Any]) -> str:
-    plant = cell.get("plant")
-    if plant:
-        public_code = plant.get("public_code") or cell.get("position_code", "")
-        marker = cell.get("displacement_marker") or ""
-        return str(public_code) if marker in str(public_code) else f"{public_code}{marker}"
-    if cell.get("cell_type") == "infrastructure":
-        return str(cell.get("visible_code") or cell.get("position_code") or "")
-    return f"{cell.get('position_code', '')}\n-"
 
 
-def selected_plant_from_matrix(matrix: dict[str, Any], selected_plant_id: int | None) -> dict[str, Any] | None:
-    if selected_plant_id is None:
-        return None
-    for cell in matrix.get("cells", []):
-        plant = cell.get("plant")
-        if plant and plant.get("id") == selected_plant_id:
-            return plant
-    return None
 
 
-def render_plant_detail(
-    client: ArgosApiClient,
-    plant: dict[str, Any] | None,
-    *,
-    status_labels: dict[str, str],
-    species_labels: dict[str, str],
-) -> None:
-    if plant is None:
-        st.info("Selecciona un árbol ocupado de la matriz para abrir su ficha.")
-        return
-    with st.container(border=True, gap="small"):
-        st.subheader(f"Árbol {plant['public_code']}")
-        st.caption(f"{plant['matrix_position_code']} · {plant.get('parcel_name') or plant.get('parcel_slug')}")
-        ficha_tab, historial_tab = st.tabs(["Ficha", "Historial"])
-        with ficha_tab:
-            st.html(
-                '<div class="argos-summary-grid">'
-                f'{compact_metric_html("Especie", species_labels.get(plant["species"], plant["species"]))}'
-                f'{compact_metric_html("Estado", status_labels.get(plant["status"], plant["status"]))}'
-                f'{compact_metric_html("Sector", plant.get("irrigation_sector_id") or "Sin dato")}'
-                f'{compact_metric_html("Línea", plant.get("irrigation_line_slug") or "Sin dato")}'
-                "</div>"
-            )
-            if plant.get("variety") or plant.get("rootstock") or plant.get("planted_on"):
-                st.write(
-                    " · ".join(
-                        value
-                        for value in (
-                            f"Variedad: {plant.get('variety')}" if plant.get("variety") else "",
-                            f"Patrón: {plant.get('rootstock')}" if plant.get("rootstock") else "",
-                            f"Plantación: {plant.get('planted_on')}" if plant.get("planted_on") else "",
-                        )
-                        if value
-                    )
-                )
-            if plant.get("notes"):
-                st.caption(plant["notes"])
-            st.caption("Los riegos sectoriales son asociados por sector; no son mediciones individuales del árbol.")
-            with st.popover("Nueva observación", icon=":material/add:"):
-                render_plant_observation_form(client, plant)
-        with historial_tab:
-            render_plant_history(client, plant)
 
 
-def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any]) -> None:
-    with st.form(f"plant_observation_{plant['id']}"):
-        title = st.text_input("Título", value=f"Observación {plant['public_code']}")
-        description = st.text_area("Descripción", height=90)
-        uploaded_photo = st.file_uploader(
-            "Foto desde móvil o archivo",
-            type=["jpg", "jpeg", "png", "webp"],
-            key=f"plant_observation_upload_{plant['id']}",
-        )
-        st.caption("En móvil, este botón permite elegir galería o cámara. La cámara integrada requiere HTTPS.")
-        camera_photo = st.camera_input("Cámara integrada", key=f"plant_observation_camera_{plant['id']}")
-        selected_photo = camera_photo or uploaded_photo
-        if selected_photo is not None:
-            st.success(f"Foto lista para registrar: {selected_photo.name} ({format_file_size(selected_photo.size)})")
-        submitted = st.form_submit_button("Registrar", type="primary")
-    if not submitted:
-        return
-    if not client.admin_token:
-        st.error("Hace falta ARGOS admin token para crear eventos.")
-        return
-    payload = {
-        "occurred_at": datetime.now(UTC).isoformat(),
-        "event_type": "observation",
-        "title": title.strip(),
-        "description": description.strip() or None,
-        "zone_slug": None,
-        "tree_reference": plant["public_code"],
-        "target_type": "plant",
-        "target_value": plant["public_code"],
-        "plant_unit_ids": [plant["id"]],
-        "source": "manual",
-    }
-    photo_payload = uploaded_photo_payload(selected_photo)
-    if photo_payload is not None:
-        payload["photo"] = photo_payload
-    try:
-        client.create_field_event(payload)
-        cached_field_events.clear()
-        cached_plant_history.clear()
-        st.rerun()
-    except ArgosApiError as exc:
-        st.error(str(exc))
 
 
-def render_plant_history(client: ArgosApiClient, plant: dict[str, Any]) -> None:
-    try:
-        history = cached_plant_history(client.base_url, int(plant["id"]))
-    except ArgosApiError as exc:
-        st.error(str(exc))
-        return
-    if not history:
-        st.caption("Sin eventos asociados.")
-        return
-    for event in history[:12]:
-        st.write(f"{format_compact_local_datetime(event.get('occurred_at'))} · {event.get('title')}")
-        if event.get("description"):
-            st.caption(event["description"])
-        if event.get("photo_url"):
-            st.image(f"{client.base_url.rstrip('/')}{event['photo_url']}", width=220)
 
 
-def uploaded_photo_payload(uploaded_file: Any | None) -> dict[str, Any] | None:
-    if uploaded_file is None:
-        return None
-    content = uploaded_file.getvalue()
-    return {
-        "filename": uploaded_file.name,
-        "content_type": uploaded_file.type or "application/octet-stream",
-        "data_base64": base64.b64encode(content).decode("ascii"),
-    }
 
 
-def render_field_diary(client: ArgosApiClient) -> None:
-    catalog = cached_field_event_catalog(client.base_url)
-    event_type_labels = {item["slug"]: item["label"] for item in catalog.get("event_types", [])} or FIELD_EVENT_TYPE_LABELS
-    zone_labels = {item["slug"]: item["label"] for item in catalog.get("zones", [])} or FIELD_ZONE_LABELS
-
-    left, right = st.columns([1, 0.22], vertical_alignment="center")
-    with left:
-        st.title("Diario de campo")
-    with right:
-        with st.popover("Registrar evento", icon=":material/add:"):
-            render_field_event_form(
-                client,
-                event_type_labels=event_type_labels,
-                zone_labels=zone_labels,
-                mode="create",
-                event=None,
-            )
-
-    start_iso, end_iso, selected_type, selected_zone, search = render_field_event_filters(
-        event_type_labels=event_type_labels,
-        zone_labels=zone_labels,
-    )
-    try:
-        rows = cached_field_events(client.base_url, start_iso, end_iso, selected_type, selected_zone, search)
-    except ArgosApiError as exc:
-        st.error(str(exc))
-        return
-
-    count_col, export_col = st.columns([1, 0.18], vertical_alignment="center")
-    with count_col:
-        st.caption(f"{len(rows)} eventos en el filtro activo.")
-    with export_col:
-        if rows:
-            st.download_button(
-                "Exportar CSV",
-                data=field_events_csv(rows, event_type_labels=event_type_labels, zone_labels=zone_labels),
-                file_name="argos_diario_campo.csv",
-                mime="text/csv",
-                icon=":material/download:",
-                key="field_events_export_csv",
-                width="stretch",
-            )
-
-    render_field_event_delete_confirmation(client)
-    edit_id = st.session_state.get("field_event_edit_id")
-    if edit_id is not None:
-        event = next((row for row in rows if row.get("id") == edit_id), None)
-        if event is not None:
-            with st.container(border=True, gap="small"):
-                st.subheader("Editar evento")
-                render_field_event_form(
-                    client,
-                    event_type_labels=event_type_labels,
-                    zone_labels=zone_labels,
-                    mode="edit",
-                    event=event,
-                )
-
-    render_field_event_table(rows, event_type_labels=event_type_labels, zone_labels=zone_labels)
 
 
-def render_field_event_filters(
-    *,
-    event_type_labels: dict[str, str],
-    zone_labels: dict[str, str],
-) -> tuple[str, str, str | None, str | None, str | None]:
-    today = datetime.now(ZoneInfo(get_settings().local_timezone)).date()
-    st.session_state.setdefault("field_events_start_date", today - timedelta(days=90))
-    st.session_state.setdefault("field_events_end_date", today)
-    st.session_state.setdefault("field_events_type", "Todos")
-    st.session_state.setdefault("field_events_zone", "Todas")
-    st.session_state.setdefault("field_events_search", "")
-
-    with st.container(border=True, gap="small"):
-        date_col, type_col, zone_col, search_col, reset_col = st.columns([1, 1.05, 1.05, 1.25, 0.55])
-        with date_col:
-            start_date = st.date_input("Desde", key="field_events_start_date")
-            end_date = st.date_input("Hasta", key="field_events_end_date")
-        with type_col:
-            type_options = ["Todos", *event_type_labels]
-            event_type = st.selectbox(
-                "Tipo",
-                options=type_options,
-                key="field_events_type",
-                format_func=lambda value: "Todos" if value == "Todos" else event_type_labels.get(value, value),
-            )
-        with zone_col:
-            zone_options = ["Todas", *zone_labels]
-            zone = st.selectbox(
-                "Zona",
-                options=zone_options,
-                key="field_events_zone",
-                format_func=lambda value: "Todas" if value == "Todas" else zone_labels.get(value, value),
-            )
-        with search_col:
-            search = st.text_input("Buscar", key="field_events_search")
-        with reset_col:
-            st.write("")
-            st.write("")
-            if st.button("Limpiar", icon=":material/close:", key="field_events_clear_filters"):
-                st.session_state["field_events_start_date"] = today - timedelta(days=90)
-                st.session_state["field_events_end_date"] = today
-                st.session_state["field_events_type"] = "Todos"
-                st.session_state["field_events_zone"] = "Todas"
-                st.session_state["field_events_search"] = ""
-                st.rerun()
-
-    return (
-        field_event_start_iso(start_date),
-        field_event_end_iso(end_date),
-        None if event_type == "Todos" else event_type,
-        None if zone == "Todas" else zone,
-        search.strip() or None,
-    )
 
 
-def render_field_event_table(
-    rows: list[dict[str, Any]],
-    *,
-    event_type_labels: dict[str, str],
-    zone_labels: dict[str, str],
-) -> None:
-    if not rows:
-        st.info("Sin eventos para los filtros activos.")
-        return
-
-    st.html(
-        """
-        <div class="argos-field-event-table">
-            <div class="argos-field-event-row header">
-                <span>Fecha y hora</span><span>Tipo</span><span>Título</span><span>Zona</span>
-                <span>Árbol/fila</span><span>Cantidad</span><span>Descripción</span>
-            </div>
-        </div>
-        """
-    )
-    for row in rows:
-        content_col, action_col = st.columns([10, 1.2], vertical_alignment="center")
-        with content_col:
-            st.html(field_event_row_html(row, event_type_labels=event_type_labels, zone_labels=zone_labels))
-        with action_col:
-            if st.button("Editar", key=f"field_event_edit_{row['id']}", icon=":material/edit:", width="stretch"):
-                st.session_state["field_event_edit_id"] = row["id"]
-                st.rerun()
-            if st.button("Eliminar", key=f"field_event_delete_{row['id']}", icon=":material/delete:", width="stretch"):
-                st.session_state["field_event_delete_id"] = row["id"]
-                st.rerun()
 
 
-def render_field_event_form(
-    client: ArgosApiClient,
-    *,
-    event_type_labels: dict[str, str],
-    zone_labels: dict[str, str],
-    mode: str,
-    event: dict[str, Any] | None,
-) -> None:
-    prefix = f"field_event_{mode}_{event.get('id') if event else 'new'}"
-    occurred_at = parse_datetime(event.get("occurred_at")) if event else datetime.now(UTC)
-    local_occurred = (occurred_at or datetime.now(UTC)).astimezone(ZoneInfo(get_settings().local_timezone))
-    type_options: list[str] = list(event_type_labels)
-    zone_options: list[str] = ["", *zone_labels]
-    current_event_type = event.get("event_type") if event else None
-    event_type_index = type_options.index(current_event_type) if isinstance(current_event_type, str) and current_event_type in type_options else 0
-    current_zone_slug = event.get("zone_slug") if event else None
-    zone_index = zone_options.index(current_zone_slug) if isinstance(current_zone_slug, str) and current_zone_slug in zone_options else 0
-
-    def event_type_label(value: str) -> str:
-        return event_type_labels.get(value, value)
-
-    def zone_label(value: str) -> str:
-        return "—" if not value else zone_labels.get(value, value)
-
-    with st.form(prefix):
-        date_col, time_col, type_col = st.columns([1, 0.8, 1.2])
-        with date_col:
-            event_date = st.date_input("Fecha", value=local_occurred.date(), key=f"{prefix}_date")
-        with time_col:
-            event_time = st.time_input("Hora", value=local_occurred.time().replace(microsecond=0), key=f"{prefix}_time")
-        with type_col:
-            selected_event_type = st.selectbox(
-                "Tipo",
-                options=type_options,
-                index=event_type_index,
-                format_func=event_type_label,
-                key=f"{prefix}_type",
-            )
-        title = st.text_input("Título", value=event.get("title", "") if event else "", key=f"{prefix}_title")
-        description = st.text_area(
-            "Descripción",
-            value=event.get("description") or "" if event else "",
-            height=90,
-            key=f"{prefix}_description",
-        )
-        zone_col, tree_col, quantity_col, unit_col = st.columns([1.1, 1.1, 0.8, 0.8])
-        with zone_col:
-            selected_zone_slug = st.selectbox(
-                "Zona",
-                options=zone_options,
-                index=zone_index,
-                format_func=zone_label,
-                key=f"{prefix}_zone",
-            )
-        with tree_col:
-            tree_reference = st.text_input("Árbol/fila", value=event.get("tree_reference") or "" if event else "", key=f"{prefix}_tree")
-        with quantity_col:
-            quantity_text = st.text_input(
-                "Cantidad",
-                value=format_field_event_quantity(event.get("quantity")) if event else "",
-                key=f"{prefix}_quantity",
-            )
-        with unit_col:
-            unit = st.text_input("Unidad", value=event.get("unit") or "" if event else "", key=f"{prefix}_unit")
-        submitted = st.form_submit_button(
-            "Guardar" if mode == "edit" else "Registrar",
-            type="primary",
-            disabled=not bool(client.admin_token),
-        )
-    if not client.admin_token:
-        st.caption("Hace falta ARGOS admin token para crear o modificar eventos.")
-    if not submitted:
-        return
-    event_type = selected_event_type or type_options[0]
-    zone_slug = selected_zone_slug or ""
-    try:
-        payload = field_event_form_payload(
-            event_date=event_date,
-            event_time=event_time,
-            event_type=event_type,
-            title=title,
-            description=description,
-            zone_slug=zone_slug,
-            tree_reference=tree_reference,
-            quantity_text=quantity_text,
-            unit=unit,
-        )
-        if mode == "edit" and event is not None:
-            client.update_field_event(int(event["id"]), payload)
-            st.session_state.pop("field_event_edit_id", None)
-        else:
-            client.create_field_event(payload)
-        cached_field_events.clear()
-        st.rerun()
-    except (ArgosApiError, ValueError) as exc:
-        st.error(str(exc))
 
 
-def render_field_event_delete_confirmation(client: ArgosApiClient) -> None:
-    event_id = st.session_state.get("field_event_delete_id")
-    if event_id is None:
-        return
-    with st.container(border=True, gap="small"):
-        st.warning(f"¿Eliminar el evento {event_id}? Esta acción no se puede deshacer.")
-        yes_col, no_col = st.columns([0.2, 0.2])
-        with yes_col:
-            if st.button("Eliminar", type="primary", key="field_event_confirm_delete", disabled=not bool(client.admin_token)):
-                try:
-                    client.delete_field_event(int(event_id))
-                    st.session_state.pop("field_event_delete_id", None)
-                    cached_field_events.clear()
-                    st.rerun()
-                except ArgosApiError as exc:
-                    st.error(str(exc))
-        with no_col:
-            if st.button("Cancelar", key="field_event_cancel_delete"):
-                st.session_state.pop("field_event_delete_id", None)
-                st.rerun()
 
 
-def field_event_form_payload(
-    *,
-    event_date: date,
-    event_time: time,
-    event_type: str,
-    title: str,
-    description: str,
-    zone_slug: str,
-    tree_reference: str,
-    quantity_text: str,
-    unit: str,
-) -> dict[str, Any]:
-    if not title.strip():
-        raise ValueError("El título es obligatorio.")
-    quantity = parse_optional_float(quantity_text)
-    unit = unit.strip()
-    if unit and quantity is None:
-        raise ValueError("La unidad requiere una cantidad.")
-    return {
-        "occurred_at": local_datetime_to_utc_iso(event_date, event_time),
-        "event_type": event_type,
-        "title": title.strip(),
-        "description": description.strip() or None,
-        "zone_slug": zone_slug or None,
-        "tree_reference": tree_reference.strip() or None,
-        "quantity": quantity,
-        "unit": unit or None,
-        "source": "manual",
-    }
 
 
-def field_event_row_html(
-    row: dict[str, Any],
-    *,
-    event_type_labels: dict[str, str],
-    zone_labels: dict[str, str],
-) -> str:
-    quantity = field_event_quantity_label(row.get("quantity"), row.get("unit"))
-    values = [
-        format_compact_local_datetime(row.get("occurred_at")),
-        event_type_labels.get(str(row.get("event_type")), str(row.get("event_type"))),
-        row.get("title") or "—",
-        zone_labels.get(str(row.get("zone_slug")), str(row.get("zone_slug"))) if row.get("zone_slug") else "—",
-        row.get("tree_reference") or "—",
-        quantity,
-        row.get("description") or "—",
-    ]
-    cells = "".join(f"<span>{escape(str(value))}</span>" for value in values)
-    return f'<div class="argos-field-event-row">{cells}</div>'
 
 
-def field_events_csv(
-    rows: list[dict[str, Any]],
-    *,
-    event_type_labels: dict[str, str],
-    zone_labels: dict[str, str],
-) -> bytes:
-    output = io.StringIO()
-    writer = csv.DictWriter(
-        output,
-        fieldnames=["Fecha y hora", "Tipo", "Título", "Zona", "Árbol/fila", "Cantidad", "Descripción", "Origen"],
-        lineterminator="\n",
-    )
-    writer.writeheader()
-    for row in rows:
-        writer.writerow(
-            {
-                "Fecha y hora": format_compact_local_datetime(row.get("occurred_at")),
-                "Tipo": event_type_labels.get(str(row.get("event_type")), str(row.get("event_type"))),
-                "Título": row.get("title") or "",
-                "Zona": zone_labels.get(str(row.get("zone_slug")), str(row.get("zone_slug"))) if row.get("zone_slug") else "",
-                "Árbol/fila": row.get("tree_reference") or "",
-                "Cantidad": field_event_quantity_label(row.get("quantity"), row.get("unit"), empty=""),
-                "Descripción": row.get("description") or "",
-                "Origen": row.get("source") or "",
-            }
-        )
-    return output.getvalue().encode("utf-8-sig")
 
 
-def field_event_quantity_label(quantity: Any, unit: Any, *, empty: str = "—") -> str:
-    if quantity is None:
-        return empty
-    suffix = f" {unit}" if unit else ""
-    return f"{float(quantity):g}{suffix}"
 
 
-def format_field_event_quantity(quantity: Any) -> str:
-    return "" if quantity is None else f"{float(quantity):g}"
 
 
-def parse_optional_float(value: str) -> float | None:
-    text = value.strip().replace(",", ".")
-    if not text:
-        return None
-    return float(text)
 
 
-def field_event_start_iso(value: date) -> str:
-    return local_datetime_to_utc_iso(value, time.min)
 
 
-def field_event_end_iso(value: date) -> str:
-    return local_datetime_to_utc_iso(value, time.max.replace(microsecond=0))
 
 
-def local_datetime_to_utc_iso(day: date, clock_time: time) -> str:
-    timezone = ZoneInfo(get_settings().local_timezone)
-    return format_utc_iso(datetime.combine(day, clock_time).replace(tzinfo=timezone))
 
 
 def render_data_update(client: ArgosApiClient) -> None:
@@ -5483,15 +4771,6 @@ def render_flowmeter_chart(node_url: str, *, start_iso: str, end_iso: str) -> No
 
 def render_compact_metric(label: str, value: str) -> None:
     st.html(compact_metric_html(label, value))
-
-
-def compact_metric_html(label: str, value: str) -> str:
-    return (
-        '<div class="argos-compact-metric">'
-        f"<span>{escape(label)}</span>"
-        f"<strong>{escape(value)}</strong>"
-        "</div>"
-    )
 
 
 def build_flowmeter_figure(frame: pd.DataFrame, *, start_iso: str | None = None, end_iso: str | None = None) -> go.Figure:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from html import escape
+
 import pandas as pd
 import streamlit as st
 
@@ -14,4 +16,13 @@ def add_csv_download(frame: pd.DataFrame, label: str, file_name: str, *, key: st
         mime="text/csv",
         icon=":material/download:",
         key=key,
+    )
+
+
+def compact_metric_html(label: str, value: str) -> str:
+    return (
+        '<div class="argos-compact-metric">'
+        f"<span>{escape(label)}</span>"
+        f"<strong>{escape(value)}</strong>"
+        "</div>"
     )

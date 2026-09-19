@@ -5,7 +5,7 @@ Tipo: Registro de ejecucion
 Fuente de verdad: `docs/roadmap-future-iterations.md`
 Ultima actualizacion: 2026-09-19
 Responsable logico: Mantenimiento de software
-Revision: 2
+Revision: 3
 
 ## Alcance de esta iteracion
 
@@ -23,7 +23,7 @@ Se han ejecutado solamente cambios y comprobaciones verificables por software. N
 Validacion final:
 
 - `ruff`: correcto.
-- `mypy src`: correcto, 93 archivos fuente sin incidencias.
+- `mypy src`: correcto, 95 archivos fuente sin incidencias.
 - `pytest`: 295 pruebas superadas y 2 omitidas.
 - Enlaces Markdown internos: correctos.
 - `git diff --check`: correcto; solo avisos informativos de conversion LF/CRLF de Git en Windows.
@@ -37,24 +37,27 @@ Extracciones completadas sin cambio de comportamiento:
 - `src/argos/dashboard/pages/quality.py`: pagina de Calidad separada.
 - `src/argos/dashboard/pages/aemet.py`: pagina, cache, operaciones de importacion y utilidades AEMET separadas.
 - `src/argos/dashboard/pages/satellite.py`: pagina, cache, graficos y operaciones satelitales separadas.
-- `src/argos/dashboard/ui.py`: descarga CSV comun extraida para compartirla entre paginas.
+- `src/argos/dashboard/pages/field_diary.py`: pagina, cache, formularios, exportacion y utilidades del Diario de campo separadas.
+- `src/argos/dashboard/pages/plantation.py`: pagina, cache, matriz, historial e importacion de fotos de Plantacion separadas.
+- `src/argos/dashboard/ui.py`: descarga CSV y metricas compactas compartidas entre paginas.
 - `src/argos/dashboard/app.py` mantiene los nombres importados que ya consumian las pruebas y el resto de la aplicacion.
 - Se han agregado pruebas directas para formato, AEMET y el bloqueo de Calidad sin token administrativo.
 
-El archivo principal ha bajado de 7.077 a 6.114 lineas. La meta de menos de 2.000 lineas sigue abierta y debe alcanzarse mediante extracciones pequenas, cada una con suite completa.
+El archivo principal ha bajado de 7.077 a 5.393 lineas. La meta de menos de 2.000 lineas sigue abierta y debe alcanzarse mediante extracciones pequenas, cada una con suite completa.
 
 Siguiente orden recomendado:
 
-1. Extraer Diario de campo y Plantacion.
-2. Extraer Observaciones, Resumenes y Analisis en bloques acotados.
-3. Mantener Valvulas para el final por su criticidad operativa.
+1. Extraer Observaciones y sus graficos en bloques acotados.
+2. Extraer Resumenes y Analisis, conservando sus contratos internos.
+3. Extraer Actualizar datos antes de abordar la zona operativa.
+4. Mantener Valvulas para el final por su criticidad operativa.
 
 ## Calidad continua: completada
 
 - Agregado `.github/workflows/quality.yml` para ejecutar en cada PR y envio a `main`.
-- El flujo instala el entorno bloqueado y ejecuta `ruff`, `mypy`, `pytest` y la validacion de enlaces Markdown.
+- El flujo instala el entorno bloqueado y Chromium, y ejecuta `ruff`, `mypy`, `pytest`, la validacion de enlaces Markdown y la comprobacion de espacios del diff.
 - Se cancela una ejecucion anterior de la misma rama cuando llega una revision nueva.
-- La secuencia equivalente se ha validado localmente; la primera PR valida ademas su ejecucion en GitHub.
+- La secuencia se ha validado tanto localmente como en PR y tras la integracion en `main`.
 
 ## Fase 2: parcialmente completada
 
