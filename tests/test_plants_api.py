@@ -78,5 +78,20 @@ def test_plants_api_lists_filters_matrix_and_history(monkeypatch, tmp_path) -> N
     assert [row["title"] for row in history.json()] == ["Revisión higuera"]
     assert history.json()[0]["photo_url"] == f"/api/v1/field-events/{event.json()['id']}/photo"
 
+    invalid_update = client.patch(
+        f"/api/v1/plants/{plant['id']}",
+        headers=ADMIN_HEADERS,
+        json={"status": "unknown", "irrigation_sector_id": "V"},
+    )
+    assert invalid_update.status_code == 422
+
+    for invalid_payload in ({"species": "  "}, {"species": None}, {"status": None}, {"planted_on_precision": None}):
+        invalid_update = client.patch(
+            f"/api/v1/plants/{plant['id']}",
+            headers=ADMIN_HEADERS,
+            json=invalid_payload,
+        )
+        assert invalid_update.status_code == 422
+
     get_settings.cache_clear()
     reset_database_caches()

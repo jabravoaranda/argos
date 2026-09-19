@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -30,6 +31,7 @@ from argos.models.field_event import FieldEvent, FieldEventPhoto
 from argos.services.field_event_photos import (
     FieldEventPhotoInput,
     add_event_photo_item,
+    decode_photo,
     stage_plant_photos,
     thumbnail_data_url,
 )
@@ -157,10 +159,22 @@ def confirm_plant_photo_batch(
     skipped_unassigned = 0
     seen_hashes: set[str] = set()
     for item in payload.items:
-        if item.sha256 in existing_hashes or item.sha256 in legacy_hashes or item.sha256 in seen_hashes:
+        photo_input = FieldEventPhotoInput(
+            filename=item.filename,
+            content_type=item.content_type,
+            data_base64=item.data_base64,
+        )
+        try:
+            _content_type, content = decode_photo(photo_input)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        actual_checksum = hashlib.sha256(content).hexdigest()
+        if actual_checksum != item.sha256.lower():
+            raise HTTPException(status_code=422, detail=f"El contenido de {item.filename} no coincide con su SHA-256.")
+        if actual_checksum in existing_hashes or actual_checksum in legacy_hashes or actual_checksum in seen_hashes:
             skipped_duplicates += 1
             continue
-        seen_hashes.add(item.sha256)
+        seen_hashes.add(actual_checksum)
         if item.plant_id is None:
             skipped_unassigned += 1
             continue

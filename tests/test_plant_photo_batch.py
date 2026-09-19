@@ -185,6 +185,33 @@ def test_confirm_photo_batch_creates_grouped_event_and_links_plant(monkeypatch, 
         assert session.query(FieldEventPlantUnit).count() == 1
 
 
+def test_confirm_photo_batch_rejects_content_changed_after_staging(monkeypatch, tmp_path) -> None:
+    client = prepared_client(monkeypatch, tmp_path)
+    staged_source = photo_payload("arbol 11.jpg", color="white")
+    stage_response = client.post(
+        "/api/v1/plants/photos/stage",
+        json={"fallback_taken_at": "2026-08-01T00:00:00Z", "photos": [staged_source]},
+        headers=ADMIN_HEADERS,
+    )
+    assert stage_response.status_code == 200
+    item = stage_response.json()["items"][0]
+    changed_source = photo_payload("arbol 11.jpg", color="black")
+
+    confirm_response = client.post(
+        "/api/v1/plants/photos/confirm",
+        json={
+            "fallback_taken_at": "2026-08-01T00:00:00Z",
+            "items": [{**item, "data_base64": changed_source["data_base64"]}],
+        },
+        headers=ADMIN_HEADERS,
+    )
+
+    assert confirm_response.status_code == 422
+    assert "SHA-256" in confirm_response.json()["detail"]
+    with get_sessionmaker()() as session:
+        assert session.query(FieldEventPhoto).count() == 0
+
+
 def prepared_client(monkeypatch, tmp_path) -> TestClient:
     monkeypatch.setenv("ECOWITT_INGEST_TOKEN", "test-token")
     monkeypatch.setenv("ARGOS_ADMIN_TOKEN", "test-admin-token")

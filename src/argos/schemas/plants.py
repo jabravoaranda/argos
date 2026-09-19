@@ -124,6 +124,48 @@ class PlantUnitUpdate(BaseModel):
     longitude: float | None = None
     notes: str | None = None
 
+    @field_validator("species", mode="before")
+    @classmethod
+    def strip_required_text(cls, value: Any) -> Any:
+        if value is None:
+            raise ValueError("Plant species cannot be null.")
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("variety", "rootstock", "irrigation_sector_id", "irrigation_line_slug", "notes", mode="before")
+    @classmethod
+    def strip_optional_text(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        if value is None:
+            raise ValueError("Plant status cannot be null.")
+        if value not in PLANT_STATUSES:
+            raise ValueError("Unknown plant status.")
+        return value
+
+    @field_validator("planted_on_precision")
+    @classmethod
+    def validate_precision(cls, value: str | None) -> str | None:
+        if value is None:
+            raise ValueError("Planting date precision cannot be null.")
+        if value not in PLANTING_DATE_PRECISIONS:
+            raise ValueError("Unknown planting date precision.")
+        return value
+
+    @field_validator("irrigation_sector_id")
+    @classmethod
+    def validate_sector(cls, value: str | None) -> str | None:
+        if value is not None and value not in IRRIGATION_SECTOR_IDS:
+            raise ValueError("Unknown irrigation sector.")
+        return value
+
 
 class PlantUnitRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
