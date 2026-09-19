@@ -45,10 +45,16 @@ Lee primero [00-estado-del-proyecto.md](00-estado-del-proyecto.md). Es la fuente
 - [decisions-pending.md](decisions-pending.md): decisiones consolidadas y pendientes.
 - [adr/20260828-plant-units-persistent-matrix-view.md](adr/20260828-plant-units-persistent-matrix-view.md): ejemplares vegetales persistentes y matriz derivada.
 
+## Planificacion
+
+- [roadmap-future-iterations.md](roadmap-future-iterations.md): roadmap tecnico para proximas iteraciones.
+- [roadmap-progress-20260919.md](roadmap-progress-20260919.md): avance ejecutado, validaciones y punto de parada operativa.
+
 ## Auditorias
 
 Las auditorias en [audits/](audits/) son snapshots historicos o informes generados. No son la fuente principal del estado actual.
 
+- [audits/repository-review-20260919.md](audits/repository-review-20260919.md)
 - [audits/documentation-consolidation-audit.md](audits/documentation-consolidation-audit.md)
 - [audits/data-storage-audit.md](audits/data-storage-audit.md)
 - [audits/data-integrity-preflight.md](audits/data-integrity-preflight.md)
