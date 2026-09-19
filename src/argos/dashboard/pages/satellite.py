@@ -553,4 +553,3 @@ def format_satellite_ingestion_result(result: dict[str, Any]) -> str:
         f"{result.get('failed_count', 0)} fallidas"
         f"{units_label}."
     )
-
