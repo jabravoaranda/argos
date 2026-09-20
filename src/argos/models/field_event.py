@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from argos.database.base import Base
@@ -31,6 +31,7 @@ class FieldEventPhoto(Base):
     date_source: Mapped[str] = mapped_column(String(32), nullable=False)
     detected_code: Mapped[str | None] = mapped_column(String(100))
     resolver_confidence: Mapped[float | None] = mapped_column(Float)
+    metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -61,7 +62,29 @@ class FieldEvent(Base):
     photo_sha256: Mapped[str | None] = mapped_column(String(64))
     photo_taken_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual", server_default="manual")
+    metadata_json: Mapped[dict[str, object] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
     plant_links: Mapped[list["FieldEventPlantUnit"]] = relationship(cascade="all, delete-orphan")
     photos: Mapped[list[FieldEventPhoto]] = relationship(cascade="all, delete-orphan")
+
+
+class ExternalApiRequest(Base):
+    __tablename__ = "external_api_requests"
+    __table_args__ = (
+        UniqueConstraint("token_fingerprint", "idempotency_key", name="uq_external_api_requests_client_key"),
+        Index("ix_external_api_requests_created_at", "created_at"),
+        Index("ix_external_api_requests_resource", "resource_type", "resource_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    operation: Mapped[str] = mapped_column(String(100), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    response_status: Mapped[int] = mapped_column(Integer, nullable=False)
+    response_payload: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

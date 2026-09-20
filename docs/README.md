@@ -38,12 +38,14 @@ Lee primero [00-estado-del-proyecto.md](00-estado-del-proyecto.md). Es la fuente
 - Analitica: [analytics.md](analytics.md).
 - Diario de campo: [field-diary.md](field-diary.md).
 - Plantación: [plantation.md](plantation.md).
+- API externa de seguimiento: [external-plant-api.md](external-plant-api.md).
 - Riego manual: [operations/manual-irrigation-operation.md](operations/manual-irrigation-operation.md).
 
 ## Decisiones
 
 - [decisions-pending.md](decisions-pending.md): decisiones consolidadas y pendientes.
 - [adr/20260828-plant-units-persistent-matrix-view.md](adr/20260828-plant-units-persistent-matrix-view.md): ejemplares vegetales persistentes y matriz derivada.
+- [adr/20260920-external-plant-tracking-api.md](adr/20260920-external-plant-tracking-api.md): fachada externa segura sobre el seguimiento existente.
 
 ## Planificacion
 

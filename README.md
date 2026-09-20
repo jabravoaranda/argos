@@ -137,6 +137,11 @@ GET /api/v1/field-events/export.csv
 GET /api/v1/plants/matrix
 GET /api/v1/plants
 GET /api/v1/plants/{id}/history
+GET /api/v1/external/plants/{plant_code}
+GET /api/v1/external/plants/{plant_code}/observations
+POST /api/v1/external/plants/{plant_code}/observations
+POST /api/v1/external/plants/{plant_code}/photos
+GET /api/v1/external/plants/{plant_code}/photos
 GET /api/v1/analytics/variables
 POST /api/v1/analytics/series
 POST /api/v1/analytics/correlation
@@ -157,7 +162,7 @@ Daily and weekly summaries are persisted in `daily_statistics` and `weekly_stati
 
 ARGOS detects gaps when consecutive observations for the same gateway are farther apart than twice `ECOWITT_EXPECTED_INTERVAL_SECONDS`. Gaps are stored in `data_gaps` and exposed through the admin API. Admin endpoints and statistics recomputation require the `X-ARGOS-ADMIN-TOKEN` header with the value of `ARGOS_ADMIN_TOKEN`.
 
-See [docs/operations.md](docs/operations.md) for operational checks, [docs/field-diary.md](docs/field-diary.md) for field diary usage and [docs/analytics.md](docs/analytics.md) for the analytics API and dashboard contract.
+See [docs/operations.md](docs/operations.md) for operational checks, [docs/field-diary.md](docs/field-diary.md) for field diary usage, [docs/external-plant-api.md](docs/external-plant-api.md) for authorized external clients and [docs/analytics.md](docs/analytics.md) for the analytics API and dashboard contract.
 
 ## Quality Checks
 

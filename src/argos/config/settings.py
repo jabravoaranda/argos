@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     station_slug: str = "tomillar"
     argos_admin_token: str = Field(min_length=1)
+    argos_external_api_read_token: str | None = None
+    argos_external_api_write_token: str | None = None
     ecowitt_ingest_token: str = Field(min_length=1)
     ecowitt_capture_raw: bool = False
     ecowitt_expected_interval_seconds: int = 60

@@ -3,9 +3,9 @@
 Estado: Vigente
 Tipo: Referencia operativa
 Fuente de verdad: `src/argos/config/settings.py`
-Ultima actualizacion: 2026-08-15
+Ultima actualizacion: 2026-09-20
 Responsable logico: Mantenimiento de software
-Revision: 2
+Revision: 3
 
 No copiar secretos reales en documentacion, issues ni commits.
 
@@ -18,6 +18,8 @@ No copiar secretos reales en documentacion, issues ni commits.
 | `LOG_LEVEL` | logs | No | `INFO` | No | `INFO` | Nivel de logging. |
 | `STATION_SLUG` | Ecowitt | No | `tomillar` | No | `tomillar` | Identidad de estacion fisica. |
 | `ARGOS_ADMIN_TOKEN` | seguridad | Si | ninguno | Si | `change-me-long-random` | Token para endpoints admin. |
+| `ARGOS_EXTERNAL_API_READ_TOKEN` | seguridad | Para API externa de lectura | `None` | Si | `<random-read-token>` | Bearer revocable para consultar plantas y seguimiento. |
+| `ARGOS_EXTERNAL_API_WRITE_TOKEN` | seguridad | Para API externa de escritura | `None` | Si | `<random-write-token>` | Bearer revocable para consultar y registrar observaciones/fotos. |
 | `ECOWITT_INGEST_TOKEN` | Ecowitt LAN | Si | ninguno | Si | `change-me-long-random` | Token de subida Customized. |
 | `ECOWITT_CAPTURE_RAW` | Ecowitt LAN | No | `false` | No | `true` | Conserva payloads raw LAN. |
 | `ECOWITT_EXPECTED_INTERVAL_SECONDS` | Ecowitt LAN | No | `60` | No | `60` | Intervalo esperado para gaps. |
@@ -78,6 +80,8 @@ No copiar secretos reales en documentacion, issues ni commits.
 | `ARGOS_DAILY_SYNC_INTERVAL_HOURS` | Scheduling | No | `24.0` | No | `24` | Intervalo worker diario. |
 | `ECOWITT_CLOUD_SYNC_LOOKBACK_HOURS` | Scheduling | No | `24` | No | `24` | Lookback sync Cloud. |
 | `ARGOS_BACKUP_DIR` | Backups | No | no definido en settings | No | `D:\ARGOS Backups\sqlite` | Usado por scripts de backup, no por `Settings`. |
+
+Para revocar o rotar acceso externo, sustituir el token correspondiente en `.env` y reiniciar FastAPI. No reutilizar el token admin ni registrar tokens en logs, documentación o clientes sin almacén seguro.
 
 ## Sectores de riego configurados
 

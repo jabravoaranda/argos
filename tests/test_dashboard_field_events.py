@@ -19,7 +19,7 @@ EVENT_TYPE_LABELS = {"irrigation": "Riego"}
 ZONE_LABELS = {"olivos_pequenos": "Olivos pequeños"}
 
 
-def test_field_event_form_payload_builds_manual_event() -> None:
+def test_field_event_form_payload_builds_web_event() -> None:
     payload = field_event_form_payload(
         event_date=date(2026, 8, 1),
         event_time=time(10, 30),
@@ -39,7 +39,7 @@ def test_field_event_form_payload_builds_manual_event() -> None:
     assert payload["tree_reference"] == "fila 2"
     assert payload["quantity"] == 12.5
     assert payload["unit"] == "m3"
-    assert payload["source"] == "manual"
+    assert payload["source"] == "web"
 
 
 def test_field_event_form_payload_rejects_unit_without_quantity() -> None:
