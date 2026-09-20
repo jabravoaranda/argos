@@ -785,6 +785,10 @@ def phase_is_busy(phase: str) -> bool:
     return phase in {"sending_open_command", "sending_close_command", "opening", "closing"}
 
 
+def valve_phase_needs_backend_refresh(phase: str) -> bool:
+    return phase in {"unknown", "closed", "open", "error"}
+
+
 def valve_availability_label(valve: ValveControl) -> str:
     return "Operativa" if valve.enabled_for_control else "Pendiente"
 
@@ -4228,7 +4232,7 @@ def render_valve_control_card(
     update_timed_valve_state(keys)
 
     phase = "not_operational" if not valve.enabled_for_control else st.session_state[keys["phase"]]
-    if valve.enabled_for_control and phase in {"unknown", "closed", "open"}:
+    if valve.enabled_for_control and valve_phase_needs_backend_refresh(phase):
         refresh_valve_from_backend(client, valve=valve, keys=keys)
         phase = st.session_state[keys["phase"]]
 
@@ -5167,19 +5171,20 @@ def refresh_valve_from_backend(client: ArgosNodeClient, *, valve: ValveControl, 
         )
     except ArgosNodeError as exc:
         st.session_state[keys["phase"]] = "error"
+        st.session_state[keys["message"]] = None
         st.session_state[keys["error"]] = str(exc)
         return
 
+    st.session_state[keys["raw_response"]] = state
+    st.session_state[keys["error"]] = None
     if state is None:
         st.session_state[keys["phase"]] = "unknown"
         return
 
     phase = valve_phase_from_response(state)
-    st.session_state[keys["raw_response"]] = state
     st.session_state[keys["phase"]] = phase
     if phase in {"open", "closed"}:
         st.session_state[keys["last_confirmed_phase"]] = phase
-        st.session_state[keys["error"]] = None
 
 
 def render_valve_status_line(keys: dict[str, str], phase: str) -> None:
