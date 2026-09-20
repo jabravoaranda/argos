@@ -3,9 +3,9 @@
 Estado: Vigente
 Tipo: Registro de ejecucion
 Fuente de verdad: `docs/roadmap-future-iterations.md`
-Ultima actualizacion: 2026-09-19
+Ultima actualizacion: 2026-09-20
 Responsable logico: Mantenimiento de software
-Revision: 3
+Revision: 4
 
 ## Alcance de esta iteracion
 
@@ -58,6 +58,15 @@ Siguiente orden recomendado:
 - El flujo instala el entorno bloqueado y Chromium, y ejecuta `ruff`, `mypy`, `pytest`, la validacion de enlaces Markdown y la comprobacion de espacios del diff.
 - Se cancela una ejecucion anterior de la misma rama cuando llega una revision nueva.
 - La secuencia se ha validado tanto localmente como en PR y tras la integracion en `main`.
+
+## Correcciones operativas de software
+
+- Corregida la recuperacion de las tarjetas de valvulas despues de cambiar una URL o IP incorrecta de `argos-node`.
+- El estado `error` vuelve a consultar el nodo al refrescar, en lugar de quedar bloqueado en la sesion de Streamlit.
+- Una respuesta valida limpia el error y la respuesta tecnica obsoletos, incluso cuando no contiene un estado de posicion reconocible.
+- La correccion dispone de pruebas sin acceso ni envio de ordenes al hardware.
+- Las pruebas Playwright contra un dashboard ya iniciado requieren ahora `ARGOS_RUN_LIVE_UI_TESTS=1`; la suite normal no abre la pagina de valvulas ni interrumpe WebSockets de una sesion operativa.
+- Identificado el `WinError 10054` de `_ProactorBasePipeTransport` como ruido de desconexion del servidor Streamlit en Windows al cerrar el navegador de pruebas, independiente de la comunicacion con `argos-node`.
 
 ## Fase 2: parcialmente completada
 

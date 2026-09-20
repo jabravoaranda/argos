@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -7,6 +8,11 @@ from urllib.request import urlopen
 import pytest
 
 pytest.importorskip("playwright")
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("ARGOS_RUN_LIVE_UI_TESTS") != "1",
+    reason="Live dashboard UI tests require ARGOS_RUN_LIVE_UI_TESTS=1.",
+)
 
 
 ARGOS_DASHBOARD_URL = "http://localhost:8501"

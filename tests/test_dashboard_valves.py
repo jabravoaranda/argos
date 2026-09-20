@@ -29,6 +29,7 @@ from argos.dashboard.app import (
     irrigation_history_capture_warning,
     irrigation_valve_controls,
     render_irrigation_history_section,
+    refresh_valve_from_backend,
     format_valve_state,
     normalize_http_base_url,
     valve_control_options,
@@ -40,6 +41,8 @@ from argos.dashboard.app import (
     valve_card_state_label,
     valve_phase_from_response,
     valve_phase_label,
+    valve_phase_needs_backend_refresh,
+    valve_session_keys,
 )
 from argos.config.settings import get_settings
 from argos.database.base import Base
@@ -113,6 +116,52 @@ def test_valve_phase_label_renders_transitional_states() -> None:
     assert valve_phase_label("sending_open_command") == "Sending open command"
     assert valve_phase_label("opening") == "Opening"
     assert valve_phase_label("closing") == "Closing"
+
+
+def test_valve_error_phase_is_retried_on_refresh() -> None:
+    assert valve_phase_needs_backend_refresh("error") is True
+    assert valve_phase_needs_backend_refresh("opening") is False
+
+
+def test_refresh_valve_from_backend_clears_stale_communication_error(monkeypatch) -> None:
+    class RecoveredClient:
+        def get_irrigation_sector(self, sector_id: str) -> dict[str, Any]:
+            assert sector_id == "I"
+            return {"state": "closed"}
+
+    valve = ValveControl("EV7", "Sector I", 7, 7, sector_id="I")
+    keys = valve_session_keys(valve.control_key)
+    monkeypatch.setitem(dashboard_app.st.session_state, keys["phase"], "error")
+    monkeypatch.setitem(dashboard_app.st.session_state, keys["last_confirmed_phase"], "unknown")
+    monkeypatch.setitem(dashboard_app.st.session_state, keys["raw_response"], {"stale": True})
+    monkeypatch.setitem(dashboard_app.st.session_state, keys["message"], None)
+    monkeypatch.setitem(dashboard_app.st.session_state, keys["error"], "Could not connect")
+
+    refresh_valve_from_backend(RecoveredClient(), valve=valve, keys=keys)  # type: ignore[arg-type]
+
+    assert dashboard_app.st.session_state[keys["phase"]] == "closed"
+    assert dashboard_app.st.session_state[keys["last_confirmed_phase"]] == "closed"
+    assert dashboard_app.st.session_state[keys["raw_response"]] == {"state": "closed"}
+    assert dashboard_app.st.session_state[keys["error"]] is None
+
+
+def test_refresh_valve_from_backend_clears_error_on_empty_success(monkeypatch) -> None:
+    class RecoveredClient:
+        def get_valve(self, valve_id: int) -> None:
+            assert valve_id == 8
+            return None
+
+    valve = ValveControl("EV8", "Principal", 8, 8)
+    keys = valve_session_keys(valve.control_key)
+    monkeypatch.setitem(dashboard_app.st.session_state, keys["phase"], "error")
+    monkeypatch.setitem(dashboard_app.st.session_state, keys["raw_response"], {"stale": True})
+    monkeypatch.setitem(dashboard_app.st.session_state, keys["error"], "Could not connect")
+
+    refresh_valve_from_backend(RecoveredClient(), valve=valve, keys=keys)  # type: ignore[arg-type]
+
+    assert dashboard_app.st.session_state[keys["phase"]] == "unknown"
+    assert dashboard_app.st.session_state[keys["raw_response"]] is None
+    assert dashboard_app.st.session_state[keys["error"]] is None
 
 
 def test_valve_estimation_message_is_explicit() -> None:
