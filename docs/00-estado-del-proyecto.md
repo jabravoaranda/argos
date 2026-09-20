@@ -5,7 +5,7 @@ Tipo: Fuente de verdad de estado
 Fuente de verdad: Este documento
 Ultima actualizacion: 2026-09-20
 Responsable logico: Mantenimiento de software
-Revision: 4
+Revision: 5
 
 ## Regla de mantenimiento
 
@@ -53,8 +53,8 @@ No se declara todavia:
 | Boton manual apertura/cierre | Si | Si | Si | Software si | Parcial | Botones `Open valve`/`Close valve` y `Cerrar todo` en vista `Valvulas`; prueba fisica: Pendiente de validacion operativa. |
 | Caudalimetro | Si | Si | Si | Si | Parcial | Worker registra minutos; 218 agregados observados. Cero sesiones cerradas observadas. |
 | Diario de campo | Si | Si | Si | Tests/API | Si | CRUD y export CSV via API/dashboard con token admin; eventos pueden asociarse a árboles inventariados. |
-| Plantación | Si | Si | Pendiente migración/import | Tests/API | Parcial | Modelo persistente de ejemplares vegetales, matriz 12x12 `11..CC`, importador CSV idempotente y vista dashboard. |
-| API externa de seguimiento | Si | Si | Pendiente despliegue de migración/configuración | Tests | No | API Bearer por código público, scopes lectura/escritura, multipart, idempotencia, auditoría y OpenAPI; exposición de red no autorizada ni realizada. |
+| Plantación | Si | Si | Migración aplicada/importación operativa | Tests/API | Parcial | Modelo persistente de ejemplares vegetales, matriz 12x12 `11..CC`, importador CSV idempotente, observaciones agronómicas estructuradas y vista dashboard. |
+| API externa de seguimiento | Si | Si | Operativa en LAN por HTTP | Tests y comprobación local/LAN | Parcial | API Bearer por código público, scopes lectura/escritura, multipart, observaciones estructuradas, idempotencia, auditoría y OpenAPI. Tokens cargados desde `.env`; HTTPS y exposición remota siguen pendientes. |
 | Analitica | Si | Si | Si | Tests/API | Si | Variables, series, correlaciones, distribuciones y tendencias sobre datos persistidos. |
 | Sensores de suelo | Parcial | No confirmado | No confirmado | No confirmado | No | Referencias analiticas posibles, sin integracion operativa confirmada. |
 | Scheduling | Si | Si | Parcial | Parcial | Parcial | Worker diario se arranca con FastAPI si `ARGOS_DAILY_SYNC_ENABLED=true`; tarea Windows de backup no confirmada. |
@@ -64,7 +64,7 @@ No se declara todavia:
 
 - Rama observada: `codex/data-protection-phase-1`.
 - Commit de consolidacion documental observado: `b884636`. Para el commit exacto del arbol desplegado, ejecutar `git rev-parse --short HEAD`.
-- Revision Alembic activa: `20260802_0023`.
+- Revision Alembic activa: `20260920_0031`.
 - Motor de base de datos: SQLite.
 - Base activa: `var/argos.db`.
 - Integridad SQL: `ok`.
@@ -90,7 +90,8 @@ No se declara todavia:
 - Persistencia de caudalimetro por minuto cuando `ARGOS_NODE_URL` esta configurado.
 - Backup/restore SQLite mediante scripts.
 - Auditorias de duplicados, `source_artifacts`, staging, cursores e inventario de archivos.
-- API versionada para clientes externos autorizados sobre el mismo historial de Plantación, pendiente de configurar tokens y desplegar la migración `20260920_0030`.
+- API versionada para clientes externos autorizados sobre el mismo historial de Plantación; tokens de lectura/escritura cargados desde `.env` y migraciones desplegadas hasta `20260920_0031`.
+- Observaciones agronómicas estructuradas en `field_events`: hechos visuales, interpretación, recomendaciones, actuaciones realizadas y limitaciones, manteniendo `description` como comentario general.
 
 ## 5. Limitaciones actuales
 
@@ -104,7 +105,8 @@ No se declara todavia:
 - Arranque automatico tras reinicio de Windows: No confirmado.
 - Tarea programada Windows de backup: No confirmado.
 - Supervision externa de procesos FastAPI/Streamlit: No confirmado.
-- La API externa no es alcanzable remotamente por decisión de este cambio: faltan hostname HTTPS y autorización de red.
+- La API externa es alcanzable en la LAN por HTTP en el puerto `8080`; no se declara apta para acceso remoto porque faltan hostname, certificado/proxy HTTPS y una política autorizada de exposición.
+- La integración automática ChatGPT -> ARGOS no está validada ni declarada operativa; lo validado es preparar información en ChatGPT y ejecutar la petición contra la API ARGOS con intervención del usuario/cliente.
 - Ecowitt Cloud puede completar con warnings; payload real y reglas de enriquecimiento siguen pendientes.
 - Quedan 1.659 archivos `legacy` preservados; no se han eliminado ni declarado innecesarios.
 

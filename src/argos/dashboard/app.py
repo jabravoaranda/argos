@@ -89,11 +89,13 @@ from argos.dashboard.pages.plantation import (
     render_plant_history as render_plant_history,
     render_plant_observation_form as render_plant_observation_form,
     render_plant_photo_batch_import as render_plant_photo_batch_import,
+    render_structured_history_section as render_structured_history_section,
     render_plantation,
     render_plantation_filters as render_plantation_filters,
     render_plantation_legend as render_plantation_legend,
     render_plantation_matrix as render_plantation_matrix,
     selected_plant_from_matrix as selected_plant_from_matrix,
+    structured_lines_from_text as structured_lines_from_text,
     uploaded_photo_payload as uploaded_photo_payload,
 )
 from argos.dashboard.pages.quality import render_quality

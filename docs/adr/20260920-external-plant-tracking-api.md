@@ -16,12 +16,15 @@ ARGOS ya conserva plantas en `plant_units`, actuaciones en `field_events`, asoci
 - Exigir `Idempotency-Key` en cada POST y auditar la respuesta en `external_api_requests` usando solo la huella SHA-256 del token.
 - Conservar `observed_at`, fecha EXIF y fecha de subida como conceptos distintos.
 - Mantener `source` independiente del modelo: `web`, `batch_upload`, `api` y `chatgpt` terminan en las mismas tablas.
+- Exponer los campos estructurados de observación agronómica (`visual_observations`, `interpretation`, `recommendations`, `actions_taken`, `limitations`) como contrato explícito de dominio/API, no como claves arbitrarias dentro de `metadata`.
+- Representar esos campos inicialmente como arrays JSON en `field_events`: es suficiente para SQLite, conserva compatibilidad con filas previas y evita tablas hijas prematuras mientras se acumulan observaciones reales.
 
 El segmento `/external/` evita la ambigüedad del API existente, donde `/api/v1/plants/{plant_id}` usa un entero interno y algunos códigos públicos, como `11`, también son numéricos.
 
 ## Consecuencias
 
 - No existe código específico de integración con ChatGPT.
+- `recommendations` y `actions_taken` deben permanecer semánticamente separados: las primeras son sugerencias, las segundas son actuaciones ya realizadas.
 - Los clientes externos no conocen rutas de archivos ni la base de datos.
 - Rotar un token requiere cambiar `.env` y reiniciar FastAPI.
 - Publicar ARGOS fuera del host local sigue siendo una decisión operativa pendiente; este cambio no abre puertos ni modifica red, firewall o túneles.

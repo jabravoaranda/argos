@@ -8,6 +8,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from argos.domain.field_events import FIELD_EVENT_SOURCES, FIELD_EVENT_TYPE_LABELS, FIELD_ZONE_LABELS
 from argos.models.plants import FIELD_EVENT_TARGET_TYPES
 
+STRUCTURED_OBSERVATION_FIELDS = (
+    "visual_observations",
+    "interpretation",
+    "recommendations",
+    "actions_taken",
+    "limitations",
+)
+
 
 class FieldEventCatalogItemRead(BaseModel):
     slug: str
@@ -27,6 +35,11 @@ class FieldEventBase(BaseModel):
     quantity: float | None = None
     unit: str | None = Field(default=None, max_length=64)
     source: str = "manual"
+    visual_observations: list[str] = Field(default_factory=list)
+    interpretation: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    actions_taken: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
 
     @field_validator("event_type")
     @classmethod
@@ -63,6 +76,24 @@ class FieldEventBase(BaseModel):
             stripped = value.strip()
             return stripped or None
         return value
+
+    @field_validator(*STRUCTURED_OBSERVATION_FIELDS, mode="before")
+    @classmethod
+    def normalize_structured_lines(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            raise ValueError("Structured observation fields must be lists of text.")
+        normalized: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError("Structured observation entries must be text.")
+            stripped = item.strip()
+            if stripped:
+                normalized.append(stripped)
+        return normalized
 
     @model_validator(mode="after")
     def validate_quantity_unit(self) -> "FieldEventBase":
@@ -108,6 +139,11 @@ class FieldEventUpdate(BaseModel):
     plant_unit_ids: list[int] | None = None
     quantity: float | None = None
     unit: str | None = Field(default=None, max_length=64)
+    visual_observations: list[str] | None = None
+    interpretation: list[str] | None = None
+    recommendations: list[str] | None = None
+    actions_taken: list[str] | None = None
+    limitations: list[str] | None = None
 
     @field_validator("event_type")
     @classmethod
@@ -138,6 +174,13 @@ class FieldEventUpdate(BaseModel):
             return stripped or None
         return value
 
+    @field_validator(*STRUCTURED_OBSERVATION_FIELDS, mode="before")
+    @classmethod
+    def normalize_structured_lines(cls, value: Any) -> list[str] | None:
+        if value is None:
+            return None
+        return FieldEventBase.normalize_structured_lines(value)
+
 class FieldEventRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -161,9 +204,19 @@ class FieldEventRead(BaseModel):
     photo_taken_at: datetime | None
     photo_url: str | None = None
     source: str
+    visual_observations: list[str] = Field(default_factory=list)
+    interpretation: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    actions_taken: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
     metadata_json: dict[str, object] | None
     created_at: datetime
     updated_at: datetime | None
+
+    @field_validator(*STRUCTURED_OBSERVATION_FIELDS, mode="before")
+    @classmethod
+    def default_structured_lines(cls, value: Any) -> list[str]:
+        return FieldEventBase.normalize_structured_lines(value)
 
 
 class FieldEventCatalogRead(BaseModel):

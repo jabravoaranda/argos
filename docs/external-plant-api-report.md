@@ -14,8 +14,8 @@ No hay subsistema ChatGPT. Web, lote y API comparten modelos, repositorios y alm
 |---|---|---|---|---|
 | `GET /api/v1/external/plants/{plant_code}` | Consultar ejemplar | path `plant_code` | ficha de planta | 401, 404, 503 |
 | `GET /api/v1/external/plants/{plant_code}/observations` | Recuperar historial | path y `limit` | lista cronológica | 401, 404, 422, 503 |
-| `POST /api/v1/external/plants/{plant_code}/observations` | Registrar observación | JSON con `observed_at`, `title?`, `note?`, `source`, `metadata?`; cabecera idempotente | observación, 201 | 401, 403, 404, 409, 422, 503 |
-| `POST /api/v1/external/plants/{plant_code}/photos` | Registrar original | multipart `photo`, `observed_at`, `note?`, `source`, `metadata?`; cabecera idempotente | foto, 201 | 401, 403, 404, 409, 422, 503 |
+| `POST /api/v1/external/plants/{plant_code}/observations` | Registrar observación | JSON con `observed_at`, `title?`, `note?`, arrays estructurados, `source`, `metadata?`; cabecera idempotente | observación, 201 | 401, 403, 404, 409, 422, 503 |
+| `POST /api/v1/external/plants/{plant_code}/photos` | Registrar original | multipart `photo`, `observed_at`, `note?`, arrays estructurados como JSON texto, `source`, `metadata?`; cabecera idempotente | foto, 201 | 401, 403, 404, 409, 422, 503 |
 | `GET /api/v1/external/plants/{plant_code}/photos` | Listar fotos | path y `limit` | metadatos y `content_url` | 401, 404, 422, 503 |
 | `GET /api/v1/external/plants/{plant_code}/photos/{photo_id}/content` | Descargar original | códigos de planta y foto | binario con MIME original | 401, 404, 503 |
 
@@ -39,6 +39,9 @@ curl -X POST "http://127.0.0.1:8080/api/v1/external/plants/3B/photos" \
   -F "observed_at=2026-09-20T11:30:00+02:00" \
   -F "source=chatgpt" \
   -F "note=Fotografía de seguimiento" \
+  -F 'visual_observations=["Follaje mayoritariamente verde"]' \
+  -F 'recommendations=["Revisar humedad del suelo"]' \
+  -F 'actions_taken=[]' \
   -F 'metadata={"conversation_id":"example"}'
 ```
 
@@ -52,12 +55,12 @@ curl "http://127.0.0.1:8080/api/v1/external/plants/3B/observations?limit=100" \
 # 8. Modelo de datos
 
 - `plant_units`: ejemplar e identidad pública única.
-- `field_events`: fecha de observación, texto, tipo, procedencia y metadatos.
+- `field_events`: fecha de observación, texto libre, tipo, procedencia, metadatos y arrays estructurados de observación agronómica.
 - `field_event_plant_units`: asociación entre evento y ejemplar.
 - `field_event_photos`: original, ruta, MIME, nombre, tamaño, SHA-256, fecha EXIF/inferida y metadatos.
 - `external_api_requests`: huella de cliente, clave idempotente, operación/hash, respuesta y recurso auditado.
 
-La migración Alembic es `20260920_0030`.
+Las migraciones Alembic relacionadas son `20260920_0030` para metadatos/auditoría externa y `20260920_0031` para observaciones estructuradas.
 
 # 9. Fotografías
 
@@ -73,7 +76,7 @@ Cada POST exige `Idempotency-Key`. ARGOS calcula SHA-256 de una representación 
 
 # 12. Accesibilidad de ARGOS
 
-La ejecución observada usa FastAPI en el host local, puerto `8080`; el comando actual puede escuchar en `0.0.0.0`, pero la accesibilidad efectiva depende de LAN, firewall y eventual proxy/túnel. Esta implementación no abre puertos ni cambia Cloudflare, DNS, firewall o red. Para un cliente remoto habrá que autorizar y configurar transporte HTTPS, alcance de red y política de exposición.
+La ejecución observada usa FastAPI en `0.0.0.0:8080` y la comprobación desde la LAN devuelve `200` en `/health`. El transporte actual es HTTP: no hay listener TLS. Esta implementación no cambia Cloudflare, DNS ni firewall. Para un cliente remoto habrá que autorizar y configurar transporte HTTPS, alcance de red y política de exposición.
 
 # 13. Variables de entorno
 
@@ -88,7 +91,7 @@ No se incluye ningún valor secreto.
 
 # 14. Tests
 
-`tests/test_external_plant_api.py` cubre scopes, autenticación, código público, creación y reintento de observaciones, conflicto idempotente, multipart válido/inválido, procedencia, fechas UTC, metadatos, asociación, descarga, historial normal y almacenamiento compartido. Se mantienen las suites existentes de diario, Plantación y lote. Validación local final: `301 passed, 2 skipped`; `ruff` y `mypy` sin errores; migración SQLite comprobada en upgrade, downgrade y nuevo upgrade.
+`tests/test_external_plant_api.py` cubre scopes, autenticación, código público, creación y reintento de observaciones, conflicto idempotente, multipart válido/inválido, procedencia, fechas UTC, metadatos, asociación, descarga, historial normal y almacenamiento compartido. Se mantienen las suites existentes de diario, Plantación y lote. Validación local final: `305 passed, 2 skipped`; `ruff` sin errores; `mypy` focalizado sin errores y suite completa con deuda tipográfica preexistente; migración SQLite comprobada en upgrade, downgrade y nuevo upgrade.
 
 # 15. Archivos modificados
 
@@ -106,11 +109,11 @@ No se incluye ningún valor secreto.
 # 16. Decisiones pendientes
 
 - Hostname HTTPS y mecanismo autorizado de exposición fuera del equipo local.
-- Generación, custodia y entrega de tokens reales.
+- Custodia, rotación y entrega segura de los tokens configurados a cada cliente autorizado.
 - Rotación periódica y número de clientes/tokens cuando haya más de uno.
 - Si se persistirán miniaturas como activos propios en una iteración posterior.
 - Validación de despliegue contra hardware/campo; no es necesaria para probar este contrato de datos.
 
 # 17. Información necesaria para integrar ChatGPT
 
-Un cliente necesita la URL base HTTPS alcanzable, el `openapi.json`, un token con scope adecuado y códigos públicos válidos. Para consultar usa GET de planta, observaciones o fotos con Bearer. Para registrar observación envía JSON, `observed_at` con offset, `source=chatgpt` y una clave idempotente nueva. Para subir foto usa multipart con el original y los mismos campos. Para recuperar historial consulta `/observations`; para binarios consulta `/photos` y sigue cada `content_url`. El cliente debe conservar la clave hasta recibir respuesta definitiva y reutilizarla solo para reintentar exactamente la misma operación.
+Un cliente necesita la URL base HTTPS alcanzable, el `openapi.json`, un token con scope adecuado y códigos públicos válidos. Para consultar usa GET de planta, observaciones o fotos con Bearer. Para registrar observación envía JSON, `observed_at` con offset, `source=chatgpt`, los arrays estructurados que procedan y una clave idempotente nueva. Para subir foto usa multipart con el original y los mismos campos, enviando cada array como texto JSON. Para recuperar historial consulta `/observations`; para binarios consulta `/photos` y sigue cada `content_url`. El cliente debe conservar la clave hasta recibir respuesta definitiva y reutilizarla solo para reintentar exactamente la misma operación. La integración automática ChatGPT -> ARGOS sigue pendiente; lo validado es que ChatGPT prepare la información y un usuario/cliente autorizado ejecute la petición.

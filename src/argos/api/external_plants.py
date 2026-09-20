@@ -100,6 +100,11 @@ def create_external_observation(
             "event_type": "observation",
             "title": payload.title or f"Observación externa {plant.public_code}",
             "description": payload.note,
+            "visual_observations": payload.visual_observations,
+            "interpretation": payload.interpretation,
+            "recommendations": payload.recommendations,
+            "actions_taken": payload.actions_taken,
+            "limitations": payload.limitations,
             "tree_reference": plant.public_code,
             "target_type": "plant",
             "target_value": plant.public_code,
@@ -126,6 +131,26 @@ async def create_external_photo(
     photo: Annotated[UploadFile, File(description="Original JPG, PNG or WebP file")],
     observed_at: Annotated[datetime, Form(description="Observation time with UTC offset")],
     note: Annotated[str | None, Form()] = None,
+    visual_observations: Annotated[
+        str | None,
+        Form(description='JSON array of directly observed visual facts, for example ["Follaje verde"].'),
+    ] = None,
+    interpretation: Annotated[
+        str | None,
+        Form(description='JSON array of agronomic interpretations, for example ["Compatible con estrés hídrico"].'),
+    ] = None,
+    recommendations: Annotated[
+        str | None,
+        Form(description='JSON array of suggested actions that have not necessarily been performed.'),
+    ] = None,
+    actions_taken: Annotated[
+        str | None,
+        Form(description='JSON array of actions actually carried out. Keep separate from recommendations.'),
+    ] = None,
+    limitations: Annotated[
+        str | None,
+        Form(description='JSON array of limitations of the observation or interpretation.'),
+    ] = None,
     source: Annotated[Literal["api", "chatgpt"], Form()] = "api",
     metadata: Annotated[str | None, Form(description="Optional JSON object")] = None,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
@@ -137,6 +162,13 @@ async def create_external_photo(
     key = _idempotency_key(idempotency_key)
     plant = _plant_or_404(session, plant_code)
     metadata_value = _metadata_object(metadata)
+    structured = {
+        "visual_observations": _structured_lines_from_form(visual_observations, "visual_observations"),
+        "interpretation": _structured_lines_from_form(interpretation, "interpretation"),
+        "recommendations": _structured_lines_from_form(recommendations, "recommendations"),
+        "actions_taken": _structured_lines_from_form(actions_taken, "actions_taken"),
+        "limitations": _structured_lines_from_form(limitations, "limitations"),
+    }
     content = await photo.read()
     filename = photo.filename or "photo"
     photo_input = FieldEventPhotoInput(
@@ -165,6 +197,7 @@ async def create_external_photo(
             "plant_code": plant.public_code,
             "observed_at": observed_at.isoformat(),
             "note": note,
+            **structured,
             "source": source,
             "metadata": metadata_value,
             "filename": filename,
@@ -198,6 +231,7 @@ async def create_external_photo(
             "event_type": "observation",
             "title": f"Seguimiento fotográfico {plant.public_code}",
             "description": note,
+            **structured,
             "tree_reference": plant.public_code,
             "target_type": "plant",
             "target_value": plant.public_code,
@@ -358,6 +392,45 @@ def _metadata_object(value: str | None) -> dict[str, object] | None:
     return parsed
 
 
+def _structured_lines_from_form(value: str | None, field_name: str) -> list[str]:
+    if value is None or not value.strip():
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ExternalApiError(
+            status_code=422,
+            code=f"invalid_{field_name}",
+            message=f"{field_name} must be a JSON array of strings in multipart/form-data.",
+        ) from exc
+    return _normalize_structured_lines(parsed, field_name)
+
+
+def _normalize_structured_lines(value: Any, field_name: str) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        raise ExternalApiError(
+            status_code=422,
+            code=f"invalid_{field_name}",
+            message=f"{field_name} must be an array of strings.",
+        )
+    normalized: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ExternalApiError(
+                status_code=422,
+                code=f"invalid_{field_name}",
+                message=f"{field_name} must contain only strings.",
+            )
+        stripped = item.strip()
+        if stripped:
+            normalized.append(stripped)
+    return normalized
+
+
 def _observation_read(event: FieldEvent, plant_code: str) -> ExternalObservationRead:
     return ExternalObservationRead(
         id=event.id,
@@ -366,6 +439,11 @@ def _observation_read(event: FieldEvent, plant_code: str) -> ExternalObservation
         event_type=event.event_type,
         title=event.title,
         note=event.description,
+        visual_observations=_normalize_structured_lines(event.visual_observations, "visual_observations"),
+        interpretation=_normalize_structured_lines(event.interpretation, "interpretation"),
+        recommendations=_normalize_structured_lines(event.recommendations, "recommendations"),
+        actions_taken=_normalize_structured_lines(event.actions_taken, "actions_taken"),
+        limitations=_normalize_structured_lines(event.limitations, "limitations"),
         source=event.source,
         metadata=event.metadata_json,
         photo_count=len(event.photos),
@@ -380,6 +458,11 @@ def _photo_read(photo: FieldEventPhoto, event: FieldEvent, plant_code: str) -> E
         plant_code=plant_code,
         observed_at=_as_utc(event.occurred_at),
         note=event.description,
+        visual_observations=_normalize_structured_lines(event.visual_observations, "visual_observations"),
+        interpretation=_normalize_structured_lines(event.interpretation, "interpretation"),
+        recommendations=_normalize_structured_lines(event.recommendations, "recommendations"),
+        actions_taken=_normalize_structured_lines(event.actions_taken, "actions_taken"),
+        limitations=_normalize_structured_lines(event.limitations, "limitations"),
         source=event.source,
         original_filename=photo.original_filename,
         mime_type=photo.mime_type,

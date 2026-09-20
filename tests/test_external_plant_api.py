@@ -78,6 +78,11 @@ def test_external_observation_is_idempotent_and_visible_in_normal_history(monkey
         "observed_at": "2026-09-20T10:15:00+02:00",
         "title": "Revisión desde cliente autorizado",
         "note": "Sin síntomas nuevos.",
+        "visual_observations": ["Follaje mayoritariamente verde."],
+        "interpretation": ["Estado vegetativo razonable."],
+        "recommendations": ["Revisar humedad del suelo."],
+        "actions_taken": ["Riego de 250 L."],
+        "limitations": ["Sin medida simultánea de humedad."],
         "source": "api",
         "metadata": {"client_version": "1.2.0"},
     }
@@ -87,6 +92,9 @@ def test_external_observation_is_idempotent_and_visible_in_normal_history(monkey
     assert created.json()["plant_code"] == "11"
     assert created.json()["source"] == "api"
     assert created.json()["metadata"] == {"client_version": "1.2.0"}
+    assert created.json()["visual_observations"] == ["Follaje mayoritariamente verde."]
+    assert created.json()["recommendations"] == ["Revisar humedad del suelo."]
+    assert created.json()["actions_taken"] == ["Riego de 250 L."]
 
     replayed = client.post("/api/v1/external/plants/11/observations", headers=headers, json=payload)
     assert replayed.status_code == 201
@@ -107,9 +115,17 @@ def test_external_observation_is_idempotent_and_visible_in_normal_history(monkey
     assert [(item["title"], item["source"]) for item in history.json()] == [
         ("Revisión desde cliente autorizado", "api")
     ]
+    assert history.json()[0]["interpretation"] == ["Estado vegetativo razonable."]
+    assert history.json()[0]["recommendations"] == ["Revisar humedad del suelo."]
+    assert history.json()[0]["actions_taken"] == ["Riego de 250 L."]
 
     with get_sessionmaker()() as session:
         assert len(list(session.scalars(select(FieldEvent)).all())) == 1
+        event = session.scalar(select(FieldEvent))
+        assert event is not None
+        assert event.visual_observations == ["Follaje mayoritariamente verde."]
+        assert event.recommendations == ["Revisar humedad del suelo."]
+        assert event.actions_taken == ["Riego de 250 L."]
         records = list(session.scalars(select(ExternalApiRequest)).all())
         assert len(records) == 1
         assert records[0].token_fingerprint != "test-write-token"
@@ -126,6 +142,11 @@ def test_external_photo_uses_shared_storage_and_can_be_listed_and_downloaded(mon
     data = {
         "observed_at": "2026-09-20T10:30:00+02:00",
         "note": "Vista general de la copa.",
+        "visual_observations": '["Se observan brotes basales"]',
+        "interpretation": '["Los brotes podrían proceder del portainjerto"]',
+        "recommendations": '["Comprobar el origen de los brotes"]',
+        "actions_taken": "[]",
+        "limitations": '["Evaluación realizada exclusivamente a partir de la fotografía"]',
         "source": "chatgpt",
         "metadata": '{"conversation_id":"external-42"}',
     }
@@ -138,6 +159,11 @@ def test_external_photo_uses_shared_storage_and_can_be_listed_and_downloaded(mon
     assert body["source"] == "chatgpt"
     assert body["metadata"] == {"conversation_id": "external-42"}
     assert body["observed_at"] == "2026-09-20T08:30:00Z"
+    assert body["visual_observations"] == ["Se observan brotes basales"]
+    assert body["interpretation"] == ["Los brotes podrían proceder del portainjerto"]
+    assert body["recommendations"] == ["Comprobar el origen de los brotes"]
+    assert body["actions_taken"] == []
+    assert body["limitations"] == ["Evaluación realizada exclusivamente a partir de la fotografía"]
 
     replayed = client.post("/api/v1/external/plants/11/photos", headers=headers, data=data, files=files)
     assert replayed.status_code == 201
@@ -156,6 +182,7 @@ def test_external_photo_uses_shared_storage_and_can_be_listed_and_downloaded(mon
     observations = client.get("/api/v1/external/plants/11/observations", headers=READ_HEADERS)
     assert observations.status_code == 200
     assert observations.json()[0]["photo_count"] == 1
+    assert observations.json()[0]["visual_observations"] == ["Se observan brotes basales"]
 
     plant = client.get("/api/v1/external/plants/11", headers=READ_HEADERS).json()
     history = client.get(f"/api/v1/plants/{plant['id']}/history").json()
@@ -168,6 +195,8 @@ def test_external_photo_uses_shared_storage_and_can_be_listed_and_downloaded(mon
         assert event is not None and photo is not None
         assert event.photo_storage_path == photo.storage_path
         assert event.photo_sha256 == photo.sha256
+        assert event.source == "chatgpt"
+        assert event.actions_taken == []
         assert resolve_path_exists(photo.storage_path)
 
     web_content = _jpeg_bytes((80, 90, 160))
@@ -217,6 +246,78 @@ def test_external_photo_uses_shared_storage_and_can_be_listed_and_downloaded(mon
     )
     assert unsupported.status_code == 422
     assert unsupported.json()["error"]["code"] == "unsupported_photo_format"
+
+    get_settings.cache_clear()
+    reset_database_caches()
+
+
+def test_external_observation_structured_fields_accept_empty_and_omitted_values(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+
+    omitted = client.post(
+        "/api/v1/external/plants/11/observations",
+        headers={**WRITE_HEADERS, "Idempotency-Key": "structured-omitted"},
+        json={
+            "observed_at": "2026-09-20T12:00:00+02:00",
+            "title": "Observación antigua compatible",
+            "note": "Solo texto libre.",
+            "source": "api",
+        },
+    )
+    assert omitted.status_code == 201, omitted.text
+    assert omitted.json()["visual_observations"] == []
+    assert omitted.json()["interpretation"] == []
+    assert omitted.json()["recommendations"] == []
+    assert omitted.json()["actions_taken"] == []
+    assert omitted.json()["limitations"] == []
+
+    empty = client.post(
+        "/api/v1/external/plants/11/observations",
+        headers={**WRITE_HEADERS, "Idempotency-Key": "structured-empty"},
+        json={
+            "observed_at": "2026-09-20T12:05:00+02:00",
+            "note": "Arrays vacíos explícitos.",
+            "visual_observations": [],
+            "interpretation": [],
+            "recommendations": [],
+            "actions_taken": [],
+            "limitations": [],
+            "source": "chatgpt",
+        },
+    )
+    assert empty.status_code == 201, empty.text
+    assert empty.json()["source"] == "chatgpt"
+    assert empty.json()["actions_taken"] == []
+
+    listed = client.get("/api/v1/external/plants/11/observations", headers=READ_HEADERS)
+    assert listed.status_code == 200
+    assert [item["actions_taken"] for item in listed.json()] == [[], []]
+
+    get_settings.cache_clear()
+    reset_database_caches()
+
+
+def test_external_structured_idempotency_conflicts_when_analysis_changes(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    headers = {**WRITE_HEADERS, "Idempotency-Key": "structured-conflict"}
+    payload = {
+        "observed_at": "2026-09-20T13:00:00+02:00",
+        "note": "Seguimiento.",
+        "recommendations": ["Revisar humedad."],
+        "actions_taken": [],
+        "source": "api",
+    }
+
+    created = client.post("/api/v1/external/plants/11/observations", headers=headers, json=payload)
+    assert created.status_code == 201
+
+    changed = client.post(
+        "/api/v1/external/plants/11/observations",
+        headers=headers,
+        json={**payload, "actions_taken": ["Riego realizado."]},
+    )
+    assert changed.status_code == 409
+    assert changed.json()["error"]["code"] == "idempotency_key_conflict"
 
     get_settings.cache_clear()
     reset_database_caches()

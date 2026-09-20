@@ -35,6 +35,11 @@ CSV_COLUMNS = [
     ("quantity", "Cantidad"),
     ("unit", "Unidad"),
     ("description", "Descripción"),
+    ("visual_observations", "Observaciones visuales"),
+    ("interpretation", "Interpretación"),
+    ("recommendations", "Recomendaciones"),
+    ("actions_taken", "Actuaciones realizadas"),
+    ("limitations", "Limitaciones"),
     ("source", "Origen"),
 ]
 
@@ -200,6 +205,11 @@ def _event_export_row(event: Any) -> dict[str, Any]:
         "quantity": event.quantity if event.quantity is not None else "",
         "unit": event.unit or "",
         "description": event.description or "",
+        "visual_observations": _join_structured_lines(event.visual_observations),
+        "interpretation": _join_structured_lines(event.interpretation),
+        "recommendations": _join_structured_lines(event.recommendations),
+        "actions_taken": _join_structured_lines(event.actions_taken),
+        "limitations": _join_structured_lines(event.limitations),
         "source": event.source,
     }
 
@@ -210,3 +220,9 @@ def _field_event_read(event: Any) -> FieldEventRead:
     if event.photo_storage_path:
         read.photo_url = f"/api/v1/field-events/{event.id}/photo"
     return read
+
+
+def _join_structured_lines(value: Any) -> str:
+    if not value:
+        return ""
+    return " | ".join(str(item) for item in value if str(item).strip())

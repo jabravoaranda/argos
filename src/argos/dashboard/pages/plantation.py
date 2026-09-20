@@ -15,6 +15,16 @@ from argos.dashboard.pages.field_diary import cached_field_events, local_datetim
 from argos.dashboard.ui import compact_metric_html
 from argos.domain.plants import PLANT_SPECIES_LABELS, PLANT_STATUS_LABELS
 
+SOURCE_LABELS = {
+    "manual": "Manual",
+    "web": "Manual",
+    "batch_upload": "Importación por lote",
+    "api": "API",
+    "chatgpt": "ChatGPT",
+    "irrigation_system": "Sistema de riego",
+    "imported": "Importado",
+}
+
 
 @st.cache_data(ttl=30)
 def cached_plant_catalog(base_url: str) -> dict[str, Any]:
@@ -345,7 +355,12 @@ def render_plant_detail(
 def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any]) -> None:
     with st.form(f"plant_observation_{plant['id']}"):
         title = st.text_input("Título", value=f"Observación {plant['public_code']}")
-        description = st.text_area("Descripción", height=90)
+        description = st.text_area("Comentario general", height=80)
+        visual_observations = st.text_area("Observaciones visuales", height=80)
+        interpretation = st.text_area("Interpretación", height=80)
+        recommendations = st.text_area("Recomendaciones", height=80)
+        actions_taken = st.text_area("Actuaciones realizadas", height=80)
+        limitations = st.text_area("Limitaciones", height=80)
         uploaded_photo = st.file_uploader(
             "Foto desde móvil o archivo",
             type=["jpg", "jpeg", "png", "webp"],
@@ -373,6 +388,11 @@ def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any])
         "target_value": plant["public_code"],
         "plant_unit_ids": [plant["id"]],
         "source": "web",
+        "visual_observations": structured_lines_from_text(visual_observations),
+        "interpretation": structured_lines_from_text(interpretation),
+        "recommendations": structured_lines_from_text(recommendations),
+        "actions_taken": structured_lines_from_text(actions_taken),
+        "limitations": structured_lines_from_text(limitations),
     }
     photo_payload = uploaded_photo_payload(selected_photo)
     if photo_payload is not None:
@@ -397,10 +417,31 @@ def render_plant_history(client: ArgosApiClient, plant: dict[str, Any]) -> None:
         return
     for event in history[:12]:
         st.write(f"{format_compact_local_datetime(event.get('occurred_at'))} · {event.get('title')}")
+        source = SOURCE_LABELS.get(str(event.get("source") or ""), str(event.get("source") or ""))
+        if source:
+            st.caption(f"Origen: {source}")
         if event.get("description"):
             st.caption(event["description"])
         if event.get("photo_url"):
             st.image(f"{client.base_url.rstrip('/')}{event['photo_url']}", width=220)
+        render_structured_history_section("OBSERVADO", event.get("visual_observations"))
+        render_structured_history_section("INTERPRETACIÓN", event.get("interpretation"))
+        render_structured_history_section("RECOMENDACIÓN", event.get("recommendations"))
+        render_structured_history_section("ACTUACIÓN", event.get("actions_taken"))
+        render_structured_history_section("LIMITACIONES", event.get("limitations"))
+
+
+def structured_lines_from_text(value: str | None) -> list[str]:
+    return [line.strip(" \t-•") for line in (value or "").splitlines() if line.strip(" \t-•")]
+
+
+def render_structured_history_section(title: str, values: Any) -> None:
+    lines = [str(item).strip() for item in (values or []) if str(item).strip()]
+    if not lines:
+        return
+    st.markdown(f"**{title}**")
+    for line in lines:
+        st.markdown(f"- {line}")
 
 
 def uploaded_photo_payload(uploaded_file: Any | None) -> dict[str, Any] | None:

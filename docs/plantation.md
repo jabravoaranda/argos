@@ -3,9 +3,9 @@
 Estado: Vigente
 Tipo: Capacidad operativa
 Fuente de verdad: `docs/00-estado-del-proyecto.md`
-Ultima actualizacion: 2026-08-29
+Ultima actualizacion: 2026-09-20
 Responsable logico: Operador ARGOS
-Revision: 1
+Revision: 2
 
 ARGOS representa la plantación como ejemplares vegetales persistentes y una matriz 12x12 derivada de datos. Las coordenadas usan dos símbolos base 12: filas y columnas de `1` a `C`; por tanto la primera celda es `11` y la última es `CC`. La línea de riego se deriva de la fila de la matriz (`fila-1` ... `fila-C`).
 
@@ -94,9 +94,21 @@ Las miniaturas se generan como derivados de previsualización. Antes de redimens
 
 Al confirmar, ARGOS agrupa las fotos del mismo árbol en una observación de seguimiento fotográfico y conserva cada archivo con sus metadatos individuales en `field_event_photos`. Para compatibilidad con pantallas y APIs existentes, la primera foto del grupo se mantiene también en los campos históricos `photo_*` de `field_events`.
 
+## Observaciones estructuradas
+
+Las entradas de seguimiento pueden separar comentario general (`description`/`note`) de cinco arrays opcionales en `field_events`:
+
+- `visual_observations`: hechos visuales observados.
+- `interpretation`: interpretación agronómica.
+- `recommendations`: acciones sugeridas.
+- `actions_taken`: actuaciones realmente realizadas.
+- `limitations`: límites de la observación.
+
+Las filas anteriores a la migración no se modifican y se leen con arrays vacíos. `metadata_json` se conserva para provenance adicional, no para sustituir estos campos.
+
 ## Interfaz
 
-La vista `Plantación` del dashboard muestra la matriz, filtros por estado, especie y sector, búsqueda por código, selección de celda ocupada y ficha del árbol con historial de eventos asociados. Desde la ficha se pueden registrar observaciones con foto subida desde el dispositivo o capturada con cámara; si la imagen conserva fecha EXIF, ARGOS registra el evento con esa fecha de captura. La acción `Importar lote de fotos` permite revisar una galería de staging con miniatura, código detectado, propuesta de árbol/celda, confianza y selector manual antes de confirmar.
+La vista `Plantación` del dashboard muestra la matriz, filtros por estado, especie y sector, búsqueda por código, selección de celda ocupada y ficha del árbol con historial de eventos asociados. Desde la ficha se pueden registrar observaciones simples o estructuradas con foto subida desde el dispositivo o capturada con cámara; los campos estructurados son opcionales. El historial solo muestra las secciones con contenido y conserva discretamente la procedencia (`Manual`, `ChatGPT`, `API` o `Importación por lote`). La acción `Importar lote de fotos` permite revisar una galería de staging con miniatura, código detectado, propuesta de árbol/celda, confianza y selector manual antes de confirmar.
 
 Pendiente:
 

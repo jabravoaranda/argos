@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
-from argos.dashboard.app import format_file_size, plantation_cell_label, render_plant_observation_form, selected_plant_from_matrix
+from argos.dashboard.app import (
+    format_file_size,
+    plantation_cell_label,
+    render_plant_observation_form,
+    render_structured_history_section,
+    selected_plant_from_matrix,
+    structured_lines_from_text,
+)
 
 
 def test_plantation_cell_label_distinguishes_plants_empty_and_infrastructure() -> None:
@@ -26,7 +33,9 @@ def test_selected_plant_from_matrix_returns_selected_tree() -> None:
         ]
     }
 
-    assert selected_plant_from_matrix(matrix, 2)["public_code"] == "12"
+    selected = selected_plant_from_matrix(matrix, 2)
+    assert selected is not None
+    assert selected["public_code"] == "12"
     assert selected_plant_from_matrix(matrix, 3) is None
 
 
@@ -34,6 +43,24 @@ def test_format_file_size_for_photo_feedback() -> None:
     assert format_file_size(None) == "tamaño desconocido"
     assert format_file_size(512) == "0.5 KB"
     assert format_file_size(2 * 1024 * 1024) == "2.0 MB"
+
+
+def test_structured_lines_from_text_splits_bullets_without_merging_semantics() -> None:
+    assert structured_lines_from_text("- Revisar humedad\n• Valorar riego profundo\n\n") == [
+        "Revisar humedad",
+        "Valorar riego profundo",
+    ]
+
+
+def test_structured_history_section_hides_empty_values(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr("argos.dashboard.pages.plantation.st.markdown", lambda value: calls.append(value))
+
+    render_structured_history_section("RECOMENDACIÓN", [])
+    assert calls == []
+
+    render_structured_history_section("ACTUACIÓN", ["Riego de 250 L."])
+    assert calls == ["**ACTUACIÓN**", "- Riego de 250 L."]
 
 
 def test_plant_observation_submit_button_is_clickable_without_admin_token(monkeypatch) -> None:

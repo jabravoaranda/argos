@@ -6476,6 +6476,66 @@
             ],
             "title": "Note"
           },
+          "visual_observations": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visual Observations",
+            "description": "JSON array of directly observed visual facts, for example [\"Follaje verde\"]."
+          },
+          "interpretation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interpretation",
+            "description": "JSON array of agronomic interpretations, for example [\"Compatible con estrés hídrico\"]."
+          },
+          "recommendations": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendations",
+            "description": "JSON array of suggested actions that have not necessarily been performed."
+          },
+          "actions_taken": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actions Taken",
+            "description": "JSON array of actions actually carried out. Keep separate from recommendations."
+          },
+          "limitations": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limitations",
+            "description": "JSON array of limitations of the observation or interpretation."
+          },
           "source": {
             "type": "string",
             "enum": [
@@ -6719,6 +6779,46 @@
             ],
             "title": "Note"
           },
+          "visual_observations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Visual Observations",
+            "description": "Directly observed visual facts; no diagnoses or inferences."
+          },
+          "interpretation": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Interpretation",
+            "description": "Agronomic interpretation derived from observations."
+          },
+          "recommendations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recommendations",
+            "description": "Suggested actions that have not necessarily been performed."
+          },
+          "actions_taken": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Actions Taken",
+            "description": "Actions that were actually carried out."
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations",
+            "description": "Limits of the observation or interpretation."
+          },
           "source": {
             "type": "string",
             "enum": [
@@ -6781,6 +6881,41 @@
             ],
             "title": "Note"
           },
+          "visual_observations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Visual Observations"
+          },
+          "interpretation": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Interpretation"
+          },
+          "recommendations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recommendations"
+          },
+          "actions_taken": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Actions Taken"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations"
+          },
           "source": {
             "type": "string",
             "title": "Source"
@@ -6815,6 +6950,11 @@
           "event_type",
           "title",
           "note",
+          "visual_observations",
+          "interpretation",
+          "recommendations",
+          "actions_taken",
+          "limitations",
           "source",
           "metadata",
           "photo_count",
@@ -6851,6 +6991,41 @@
               }
             ],
             "title": "Note"
+          },
+          "visual_observations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Visual Observations"
+          },
+          "interpretation": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Interpretation"
+          },
+          "recommendations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recommendations"
+          },
+          "actions_taken": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Actions Taken"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations"
           },
           "source": {
             "type": "string",
@@ -6917,6 +7092,11 @@
           "plant_code",
           "observed_at",
           "note",
+          "visual_observations",
+          "interpretation",
+          "recommendations",
+          "actions_taken",
+          "limitations",
           "source",
           "original_filename",
           "mime_type",
@@ -7265,6 +7445,41 @@
             "title": "Source",
             "default": "manual"
           },
+          "visual_observations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Visual Observations"
+          },
+          "interpretation": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Interpretation"
+          },
+          "recommendations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recommendations"
+          },
+          "actions_taken": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Actions Taken"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations"
+          },
           "photo": {
             "anyOf": [
               {
@@ -7497,6 +7712,41 @@
             "type": "string",
             "title": "Source"
           },
+          "visual_observations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Visual Observations"
+          },
+          "interpretation": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Interpretation"
+          },
+          "recommendations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recommendations"
+          },
+          "actions_taken": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Actions Taken"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations"
+          },
           "metadata_json": {
             "anyOf": [
               {
@@ -7684,6 +7934,76 @@
               }
             ],
             "title": "Unit"
+          },
+          "visual_observations": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visual Observations"
+          },
+          "interpretation": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interpretation"
+          },
+          "recommendations": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendations"
+          },
+          "actions_taken": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actions Taken"
+          },
+          "limitations": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limitations"
           }
         },
         "type": "object",

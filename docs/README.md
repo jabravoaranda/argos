@@ -3,9 +3,9 @@
 Estado: Vigente
 Tipo: Indice documental
 Fuente de verdad: `docs/00-estado-del-proyecto.md`
-Ultima actualizacion: 2026-08-02
+Ultima actualizacion: 2026-09-20
 Responsable logico: Mantenimiento de software
-Revision: 1
+Revision: 2
 
 ## Empezar aqui
 
@@ -39,6 +39,7 @@ Lee primero [00-estado-del-proyecto.md](00-estado-del-proyecto.md). Es la fuente
 - Diario de campo: [field-diary.md](field-diary.md).
 - Plantación: [plantation.md](plantation.md).
 - API externa de seguimiento: [external-plant-api.md](external-plant-api.md).
+- Migración de observaciones estructuradas: [structured-plant-observations-migration.md](structured-plant-observations-migration.md).
 - Riego manual: [operations/manual-irrigation-operation.md](operations/manual-irrigation-operation.md).
 
 ## Decisiones
