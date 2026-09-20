@@ -31,7 +31,15 @@ FIELD_ZONES: tuple[CatalogItem, ...] = (
     CatalogItem("otra", "Otra zona"),
 )
 
-FIELD_EVENT_SOURCES: tuple[str, ...] = ("manual", "irrigation_system", "imported")
+FIELD_EVENT_SOURCES: tuple[str, ...] = (
+    "manual",
+    "web",
+    "batch_upload",
+    "api",
+    "chatgpt",
+    "irrigation_system",
+    "imported",
+)
 
 FIELD_EVENT_TYPE_LABELS = {item.slug: item.label for item in FIELD_EVENT_TYPES}
 FIELD_ZONE_LABELS = {item.slug: item.label for item in FIELD_ZONES}

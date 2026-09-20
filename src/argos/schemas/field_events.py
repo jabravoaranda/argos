@@ -91,8 +91,8 @@ class FieldEventCreate(FieldEventBase):
     @field_validator("source")
     @classmethod
     def validate_manual_source(cls, value: str) -> str:
-        if value != "manual":
-            raise ValueError("Only manual field events can be created here.")
+        if value not in {"manual", "web"}:
+            raise ValueError("Only manual or web field events can be created here.")
         return value
 
 
@@ -161,6 +161,7 @@ class FieldEventRead(BaseModel):
     photo_taken_at: datetime | None
     photo_url: str | None = None
     source: str
+    metadata_json: dict[str, object] | None
     created_at: datetime
     updated_at: datetime | None
 

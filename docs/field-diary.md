@@ -37,7 +37,7 @@ Campos principales:
 - `unit`
 - `source`
 
-`source` queda preparado para `manual`, `irrigation_system` e `imported`. En esta versión el dashboard crea solo eventos `manual`.
+`source` distingue `manual`, `web`, `batch_upload`, `api`, `chatgpt`, `irrigation_system` e `imported`. El dashboard crea eventos `web`, el importador fotográfico usa `batch_upload` y la API externa admite `api` o `chatgpt`; todos comparten el mismo modelo.
 
 Cuando el evento se refiere a árboles inventariados, `field_event_plant_units` guarda la relación muchos-a-muchos con `plant_units`. `tree_reference` se conserva para compatibilidad y para referencias libres a árboles, filas o notas históricas no normalizadas.
 

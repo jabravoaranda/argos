@@ -335,7 +335,7 @@ def field_event_form_payload(
         "tree_reference": tree_reference.strip() or None,
         "quantity": quantity,
         "unit": unit or None,
-        "source": "manual",
+        "source": "web",
     }
 
 

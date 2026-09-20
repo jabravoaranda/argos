@@ -263,6 +263,7 @@ def add_event_photo_item(
     taken_at: datetime | None = None,
     detected_code: str | None = None,
     resolver_confidence: float | None = None,
+    metadata: dict[str, object] | None = None,
     settings: Settings | None = None,
 ) -> FieldEventPhoto:
     settings = settings or get_settings()
@@ -289,6 +290,7 @@ def add_event_photo_item(
         date_source=date_source if date_source != "unknown" else inferred_date_source,
         detected_code=detected_code,
         resolver_confidence=resolver_confidence,
+        metadata_json=metadata,
     )
     return item
 

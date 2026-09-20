@@ -200,7 +200,7 @@ def confirm_plant_photo_batch(
                     "tree_reference": plant.public_code,
                     "target_type": "plant",
                     "target_value": plant.public_code,
-                    "source": "manual",
+                    "source": "batch_upload",
                 }
             )
             repository.link_event_to_plants(event=event, plant_ids=[plant.id])

@@ -5,11 +5,16 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from threading import Event, Thread
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from argos.api.analytics import router as analytics_router
 from argos.api.ecowitt import router as ecowitt_router
 from argos.api.field_events import router as field_events_router
+from argos.api.external_errors import ExternalApiError
+from argos.api.external_plants import router as external_plants_router
 from argos.api.health import router as health_router
 from argos.api.plants import router as plants_router
 from argos.api.satellite import router as satellite_router
@@ -76,12 +81,49 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+
+    @app.middleware("http")
+    async def external_api_internal_error_boundary(request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception:
+            if not request.url.path.startswith("/api/v1/external/"):
+                raise
+            logger.exception("unexpected external API error")
+            return JSONResponse(
+                status_code=500,
+                content={"error": {"code": "internal_error", "message": "An internal error occurred."}},
+            )
+
+    @app.exception_handler(ExternalApiError)
+    async def external_api_error_handler(_request: Request, exc: ExternalApiError) -> JSONResponse:
+        error: dict[str, object] = {"code": exc.code, "message": exc.message}
+        if exc.details is not None:
+            error["details"] = exc.details
+        return JSONResponse(status_code=exc.status_code, content={"error": error}, headers=exc.headers)
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        if request.url.path.startswith("/api/v1/external/"):
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "error": {
+                        "code": "validation_error",
+                        "message": "The request is invalid.",
+                        "details": exc.errors(),
+                    }
+                },
+            )
+        return await request_validation_exception_handler(request, exc)
+
     app.include_router(health_router)
     app.include_router(ecowitt_router)
     app.include_router(weather_router)
     app.include_router(satellite_router)
     app.include_router(field_events_router)
     app.include_router(plants_router)
+    app.include_router(external_plants_router)
     app.include_router(analytics_router)
     return app
 

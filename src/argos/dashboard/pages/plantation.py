@@ -372,7 +372,7 @@ def render_plant_observation_form(client: ArgosApiClient, plant: dict[str, Any])
         "target_type": "plant",
         "target_value": plant["public_code"],
         "plant_unit_ids": [plant["id"]],
-        "source": "manual",
+        "source": "web",
     }
     photo_payload = uploaded_photo_payload(selected_photo)
     if photo_payload is not None:
